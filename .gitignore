@@ -3,3 +3,5 @@ dist-web
 node_modules
 
 .vercel
+.env*
+vite.config.ts.timestamp-*.mjs
