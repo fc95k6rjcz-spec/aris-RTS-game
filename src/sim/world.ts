@@ -585,6 +585,19 @@ export class World {
     if (!this.canAfford(player, d.cost)) return "Not enough resources";
     if (!this.map.canPlace(tx, ty, d.size)) return "Cannot build there";
     if (d.coastal && !this.map.touchesWater(tx, ty, d.size)) return "Must be built on the shoreline";
+    // Room to work the seam.
+    //
+    // A hall dropped on top of a gold mine walls the seam in: the miners cannot
+    // reach a tile to stand on, the mine reads as broken, and the player who did
+    // it has no way of knowing why. Every building keeps a tile of clearance so
+    // the ring round a seam stays walkable, and the Town Hall keeps more,
+    // because its footprint is the one big enough to swallow a mine whole.
+    const clear = def === "townhall" ? 3 : 1;
+    for (let y = ty - clear; y < ty + d.size + clear; y++)
+      for (let x = tx - clear; x < tx + d.size + clear; x++) {
+        if (!this.map.inBounds(x, y) || this.map.get(x, y) !== Tile.Gold) continue;
+        return def === "townhall" ? "Too close to a gold mine — leave room to work it" : "Too close to a gold mine";
+      }
     // Keep footprints off units of any player.
     for (const u of this.units()) {
       const ux = Math.floor(u.pos.x / SUB);

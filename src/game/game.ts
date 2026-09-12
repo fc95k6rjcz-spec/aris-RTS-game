@@ -605,7 +605,10 @@ export class Game {
       return;
     }
     const W = this.canvas.width;
-    const y = Math.max(120, this.canvas.height * 0.22);
+    // Low, just above the command bar. High up it sat on top of the objective
+    // line and, worse, on top of the only bit of map you can actually see in
+    // the opening.
+    const y = this.canvas.height - hudH(this.canvas.height) - 74;
     const fade = Math.min(1, left / 800);
     ctx.save();
     ctx.globalAlpha = fade;
