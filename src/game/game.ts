@@ -6,10 +6,18 @@ import type { Command } from "../sim/commands";
 import type { Building, Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
 import { Faction, TICKS_PER_SECOND, WILD, World } from "../sim/world";
-import { drawFrontScreen } from "../ui/frontScreen";
+import {
+  drawFrontScreen,
+  frontRowAction,
+  frontRowCount,
+  newFrontState,
+  type FrontAction,
+  type FrontHit,
+  type FrontState,
+} from "../ui/frontScreen";
 import { drawHud, hudH, layoutButtons, minimapRect, panelX, TOP_H, type HudButton, type MenuPage } from "../ui/hud";
 import { SkirmishAI, type Difficulty } from "../ai/skirmish";
-import { loadSettings, settings } from "./settings";
+import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
 import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
@@ -60,8 +68,10 @@ export class Game {
   }
   /** Exposed for headless tests; the game itself reads the module directly. */
   readonly settingsForTest = settings;
-  private menuButtons: Array<{ x: number; y: number; w: number; h: number; label: string; blurb: string }> = [];
-  private diffButtons: Array<{ x: number; y: number; w: number; h: number; value: Difficulty; label: string }> = [];
+  /** Which front-screen pane is showing, and where the keyboard cursor is. */
+  private front: FrontState = newFrontState();
+  /** Clickable rectangles the front screen put on the canvas this frame. */
+  private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
   private settingsPanel: SettingsPanel | null = null;
   private pauseButton: PauseButton | null = null;
@@ -339,6 +349,12 @@ export class Game {
     c.addEventListener("mouseup", (e) => this.onMouseUp(e));
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
+      // On the front screen the wheel scrolls the realm list; there is no camera
+      // to zoom yet.
+      if (this.menu) {
+        this.runFront({ kind: "scroll", by: e.deltaY > 0 ? 1 : -1 });
+        return;
+      }
       this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.15 : 1 / 1.15);
     }, { passive: false });
     window.addEventListener("keydown", (e) => this.onKey(e));
@@ -364,13 +380,14 @@ export class Game {
     const { offsetX: x, offsetY: y } = e;
     if (this.menu) {
       if (e.button !== 0) return;
-      const d = this.diffButtons.find((m) => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h);
-      if (d) {
-        this.difficulty = d.value;
-        return;
+      // Last match wins: the splash hands back one rectangle covering the whole
+      // screen, and rows are pushed after it, so this picks the row when there
+      // is one and the screen itself when there is not.
+      let hit: FrontHit | null = null;
+      for (const h of this.frontHits) {
+        if (h.enabled && x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h) hit = h;
       }
-      const b = this.menuButtons.find((m) => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h);
-      if (b) this.start(this.difficulty);
+      if (hit) this.runFront(hit.action);
       return;
     }
     // The pause screen's Surrender button sits over the map, so it is checked
@@ -612,7 +629,19 @@ export class Game {
   private onKey(e: KeyboardEvent): void {
     const k = e.key.toLowerCase();
     if (this.menu) {
-      if (k === "enter" || k === " " || k === "1") this.start(this.difficulty);
+      // Any key at all opens the gate; after that the keyboard drives the column.
+      if (this.front.pane === "splash") {
+        this.runFront({ kind: "pane", pane: "menu" });
+        return;
+      }
+      if (k === "arrowdown" || k === "s") this.moveFrontCursor(1);
+      else if (k === "arrowup" || k === "w") this.moveFrontCursor(-1);
+      else if (k === "enter" || k === " ") {
+        const a = frontRowAction(this.front, this.difficulty, settings.mapId, this.front.cursor);
+        if (a) this.runFront(a);
+      } else if (k === "escape") {
+        this.runFront({ kind: "pane", pane: this.front.pane === "menu" ? "splash" : "menu" });
+      }
       return;
     }
     if (k === " " || k === "p") {
@@ -654,9 +683,66 @@ export class Game {
 
   private drawMenu(): void {
     const ctx = this.canvas.getContext("2d")!;
-    const front = drawFrontScreen(ctx, this.canvas.width, this.canvas.height, this.mouse, this.difficulty);
-    this.menuButtons = front.start.map((b) => ({ ...b, blurb: b.blurb }));
-    this.diffButtons = front.choices;
+    this.frontHits = drawFrontScreen(
+      ctx,
+      this.canvas.width,
+      this.canvas.height,
+      this.mouse,
+      this.front,
+      this.difficulty,
+      settings.mapId,
+    );
+  }
+
+  /**
+   * One place where a front-screen row turns into something happening, so the
+   * mouse and the keyboard cannot drift apart.
+   */
+  private runFront(a: FrontAction): void {
+    switch (a.kind) {
+      case "begin":
+        this.start(this.difficulty);
+        break;
+      case "pane":
+        this.front.pane = a.pane;
+        this.front.cursor = 0;
+        this.front.scroll = 0;
+        break;
+      case "difficulty":
+        this.difficulty = a.value;
+        settings.difficulty = a.value;
+        saveSettings();
+        break;
+      case "map":
+        settings.mapId = a.id;
+        saveSettings();
+        this.front.pane = "menu";
+        this.front.cursor = 0;
+        this.front.scroll = 0;
+        break;
+      case "settings":
+        this.settingsPanel?.toggle();
+        break;
+      case "scroll":
+        this.front.scroll = Math.max(0, this.front.scroll + a.by);
+        break;
+    }
+  }
+
+  /** Step the keyboard cursor past any rows that are not selectable. */
+  private moveFrontCursor(step: number): void {
+    const n = frontRowCount(this.front, this.difficulty, settings.mapId);
+    if (n === 0) return;
+    let i = this.front.cursor;
+    for (let tries = 0; tries < n; tries++) {
+      i = (i + step + n) % n;
+      if (frontRowAction(this.front, this.difficulty, settings.mapId, i)) break;
+    }
+    this.front.cursor = i;
+    // Keep the cursor in view in a list long enough to scroll. The draw clamps
+    // `scroll` to what actually fits, so a generous window here is harmless.
+    if (i < this.front.scroll) this.front.scroll = i;
+    else if (i > this.front.scroll + 5) this.front.scroll = i - 5;
   }
 
   // ───────────────────────────── render ─────────────────────────────

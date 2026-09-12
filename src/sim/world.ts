@@ -142,8 +142,18 @@ export class World {
     return p;
   }
 
+  /**
+   * Where each clan was seated. The crowning opening needs it: if the one man
+   * who can lift the weapon dies on the way to it, the next one has to come
+   * from somewhere, and "somewhere" is home.
+   */
+  readonly homes = new Map<PlayerId, { x: number; y: number }>();
+  /** Earliest tick each clan may send its next man out. */
+  private readonly nextHeir = new Map<PlayerId, number>();
+
   /** Standard start: a Town Hall and 4 workers. */
   spawnStart(player: PlayerId, tx: number, ty: number): void {
+    this.homes.set(player, { x: tx, y: ty });
     const hall = this.placeBuilding(player, "townhall", tx, ty, true)!;
     const c = centerOf(hall);
     for (let i = 0; i < 4; i++) this.spawnUnit(player, "worker", { x: c.x + (i - 1.5) * SUB, y: c.y + (hall.size / 2 + 1) * SUB });
@@ -160,6 +170,7 @@ export class World {
    * simply a slower version of the normal one.
    */
   spawnNomad(player: PlayerId, tx: number, ty: number): void {
+    this.homes.set(player, { x: tx, y: ty });
     const p = this.players.get(player)!;
     // One man and a purse. He raises the first hall himself, and everything you
     // ever own descends from that one decision about where to put it.
@@ -195,6 +206,7 @@ export class World {
    */
   spawnCrowning(player: PlayerId, tx: number, ty: number, rng = this.rng): void {
     const p = this.players.get(player)!;
+    this.homes.set(player, { x: tx, y: ty });
     this.spawnUnit(player, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
     // Somewhere out there, at arm's length but not in sight.
     const centre = { x: this.map.width / 2, y: this.map.height / 2 };
@@ -1196,7 +1208,75 @@ export class World {
     }
   }
 
-  /** A player with no buildings left has lost. */
+  /**
+   * The clan sends another man.
+   *
+   * In the crowning opening a player is one peasant and nothing else, and that
+   * peasant has to cross open country under fog to reach his weapon. A bear
+   * finding him first used to end the match outright: the other player, who had
+   * done nothing but stand in his own clearing, was handed a Victory card
+   * roughly twenty seconds in. That is not a game ending, it is a game failing
+   * to start.
+   *
+   * So while the weapon is still in the ground, losing the man costs you the
+   * walk, not the match -- another of the clan turns up at home and sets off
+   * again, for as long as the weapon lies there unclaimed. There is no cap.
+   * A cap of three was tried and was not enough: a bear that has wandered into
+   * your clearing eats three men as readily as one, and the match still ended
+   * before it started. Nobody can be knocked out of a game they have not yet
+   * been allowed to begin.
+   *
+   * Two things keep this from being a farce. The replacement is not instant --
+   * a few seconds pass, which is the cost of dying -- and he is put down away
+   * from whatever killed the last one, so the clan is not feeding men one at a
+   * time into the same bear.
+   *
+   * Once the weapon is lifted there is a King, a hall, and an army to lose, and
+   * the ordinary rules apply again.
+   */
+  private sendHeir(player: PlayerId): boolean {
+    const relic = this.relics.find((r) => r.owner === player && !r.taken);
+    if (!relic) return false;
+    const home = this.homes.get(player);
+    if (!home) return false;
+    const ready = this.nextHeir.get(player) ?? 0;
+    // Not yet -- but the clan is not finished, so the player is still in the
+    // match and the caller must not eliminate them.
+    if (this.tick < ready) return true;
+
+    // Anything hostile and alive that the next man should not be dropped on top
+    // of. In the opening this is nearly always a bear.
+    const threats: Array<{ x: number; y: number }> = [];
+    for (const u of this.units()) {
+      if (u.owner === player) continue;
+      threats.push({ x: u.pos.x / SUB, y: u.pos.y / SUB });
+    }
+    const clear = (tx: number, ty: number): boolean =>
+      threats.every((t) => Math.hypot(t.x - (tx + 0.5), t.y - (ty + 0.5)) >= 7);
+
+    // Two passes out from the seat: first only tiles with nothing dangerous
+    // near them, then any open tile at all rather than fail outright.
+    for (const fussy of [true, false]) {
+      for (let ring = 0; ring < 16; ring++) {
+        for (let dy = -ring; dy <= ring; dy++) {
+          for (let dx = -ring; dx <= ring; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+            const tx = home.x + dx;
+            const ty = home.y + dy;
+            if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "amphibious")) continue;
+            if (fussy && !clear(tx, ty)) continue;
+            this.nextHeir.set(player, this.tick + this.paced(20 * 5));
+            this.spawnUnit(player, "worker", { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB });
+            this.emit(player, "Your man is dead. Another of the clan sets out for the weapon.", "error");
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /** A player with nothing left that could build has lost. */
   private checkVictory(): void {
     if (this.winner !== null || this.tick % 20 !== 0) return;
     // Alive means "can still do something": a standing building, or a worker who
@@ -1207,13 +1287,17 @@ export class World {
       // The wild does not win wars. Counting it kept every match alive forever,
       // because there was always one more bear in the woods.
       if (p === WILD) continue;
+      let has = false;
       for (const e of this.entities.values()) {
         if (e.owner !== p) continue;
         if (e.kind === "building" || (e.kind === "unit" && UNITS[e.def]!.canBuild)) {
-          alive.push(p);
+          has = true;
           break;
         }
       }
+      // Nothing left, but the weapon is still out there: the clan gets another go.
+      if (!has && this.sendHeir(p)) has = true;
+      if (has) alive.push(p);
     }
     if (alive.length === 1) this.winner = alive[0]!;
   }
@@ -1372,6 +1456,8 @@ export class World {
             if (this.map.amount[i]! <= 0) {
               // Trees are felled; gold mines become rock when exhausted.
               this.map.set(t.tx, t.ty, t.resource === "lumber" ? Tile.Grass : Tile.Rock);
+              // Leave the stump, so the wood shows where it has been worked.
+              if (t.resource === "lumber") this.map.felled[i] = 1;
             }
             u.carrying = { resource: t.resource, amount: take };
             t.phase = "toDrop";

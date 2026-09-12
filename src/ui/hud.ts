@@ -6,6 +6,8 @@ import type { Building, Unit } from "../sim/entities";
 import type { World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
 import { buildingIcon } from "../render/sprites";
+import { WEAPON_OF } from "../sim/relic";
+import { SUB } from "../sim/types";
 
 /**
  * How tall the bottom bar is, for a given window.
@@ -430,6 +432,8 @@ export function drawHud(
     ctx.textAlign = "left";
   }
 
+  drawObjective(ctx, world, player, viewW);
+
   // Toast message.
   if (message) {
     ctx.font = "bold 14px system-ui, sans-serif";
@@ -460,4 +464,66 @@ function describeTask(u: Unit): string {
     case "gather":
       return `Gathering ${t.resource} (${t.phase === "harvest" ? "harvesting" : t.phase === "toDrop" || t.phase === "deposit" ? "returning" : "walking"})`;
   }
+}
+
+/** Eight points, which is as precise as "over that way" needs to be. */
+function compass(dx: number, dy: number): string {
+  const a = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const i = Math.round(((a + 360) % 360) / 45) % 8;
+  return ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"][i]!;
+}
+
+/**
+ * What to do, while there is no obvious way to find out.
+ *
+ * The crowning opening drops you into fog as one peasant with every build
+ * button greyed out and no hall, which -- with nothing on screen explaining it
+ * -- reads as a broken game rather than as the premise. So for as long as the
+ * weapon is still in the ground, the objective is on the screen, and it says
+ * which way to walk. The weapon stays hidden and still has to be found; what
+ * goes away is the player wondering whether the game has crashed.
+ *
+ * It removes itself the moment the weapon is lifted, because from then on the
+ * game explains itself the way every other RTS does: you have a hall, and
+ * buttons that work.
+ */
+function drawObjective(ctx: CanvasRenderingContext2D, world: World, player: PlayerId, viewW: number): void {
+  const relic = world.relics.find((r) => r.owner === player && !r.taken);
+  if (!relic || world.winner !== null) return;
+  let man: Unit | null = null;
+  for (const e of world.entities.values()) {
+    if (e.owner === player && e.kind === "unit") {
+      man = e;
+      break;
+    }
+  }
+  const weapon = WEAPON_OF[world.players.get(player)!.faction].name;
+  const heading = man ? compass(relic.x + 0.5 - man.pos.x / SUB, relic.y + 0.5 - man.pos.y / SUB) : null;
+  const far = man ? Math.round(Math.hypot(relic.x + 0.5 - man.pos.x / SUB, relic.y + 0.5 - man.pos.y / SUB)) : 0;
+
+  const title = `FIND YOUR ${weapon.toUpperCase()}`;
+  const line = heading
+    ? `No king, no hall — until he takes it up. It lies ${far} paces to the ${heading}.`
+    : "No king, no hall — until he takes it up.";
+
+  ctx.save();
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.font = "12px system-ui, sans-serif";
+  const w = Math.min(viewW - 32, Math.max(ctx.measureText(line).width + 44, 320));
+  const x = Math.round(viewW / 2 - w / 2);
+  const y = TOP_H + 10;
+  const h = 52;
+  ctx.fillStyle = "rgba(12,12,14,0.82)";
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "rgba(200,162,74,0.55)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.fillStyle = "#e8c547";
+  ctx.font = "bold 12px system-ui, sans-serif";
+  ctx.fillText(title, x + w / 2, y + 17);
+  ctx.fillStyle = "#cbd3da";
+  ctx.font = "12px system-ui, sans-serif";
+  ctx.fillText(line, x + w / 2, y + 35);
+  ctx.restore();
 }

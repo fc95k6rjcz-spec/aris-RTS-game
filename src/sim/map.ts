@@ -64,6 +64,15 @@ export class GameMap {
   readonly occupant: Int32Array;
   /** Remaining resource amount per tile for tree/gold tiles. */
   readonly amount: Int32Array;
+  /**
+   * Tiles where a tree once stood and has been cut down (1 = stump).
+   *
+   * Felling turns the tile back into plain grass so units and buildings can use
+   * it, which left no trace at all: a worker could chop all morning and the wood
+   * looked untouched, then a tree would vanish between frames. The stump is the
+   * receipt. It is cosmetic -- nothing in the simulation reads it.
+   */
+  readonly felled: Uint8Array;
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -99,6 +108,7 @@ export class GameMap {
     this.tiles = new Uint8Array(width * height);
     this.occupant = new Int32Array(width * height);
     this.amount = new Int32Array(width * height);
+    this.felled = new Uint8Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 
@@ -239,7 +249,13 @@ export class GameMap {
     if (domain === "air") return true;
     const t = this.get(x, y);
     if (domain === "amphibious") {
-      if (t === Tile.Tree || t === Tile.Gold || t === Tile.Rock) return false;
+      // Woodland is passable, slowly, exactly as it is for a land unit. It used
+      // to be a wall here and nowhere else, which made a peasant the only thing
+      // on the field that a tree could stop -- so in the crowning opening, with
+      // a stockade of forest around every base, the one man the whole match
+      // waits on was the one man who could not walk out of it. The King could.
+      // The speed penalty in World.followPath already covers both domains.
+      if (t === Tile.Gold || t === Tile.Rock) return false;
       return this.occupant[this.idx(x, y)] === 0;
     }
     if (domain === "sea") return t === Tile.Water && this.occupant[this.idx(x, y)] === 0;
@@ -343,7 +359,10 @@ export class GameMap {
     const forest = (x: number, y: number) => {
       if (!m.inBounds(x, y)) return;
       m.set(x, y, Tile.Tree);
-      m.amount[m.idx(x, y)] = 100;
+      // Four loads to fell, not ten. At a hundred a worker made ten round trips
+      // for one trunk, so a morning's chopping changed nothing you could see and
+      // the forest read as scenery rather than as a resource being spent.
+      m.amount[m.idx(x, y)] = 40;
     };
     for (let x = 0; x < width; x++) {
       forest(x, 0);

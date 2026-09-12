@@ -364,7 +364,12 @@ export class Renderer {
    */
   private drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number): void {
     const map = this.world.map;
-    if (map.get(x, y) !== Tile.Tree || map.isHidden(x, y)) return;
+    if (map.isHidden(x, y)) return;
+    if (map.get(x, y) !== Tile.Tree) {
+      // Not a tree now, but it was one: leave the stump.
+      if (map.felled[map.idx(x, y)]) this.drawStump(ctx, x, y, s, cx, cy);
+      return;
+    }
     const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
     const variant = treeVariant(((h >> 12) & 1023) / 1024);
     const img = treeSprite(variant);
@@ -374,11 +379,18 @@ export class Renderer {
     }
     const jx = ((h & 15) / 15 - 0.5) * s * 0.22;
     const jy = (((h >> 4) & 15) / 15 - 0.5) * s * 0.18;
-    const w = bucket(s * (1.5 + (((h >> 8) & 15) / 15) * 0.35));
+    // A tree being worked visibly comes down. Three steps rather than a
+    // continuous shrink, so the stamp cache still has something to cache: a
+    // half-cut trunk is a distinct sprite, not a thousand near-identical ones.
+    const full = 40;
+    const left = map.amount[map.idx(x, y)] ?? full;
+    const wear = left >= full ? 0 : left > full * 0.5 ? 1 : left > full * 0.25 ? 2 : 3;
+    const shrink = [1, 0.86, 0.71, 0.56][wear]!;
+    const w = bucket(s * (1.5 + (((h >> 8) & 15) / 15) * 0.35) * shrink);
     const th = Math.round((img.naturalHeight / img.naturalWidth) * w);
     const shadowH = Math.max(2, Math.round(s * 0.32));
     const pad = Math.max(0, Math.ceil(w * 0.32 - w / 2 + s * 0.1) + 2);
-    const canopy = stamp(`tree${variant}@${Math.round(s)}`, w + pad * 2, th + shadowH, (c, cw, ch) => {
+    const canopy = stamp(`tree${variant}@${Math.round(s)}/${wear}`, w + pad * 2, th + shadowH, (c, cw, ch) => {
       c.fillStyle = "rgba(0,0,0,0.26)";
       c.beginPath();
       c.ellipse(cw / 2 + s * 0.1, ch - shadowH * 0.55, w * 0.32, s * 0.16, 0, 0, Math.PI * 2);
@@ -386,6 +398,45 @@ export class Renderer {
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
     ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * What a felled tree leaves behind.
+   *
+   * Cut ground used to snap back to clean grass, which read as a bug: the wood
+   * you had spent all morning on looked exactly like the wood you had not
+   * touched. A stump costs nothing -- it is three ellipses -- and it turns a
+   * worked forest into somewhere you can see the work.
+   */
+  private drawStump(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number): void {
+    const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+    const jx = ((h & 15) / 15 - 0.5) * s * 0.22;
+    const jy = (((h >> 4) & 15) / 15 - 0.5) * s * 0.18;
+    const r = Math.max(1.5, s * 0.15);
+    const px = cx + jx;
+    const py = cy + jy + s * 0.1;
+    ctx.save();
+    // Shadow, bark, and the pale cut face on top.
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.beginPath();
+    ctx.ellipse(px + s * 0.06, py + r * 0.5, r * 1.15, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4a3823";
+    ctx.beginPath();
+    ctx.ellipse(px, py, r, r * 0.72, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#9c7b4e";
+    ctx.beginPath();
+    ctx.ellipse(px, py - r * 0.22, r * 0.72, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (r > 3) {
+      ctx.strokeStyle = "rgba(74,56,35,0.75)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(px, py - r * 0.22, r * 0.36, r * 0.25, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**
