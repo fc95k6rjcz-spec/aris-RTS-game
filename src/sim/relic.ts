@@ -21,11 +21,11 @@ import { Faction, type PlayerId } from "./types";
 
 /** What each clan is looking for. */
 export const WEAPON_OF: Record<Faction, { name: string; taken: string }> = {
-  [Faction.Human]: { name: "sword", taken: "The sword is drawn. Long live the King!" },
-  [Faction.Dwarf]: { name: "axe", taken: "The axe is lifted. Long live the King!" },
-  [Faction.Barbarian]: { name: "spiked pick", taken: "The pick is hefted. Long live the King!" },
-  [Faction.Elf]: { name: "bow", taken: "The bow is strung. Long live the King!" },
-  [Faction.Ashen]: { name: "brand", taken: "The brand is lit. Long live the King!" },
+  [Faction.Human]: { name: "sword", taken: "The sword is drawn. A King is born." },
+  [Faction.Dwarf]: { name: "axe", taken: "The axe is lifted. A King is born." },
+  [Faction.Barbarian]: { name: "spiked pick", taken: "The pick is hefted. A King is born." },
+  [Faction.Elf]: { name: "bow", taken: "The bow is strung. A King is born." },
+  [Faction.Ashen]: { name: "brand", taken: "The brand is lit. A King is born." },
 };
 
 /** One weapon, waiting in the ground for the man it belongs to. */

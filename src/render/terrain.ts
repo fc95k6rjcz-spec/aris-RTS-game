@@ -366,23 +366,54 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
   }
 }
 
-/** Foam where water meets land, drawn on the water side of the boundary. */
+/**
+ * Foam where water meets land, drawn on the water side of the boundary.
+ *
+ * This used to be a scatter of 2x2 white squares, which at close zoom read as a
+ * crust of dirty snow round every lake rather than as surf. It is a gradient
+ * now -- bright against the sand and gone within two-thirds of a tile -- with a
+ * broken line riding on top of it so the edge is not a perfect ruler-straight
+ * band. Corners get a smaller wash of their own, which is what stops a bay from
+ * looking like it was cut out with scissors.
+ */
 function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number): void {
   if (map.get(x, y) !== Tile.Water) return;
+  const px = x * T;
+  const py = y * T;
+  c.save();
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const nx = x + dx;
     const ny = y + dy;
     if (!map.inBounds(nx, ny) || map.get(nx, ny) === Tile.Water) continue;
-    c.fillStyle = "rgba(226,240,250,0.55)";
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < T; j += 2) {
-        if (hash2(x * 53 + j, y * 29 + i, seed) > 0.62 - i * 0.12) continue;
-        const px = dx === 0 ? x * T + j : dx > 0 ? (x + 1) * T - 1 - i : x * T + i;
-        const py = dy === 0 ? y * T + j : dy > 0 ? (y + 1) * T - 1 - i : y * T + i;
-        c.fillRect(px, py, 2, 2);
-      }
+
+    // From the shared edge inward, fading out.
+    const ex = px + (dx > 0 ? T : 0);
+    const ey = py + (dy > 0 ? T : 0);
+    const grad = c.createLinearGradient(ex, ey, ex - dx * T * 0.62, ey - dy * T * 0.62);
+    grad.addColorStop(0, "rgba(232,244,252,0.72)");
+    grad.addColorStop(0.35, "rgba(214,236,248,0.3)");
+    grad.addColorStop(1, "rgba(200,230,245,0)");
+    c.fillStyle = grad;
+    c.fillRect(px, py, T, T);
+
+    // A broken line of surf a short way off the sand, wobbling along the edge
+    // so the boundary is not a straight rule.
+    c.strokeStyle = "rgba(255,255,255,0.5)";
+    c.lineWidth = Math.max(1, T * 0.045);
+    c.beginPath();
+    const steps = 6;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const wob = (hash2(x * 17 + i, y * 31, seed) - 0.5) * T * 0.13;
+      const off = T * 0.16 + wob;
+      const ax = dx === 0 ? px + t * T : ex - dx * off;
+      const ay = dy === 0 ? py + t * T : ey - dy * off;
+      if (i === 0) c.moveTo(ax, ay);
+      else c.lineTo(ax, ay);
     }
+    c.stroke();
   }
+  c.restore();
 }
 
 // ───────────────────────────── entry point ─────────────────────────────
@@ -399,6 +430,56 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
  * where copies meet — a photograph never tiles cleanly on its own. One texture
  * covers two map tiles, so blades stay legible instead of mushing together.
  */
+/**
+ * A repeating fill from a photograph, with the seam blended out instead of
+ * mirrored away.
+ *
+ * The sea had a choice of two bad options. Mirroring hides the join but turns
+ * every wave into a butterfly, so the sea was left on a plain repeat -- which
+ * put a hard vertical and horizontal line through the water every few tiles,
+ * and once you have seen it you cannot stop seeing it.
+ *
+ * This is the third option. The cell is drawn, then a half-offset copy of
+ * itself is laid over the top, feathered to nothing at its own edges. The
+ * offset copy's solid middle sits exactly where the original's seams were and
+ * covers them; the offset copy's own edges are transparent by the time they
+ * reach the cell boundary, so they add no seam of their own. Nothing is
+ * mirrored, so a wave stays a wave.
+ */
+function blendedPattern(c: CanvasRenderingContext2D, img: HTMLImageElement, tiles: number): CanvasPattern | null {
+  const cell = T * tiles;
+  const base = document.createElement("canvas");
+  base.width = cell;
+  base.height = cell;
+  const b = base.getContext("2d")!;
+  b.drawImage(img, 0, 0, cell, cell);
+
+  // The same picture, faded out towards all four of its edges.
+  const soft = document.createElement("canvas");
+  soft.width = cell;
+  soft.height = cell;
+  const o = soft.getContext("2d")!;
+  o.drawImage(img, 0, 0, cell, cell);
+  o.globalCompositeOperation = "destination-in";
+  const feather = Math.round(cell * 0.28);
+  for (const horizontal of [true, false]) {
+    const g = horizontal ? o.createLinearGradient(0, 0, cell, 0) : o.createLinearGradient(0, 0, 0, cell);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(feather / cell, "rgba(0,0,0,1)");
+    g.addColorStop(1 - feather / cell, "rgba(0,0,0,1)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    o.fillStyle = g;
+    o.fillRect(0, 0, cell, cell);
+  }
+
+  // Four placements, so the overlay wraps round the cell rather than stopping
+  // at its edge.
+  b.globalCompositeOperation = "source-over";
+  const half = cell / 2;
+  for (const dx of [-half, half]) for (const dy of [-half, half]) b.drawImage(soft, dx, dy);
+  return c.createPattern(base, "repeat");
+}
+
 function grassPattern(c: CanvasRenderingContext2D, img: HTMLImageElement, tiles = 2, mirror = true): CanvasPattern | null {
   const cell = T * tiles;
   if (!mirror) {
@@ -481,8 +562,10 @@ export function bakeRegion(
   // every two tiles reads as wallpaper.
   const waterImg = waterTexture();
   const iceImg = iceTexture();
-  const waterPat = waterImg ? grassPattern(c, waterImg, 4, false) : null;
-  const icePat = iceImg ? grassPattern(c, iceImg, 4, false) : null;
+  // Six tiles rather than four, and blended rather than plainly repeated: a
+  // bigger cell means the eye has further to go before it finds the repeat.
+  const waterPat = waterImg ? blendedPattern(c, waterImg, 6) : null;
+  const icePat = iceImg ? blendedPattern(c, iceImg, 5) : null;
   if (pattern) {
     c.fillStyle = pattern;
     c.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);

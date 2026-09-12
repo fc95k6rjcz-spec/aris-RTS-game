@@ -20,8 +20,18 @@ const cache = new Map<string, HTMLCanvasElement>();
 /** How finely sprite sizes are bucketed, in pixels. */
 const STEP = 3;
 
-/** Above this many cached stamps, start again: the player has zoomed a lot. */
-const LIMIT = 400;
+/**
+ * Above this many cached stamps, start again: the player has zoomed a lot.
+ *
+ * Raised from 400 when trees gained a "how far through being cut down is this"
+ * step in their key, which multiplied the number of distinct tree stamps by
+ * four. At 400 a wooded view could sit just over the line and clear the whole
+ * cache every frame -- every sprite in sight repainted from its full-size
+ * source, every frame, which is precisely the cost the cache exists to avoid.
+ * These canvases are a few kilobytes each; the ceiling can afford to be well
+ * clear of the working set.
+ */
+const LIMIT = 1500;
 
 /** Snap a size to its bucket, so nearby zoom levels share one stamp. */
 export function bucket(px: number): number {

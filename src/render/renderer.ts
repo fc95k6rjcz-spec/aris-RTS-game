@@ -58,7 +58,20 @@ export class Renderer {
    * Zoom below which the coarse whole-map bake is used instead of near chunks.
    * A field rather than a constant so a test can force either path.
    */
-  farBelow = T_FAR + 6;
+  /**
+   * Below this zoom the coarse whole-map bake is used instead of live trees.
+   *
+   * It used to be T_FAR + 6, which meant that between 21 and 25 pixels a tile
+   * the bake -- which is painted at 20 pixels a tile -- was being blown UP to
+   * fill the screen. That is a 25% upscale of an already-downsampled image, and
+   * it is why zooming out went soft and the forest turned to mush before it
+   * turned to trees. The bake may now only ever be shrunk, never stretched, so
+   * the picture is sharp at every zoom. The cost is that the 20-to-25 band now
+   * draws its trees live -- about 600 cached blits on a 1100px view, where the
+   * measurement that motivated the bake in the first place was a couple of
+   * thousand uncached ones.
+   */
+  farBelow = T_FAR;
   /** Set when a bake wanted a sprite that had not loaded yet. */
   private missedArt = false;
   /** Whether the coarse bake must be redone because art was missing. */
@@ -864,10 +877,18 @@ export class Renderer {
       // Enough to register as a blow landing, not enough to bleach the armour.
       ctx.filter = `brightness(${1 + flash * 0.55}) saturate(${1 - flash * 0.25})`;
     }
-    if (this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase)) {
-      // painted orthographic sprite drawn
-    } else if (player.faction === "human" && u.def === "worker" && this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)) {
-      // painted sprite drawn
+    // How tall the thing that was actually drawn turned out to be. The painted
+    // sprites are half again as tall as the fallback figure, and hanging a crown
+    // off the fallback's height put it through the King's head.
+    let drawnH = h;
+    const painted = this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase);
+    const peasant = painted === null && player.faction === "human" && u.def === "worker"
+      ? this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)
+      : null;
+    if (painted !== null) {
+      drawnH = painted;
+    } else if (peasant !== null) {
+      drawnH = peasant;
     } else if (draw) {
       draw({ ctx, x: p.x, y: p.y, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
     } else {
@@ -881,7 +902,7 @@ export class Renderer {
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
       const king = u.def === "king";
-      const cy = p.y + s * 0.45 - h - s * 0.12;
+      const cy = p.y + s * 0.45 - drawnH - s * 0.1;
       const cw = s * (king ? 0.26 : 0.2);
       ctx.save();
       ctx.strokeStyle = "rgba(20,14,4,0.85)";
@@ -900,7 +921,12 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     }
-    if (this.wantsBar(u.hp / u.maxHp, selected)) this.bar(p.x - h * 0.3, p.y - h * 0.62, h * 0.6, u.hp / u.maxHp, "#4ce04c");
+    if (this.wantsBar(u.hp / u.maxHp, selected)) {
+      // Above the head of whatever was drawn, and above the crown if there is
+      // one, rather than across the chest of a tall sprite.
+      const barY = p.y + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
+      this.bar(p.x - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
+    }
   }
 
   /**
@@ -969,9 +995,9 @@ export class Renderer {
   }
 
   /** Painted units drawn from front/side/back views, chosen by facing. */
-  private drawUnitSprite(u: Unit, x: number, y: number, s: number, color: string, moving: boolean, phase: number): boolean {
+  private drawUnitSprite(u: Unit, x: number, y: number, s: number, color: string, moving: boolean, phase: number): number | null {
     const view = unitViewSprite(u.def, u.facing, color);
-    if (!view) return false;
+    if (!view) return null;
     const ctx = this.ctx;
     const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? 1.5);
     const w = (view.img.width / view.img.height) * h;
@@ -1018,11 +1044,11 @@ export class Renderer {
       ctx.lineWidth = Math.max(1, s * 0.02);
       ctx.stroke();
     }
-    return true;
+    return h;
   }
 
   /** Painted peasant sprites: the variant follows the worker's current task. */
-  private drawPeasant(u: Unit, x: number, y: number, s: number, color: string, moving: boolean, phase: number, afloat = false): boolean {
+  private drawPeasant(u: Unit, x: number, y: number, s: number, color: string, moving: boolean, phase: number, afloat = false): number | null {
     const t = u.task;
     let kind: PeasantKind = "classic";
     if (t.kind === "build" || t.kind === "repair") kind = "builder";
@@ -1032,7 +1058,7 @@ export class Renderer {
     } else if (t.kind === "move") kind = "villager";
     const back = u.facing >= 1 && u.facing <= 3 && moving;
     const sprite = peasantSprite(kind, back, color);
-    if (!sprite) return false;
+    if (!sprite) return null;
     const h = s * 1.35;
     const w = (sprite.width / sprite.height) * h;
     const ctx = this.ctx;
@@ -1074,7 +1100,7 @@ export class Renderer {
       ctx.drawImage(sprite, -w / 2, -h, w, h);
     }
     ctx.restore();
-    return true;
+    return h;
   }
 
   private bar(x: number, y: number, w: number, frac: number, color: string): void {

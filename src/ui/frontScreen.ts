@@ -21,7 +21,6 @@
 
 import type { Difficulty } from "../ai/skirmish";
 import { menuArt } from "../render/sprites";
-import { MAPS } from "../data/maps";
 
 const TITLE_A = "REALMS";
 const TITLE_B = "OF VALOR";
@@ -31,7 +30,7 @@ const EPIGRAPH = "Eight kingdoms, one winter. Choose where the war begins.";
 const VERSION = "0.1.0";
 
 /** Which list of rows the column is showing. */
-export type FrontPane = "splash" | "menu" | "skirmish" | "realms" | "credits";
+export type FrontPane = "splash" | "menu" | "credits";
 
 export type FrontAction =
   | { kind: "begin" }
@@ -248,58 +247,6 @@ function drawSplash(ctx: CanvasRenderingContext2D, W: number, H: number): FrontH
 /** Which rows each pane is made of. */
 function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { rows: Row[]; note: string; heading: string | null } {
   switch (state.pane) {
-    case "skirmish": {
-      const rows: Row[] = DIFFS.map(([value, label, blurb], i) => ({
-        numeral: numeral(i),
-        label,
-        hint: value === difficulty ? "Chosen" : "",
-        enabled: true,
-        marked: value === difficulty,
-        action: { kind: "difficulty", value },
-        note: blurb,
-      }));
-      rows.push({
-        numeral: numeral(rows.length),
-        label: "March Out",
-        hint: "Enter",
-        enabled: true,
-        marked: false,
-        action: { kind: "begin" },
-        note: "Begin the match on the chosen realm.",
-      });
-      rows.push({
-        numeral: "",
-        label: "Back",
-        hint: "Esc",
-        enabled: true,
-        marked: false,
-        action: { kind: "pane", pane: "menu" },
-      });
-      return { rows, note: "", heading: "CHOOSE YOUR OPPONENT" };
-    }
-    case "realms": {
-      const all: Row[] = [
-        {
-          numeral: "",
-          label: "Random Realm",
-          hint: "Every match",
-          enabled: true,
-          marked: mapId === "random",
-          action: { kind: "map", id: "random" },
-          note: "A different map each time you march out.",
-        },
-        ...MAPS.map((m) => ({
-          numeral: "",
-          label: m.name,
-          hint: KIND_WORD[m.kind] ?? m.kind,
-          enabled: true,
-          marked: m.id === mapId,
-          action: { kind: "map", id: m.id } as FrontAction,
-          note: `${KIND_WORD[m.kind] ?? m.kind}. ${Math.round(m.open * 100)}% open ground, ${m.size ?? 64} tiles across.`,
-        })),
-      ];
-      return { rows: all, note: "", heading: `${MAPS.length} REALMS` };
-    }
     case "credits": {
       const rows: Row[] = [
         { numeral: "", label: "Made By", hint: "Ari Caruana, 8 years old", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
@@ -319,7 +266,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           enabled: true,
           marked: false,
           action: { kind: "begin" },
-          note: "Raise a hall, take the valley, and hold it.",
+          note: "One man, one weapon in the ground. Find it, raise a hall, hold the valley.",
         },
         {
           numeral: numeral(1),
@@ -328,46 +275,19 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           enabled: false,
           marked: false,
           action: { kind: "pane", pane: "menu" },
-          note: "Nothing saved yet — campaigns are not written to disk.",
+          note: "Nothing saved yet — a match is not written to disk.",
         },
         {
           numeral: numeral(2),
-          label: "Skirmish",
-          hint: "1 v 1",
-          enabled: true,
-          marked: false,
-          action: { kind: "pane", pane: "skirmish" },
-          note: "Pick an opponent and fight a single match.",
-        },
-        {
-          numeral: numeral(3),
-          label: "Trials",
-          hint: "Soon",
-          enabled: false,
-          marked: false,
-          action: { kind: "pane", pane: "menu" },
-          note: "The tutorial is not written yet.",
-        },
-        {
-          numeral: numeral(4),
-          label: "Realm Map",
-          hint: `${MAPS.length} maps`,
-          enabled: true,
-          marked: false,
-          action: { kind: "pane", pane: "realms" },
-          note: "Choose the ground you fight over.",
-        },
-        {
-          numeral: numeral(5),
           label: "Settings",
           hint: "Gear",
           enabled: true,
           marked: false,
           action: { kind: "settings" },
-          note: "Sound, speed, pace, and how the game opens.",
+          note: "Sound, speed, the opponent, and which of the hundred realms you fight over.",
         },
         {
-          numeral: numeral(6),
+          numeral: numeral(3),
           label: "Credits",
           hint: "",
           enabled: true,
@@ -376,7 +296,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Who made this, and what with.",
         },
         {
-          numeral: numeral(7),
+          numeral: numeral(4),
           label: "Leave the Realm",
           hint: "Esc",
           enabled: true,

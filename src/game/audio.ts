@@ -57,7 +57,7 @@ export class Audio {
   /** Set once the browser has let us start; until then nothing plays. */
   private ready = false;
   /** Everything the score owns, so it can be torn down in one go. */
-  private music: { gain: GainNode; nodes: AudioScheduledSourceNode[]; timer: number; lcg: number } | null = null;
+  private music: { gain: GainNode; wet: GainNode; nodes: AudioScheduledSourceNode[]; timer: number; lcg: number } | null = null;
 
   /**
    * Wire the first user gesture to starting audio. Safe to call more than once;
@@ -214,19 +214,31 @@ export class Audio {
   /**
    * Weather, not a soundtrack.
    *
-   * Synthesised like everything else here, so it costs no bundle and no licence.
-   * Three layers, and the space between them is the point:
+   * The first attempt at this sounded wrong, and it is worth writing down why,
+   * because every one of the mistakes is the obvious thing to do:
    *
-   *   - a drone, two detuned oscillators a hair apart, low and filtered almost
-   *     to nothing. Two voices at 0.3 Hz apart beat against each other roughly
-   *     once every three seconds, which is what makes a held note sound like it
-   *     is breathing rather than like a synthesiser left switched on;
-   *   - single notes out of a Phrygian scale, struck rarely, with a long attack
-   *     so none of them has an edge you can point at;
-   *   - and now and then a swell of filtered noise, or a high partial two
-   *     octaves up, quiet enough that you are not certain you heard it.
+   *   - it used triangle waves for the drone. A triangle at 73 Hz has a stack
+   *     of audible harmonics, and two of them tuned a third of a hertz apart
+   *     beat against each other on every one of those harmonics at once. That
+   *     is not a held breath, it is a wasps' nest. Sines now: one partial each,
+   *     so the beating happens once, slowly, where you can hear it as movement
+   *     rather than as buzz;
+   *   - it leaned on minor seconds. A semitone held against its root is the
+   *     textbook "unsettling" interval and it is also, at this volume and this
+   *     duration, just sour. The notes now sit a fifth or a minor third apart,
+   *     which is dark without being sore, and the semitone survives only as a
+   *     rare, very quiet shadow under a note that is already fading;
+   *   - it had no space. Every voice went straight to the output, so each note
+   *     stopped dead the moment its envelope closed and the whole thing sounded
+   *     like what it is, which is an oscillator in a browser. There is now a
+   *     delay line with a damped feedback path -- a cheap reverb tail -- and
+   *     everything goes through it. That one change does most of the work of
+   *     making this sound like a room rather than a signal generator;
+   *   - and the noise layer was a bandpass, which is a hiss with a whistle in
+   *     it. It is a lowpass now, and quieter: wind under a door, not static.
    *
-   * Nothing is on a grid. The gaps are randomised, because a pulse you can count
+   * What is kept is the shape. A drone, notes struck rarely with a long attack
+   * so none of them has an edge, and nothing on a grid -- a pulse you can count
    * stops being unsettling about four bars in.
    */
   startMusic(): void {
@@ -235,50 +247,63 @@ export class Audio {
     const gain = ctx.createGain();
     gain.gain.value = 0;
     gain.connect(this.master);
-    // Two seconds to arrive. Music that snaps on announces itself.
-    gain.gain.linearRampToValueAtTime(musicGain(), ctx.currentTime + 2);
+    gain.gain.linearRampToValueAtTime(musicGain(), ctx.currentTime + 3);
+
+    // The room. Everything voiced below is fed into this as well as to the dry
+    // output, so notes leave a tail behind them instead of stopping dead.
+    const wet = ctx.createGain();
+    wet.gain.value = 0.42;
+    const delay = ctx.createDelay(3);
+    delay.delayTime.value = 0.62;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.55;
+    const damp = ctx.createBiquadFilter();
+    damp.type = "lowpass";
+    damp.frequency.value = 1400;
+    // Each pass round the loop loses its top end, the way a real room does.
+    wet.connect(delay).connect(damp).connect(feedback).connect(delay);
+    damp.connect(gain);
 
     const nodes: AudioScheduledSourceNode[] = [];
-    const drone = ctx.createBiquadFilter();
-    drone.type = "lowpass";
-    drone.frequency.value = 210;
-    drone.Q.value = 3;
-    drone.connect(gain);
+    const droneOut = ctx.createBiquadFilter();
+    droneOut.type = "lowpass";
+    droneOut.frequency.value = 240;
+    droneOut.Q.value = 0.9;
+    droneOut.connect(gain);
 
-    // The bed: root, a hair-sharp root, and the fifth underneath.
-    for (const [hz, type, level] of [
-      [73.42, "triangle", 0.5],
-      [73.72, "triangle", 0.42],
-      [48.99, "sine", 0.6],
+    // Sines only. Root, root a third of a hertz sharp, and the fifth below.
+    for (const [hz, level] of [
+      [73.42, 0.5],
+      [73.75, 0.44],
+      [48.99, 0.42],
     ] as const) {
       const o = ctx.createOscillator();
-      o.type = type;
+      o.type = "sine";
       o.frequency.value = hz;
       const g = ctx.createGain();
-      g.gain.value = level * 0.22;
-      o.connect(g).connect(drone);
+      g.gain.value = level * 0.3;
+      o.connect(g).connect(droneOut);
       o.start();
       nodes.push(o);
     }
 
-    // A very slow sweep on the filter, so the drone opens and closes.
+    // A very slow open and close on the drone's filter.
     const lfo = ctx.createOscillator();
     lfo.type = "sine";
-    lfo.frequency.value = 0.045;
+    lfo.frequency.value = 0.035;
     const lfoAmt = ctx.createGain();
-    lfoAmt.gain.value = 90;
-    lfo.connect(lfoAmt).connect(drone.frequency);
+    lfoAmt.gain.value = 70;
+    lfo.connect(lfoAmt).connect(droneOut.frequency);
     lfo.start();
     nodes.push(lfo);
 
-    this.music = { gain, nodes, timer: 0, lcg: 99991, };
+    this.music = { gain, wet, nodes, timer: 0, lcg: 99991 };
     const step = (): void => {
       if (!this.music) return;
       this.voice();
-      // Four to eleven seconds. Never the same gap twice running.
-      this.music.timer = window.setTimeout(step, 4000 + this.mrand() * 7000);
+      this.music.timer = window.setTimeout(step, 5000 + this.mrand() * 8000);
     };
-    this.music.timer = window.setTimeout(step, 2500);
+    this.music.timer = window.setTimeout(step, 3000);
   }
 
   stopMusic(): void {
@@ -289,10 +314,10 @@ export class Audio {
     const t = this.ctx.currentTime;
     m.gain.gain.cancelScheduledValues(t);
     m.gain.gain.setValueAtTime(m.gain.gain.value, t);
-    m.gain.gain.linearRampToValueAtTime(0, t + 1.2);
+    m.gain.gain.linearRampToValueAtTime(0, t + 1.5);
     for (const n of m.nodes) {
       try {
-        n.stop(t + 1.4);
+        n.stop(t + 1.7);
       } catch {
         // Already stopped; nothing to do.
       }
@@ -308,14 +333,6 @@ export class Audio {
     this.music.gain.gain.linearRampToValueAtTime(musicGain(), t + 0.4);
   }
 
-  /** Test hooks: whether audio started, and whether the score is running. */
-  get readyForTest(): boolean {
-    return this.ready;
-  }
-  get musicPlayingForTest(): boolean {
-    return this.music !== null;
-  }
-
   /** The score's own random source, so it never touches Math.random. */
   private mrand(): number {
     const m = this.music;
@@ -324,28 +341,36 @@ export class Audio {
     return m.lcg / 0xffffffff;
   }
 
-  /** One event: a note, a breath, or a high partial. */
+  /** Send a voice to both the dry output and the room. */
+  private out(node: AudioNode): void {
+    if (!this.music) return;
+    node.connect(this.music.gain);
+    node.connect(this.music.wet);
+  }
+
+  /** One event: a note, or -- rarely -- a breath of wind. */
   private voice(): void {
     if (!this.ctx || !this.music) return;
     const ctx = this.ctx;
     const r = this.mrand();
 
-    if (r < 0.18) {
-      // A breath. Noise swelling through a narrow band and away again.
+    if (r < 0.14) {
+      // Wind under a door. Lowpassed, not bandpassed: no whistle.
       const src = ctx.createBufferSource();
       src.buffer = this.noise;
       src.loop = true;
       const f = ctx.createBiquadFilter();
-      f.type = "bandpass";
-      f.frequency.value = 300 + this.mrand() * 900;
-      f.Q.value = 6;
+      f.type = "lowpass";
+      f.frequency.value = 220 + this.mrand() * 260;
+      f.Q.value = 0.7;
       const g = ctx.createGain();
       const t = ctx.currentTime;
-      const dur = 4 + this.mrand() * 3;
+      const dur = 6 + this.mrand() * 4;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.05, t + dur * 0.45);
+      g.gain.exponentialRampToValueAtTime(0.03, t + dur * 0.5);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      src.connect(f).connect(g).connect(this.music.gain);
+      src.connect(f).connect(g);
+      this.out(g);
       src.start(t);
       src.stop(t + dur + 0.1);
       return;
@@ -354,41 +379,55 @@ export class Audio {
     // A note, low in the scale most of the time.
     const pick = Math.floor(this.mrand() ** 1.7 * SCALE.length);
     const base = SCALE[Math.min(SCALE.length - 1, pick)]!;
-    const high = r > 0.86;
-    const hz = high ? base * 4 : base;
+    const high = r > 0.88;
+    const hz = high ? base * 4 : base * 2;
     const t = ctx.currentTime;
-    const dur = high ? 3.5 + this.mrand() * 2 : 5 + this.mrand() * 4;
-    const peak = high ? 0.035 : 0.075;
+    const dur = high ? 4 + this.mrand() * 2 : 6 + this.mrand() * 4;
+    const peak = high ? 0.03 : 0.06;
 
-    const o = ctx.createOscillator();
-    o.type = high ? "sine" : "triangle";
-    o.frequency.value = hz;
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = high ? 3000 : 700;
+    // Two sines a whisker apart rather than one: the same trick as the drone,
+    // and the reason a single held note sounds alive instead of flat.
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    // Slow in, slower out: no attack for the ear to latch on to.
-    g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.4);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f).connect(g).connect(this.music.gain);
-    o.start(t);
-    o.stop(t + dur + 0.1);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = high ? 2600 : 900;
+    f.connect(g);
+    this.out(g);
+    for (const cents of [0, 4]) {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = hz * Math.pow(2, cents / 1200);
+      o.connect(f);
+      o.start(t);
+      o.stop(t + dur + 0.1);
+    }
 
-    // Every so often the note is joined a semitone up and left to grind
-    // against it. This is the sound doing the actual work.
-    if (!high && this.mrand() < 0.3) {
+    // A companion, a fifth or a minor third below. Dark, and not sour.
+    if (!high && this.mrand() < 0.42) {
+      const ratio = this.mrand() < 0.5 ? 2 / 3 : 5 / 6;
       const o2 = ctx.createOscillator();
-      o2.type = "triangle";
-      o2.frequency.value = hz * 1.0595;
+      o2.type = "sine";
+      o2.frequency.value = hz * ratio;
       const g2 = ctx.createGain();
-      g2.gain.setValueAtTime(0.0001, t + 0.6);
-      g2.gain.exponentialRampToValueAtTime(peak * 0.55, t + dur * 0.5);
+      g2.gain.setValueAtTime(0.0001, t + 1.2);
+      g2.gain.exponentialRampToValueAtTime(peak * 0.5, t + dur * 0.55);
       g2.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o2.connect(f).connect(g2).connect(this.music.gain);
-      o2.start(t + 0.6);
+      o2.connect(g2);
+      this.out(g2);
+      o2.start(t + 1.2);
       o2.stop(t + dur + 0.1);
     }
+  }
+
+  /** Test hooks: whether audio started, and whether the score is running. */
+  get readyForTest(): boolean {
+    return this.ready;
+  }
+  get musicPlayingForTest(): boolean {
+    return this.music !== null;
   }
 
   /**

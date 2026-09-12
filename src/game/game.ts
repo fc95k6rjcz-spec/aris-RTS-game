@@ -49,11 +49,21 @@ export class Game {
   private drag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private keys = new Set<string>();
   private message: { text: string; until: number; level: "info" | "error" } | null = null;
+  /**
+   * A big centred line, for the two moments in a match that deserve one.
+   *
+   * Separate from the toast: a toast is "you cannot afford that" and belongs in
+   * the corner of your eye. This is the game speaking, and it is allowed to
+   * interrupt.
+   */
+  private banner: { title: string; line: string; until: number } | null = null;
   private buttons: HudButton[] = [];
   private ai: SkirmishAI | null = null;
   private acc = 0;
   private last = performance.now();
   private running = true;
+  /** Whether this player's king has already been proclaimed, so it happens once. */
+  private crowned = false;
   /** Test hook: number of ticks simulated. */
   ticks = 0;
   /** Faction picker shown before the first tick. */
@@ -78,6 +88,16 @@ export class Game {
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
   private readonly audio = new Audio();
+  /** Exposed for headless tests: the labels currently on the front screen. */
+  get frontRowsForTest(): string[] {
+    return this.frontHits.map((h) => h.action.kind);
+  }
+
+  /** Exposed for headless tests: the camera, for driving zoom and position. */
+  get cameraForTest(): Camera {
+    return this.cam;
+  }
+
   /** Exposed for headless tests: commands queued but not yet stepped. */
   get pendingForTest(): Command[] {
     return this.pending;
@@ -192,6 +212,12 @@ export class Game {
     this.renderer.fx.clear();
     // Player 2 is run by the AI, issuing the same commands a human would.
     this.ai = difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    this.banner = null;
+    this.crowned = false;
+    // The crowning opening sends one unarmed man into fog full of bears. Say so.
+    if (settings.crowning) {
+      this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
+    }
     this.last = performance.now();
     this.acc = 0;
   }
@@ -240,6 +266,16 @@ export class Game {
     this.ticks++;
     // One tick's happenings, handed to the two things that show them. Neither
     // can write back, so the sim stays the only author of state.
+    // The one moment the whole opening is waiting on.
+    if (!this.crowned) {
+      for (const e of this.world.fx) {
+        if (e.kind === "crowned" && e.owner === this.player) {
+          this.crowned = true;
+          this.proclaim("A KING IS BORN", "Raise your hall. The valley is yours to take.", 6000);
+          break;
+        }
+      }
+    }
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);
@@ -319,6 +355,10 @@ export class Game {
 
   private toast(text: string, level: "info" | "error" = "error"): void {
     this.message = { text, until: performance.now() + 2500, level };
+  }
+
+  private proclaim(title: string, line: string, ms: number): void {
+    this.banner = { title, line, until: performance.now() + ms };
   }
 
   // ───────────────────────────── camera ─────────────────────────────
@@ -547,6 +587,50 @@ export class Game {
       }
     }
     this.issue({ type: "move", player: this.player, units: ids, x: Math.round(wx), y: Math.round(wy) });
+  }
+
+  /**
+   * The big line, drawn over the map and nothing else.
+   *
+   * Sits high rather than dead centre so it is not on top of whatever the player
+   * is looking at, and fades out over its last second so it leaves rather than
+   * vanishes.
+   */
+  private drawBanner(ctx: CanvasRenderingContext2D): void {
+    const b = this.banner;
+    if (!b) return;
+    const left = b.until - performance.now();
+    if (left <= 0) {
+      this.banner = null;
+      return;
+    }
+    const W = this.canvas.width;
+    const y = Math.max(120, this.canvas.height * 0.22);
+    const fade = Math.min(1, left / 800);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const size = Math.round(Math.max(26, Math.min(46, W * 0.032)));
+    ctx.font = `${size}px Georgia, 'Times New Roman', serif`;
+    const tw = Math.max(ctx.measureText(b.title).width, 0);
+    ctx.font = "15px Georgia, serif";
+    const lw = ctx.measureText(b.line).width;
+    const boxW = Math.min(W - 48, Math.max(tw, lw) + 72);
+    ctx.fillStyle = "rgba(8,8,10,0.72)";
+    ctx.fillRect(W / 2 - boxW / 2, y - size, boxW, size * 2 + 18);
+    ctx.strokeStyle = "rgba(200,162,74,0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(W / 2 - boxW / 2 + 0.5, y - size + 0.5, boxW - 1, size * 2 + 17);
+    ctx.font = `${size}px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = "#e8c547";
+    ctx.fillText(b.title, W / 2, y - size * 0.1);
+    ctx.font = "15px Georgia, serif";
+    ctx.fillStyle = "rgba(230,222,208,0.9)";
+    // Wrapped by hand would be better; at these lengths one line is enough and
+    // the box grows to fit it.
+    ctx.fillText(b.line, W / 2, y + size * 0.72);
+    ctx.restore();
   }
 
   private ghost(): Ghost | null {
@@ -809,6 +893,7 @@ export class Game {
     const msg = this.message && performance.now() < this.message.until ? this.message : null;
     const mode = this.buildMode ? `Placing ${BUILDINGS[this.buildMode]!.name} — click to place, right-click to cancel` : null;
     drawHud(ctx, this.world, this.player, selUnits, selBuildings, this.buttons, hover, this.canvas.width, this.canvas.height, msg, mode);
+    this.drawBanner(ctx);
     // A paused game that looks identical to a running one is a support ticket.
     // The settings panel says so itself, so this only appears when the panel is
     // shut.
