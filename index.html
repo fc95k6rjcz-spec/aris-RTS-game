@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Realms of Valor</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; font-family: system-ui, sans-serif; }
-    #game { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+    /* The shell owns the canvas's size: it is one row of a grid, not the whole
+       window, so sizing it here in viewport units would fight the layout and
+       win, #game being an id. */
+    html, body { margin: 0; height: 100%; background: #07070a; overflow: hidden; font-family: system-ui, sans-serif; }
+    canvas#game { display: block; cursor: crosshair; }
   </style>
 </head>
 <body>

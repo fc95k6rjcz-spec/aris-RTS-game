@@ -1201,8 +1201,12 @@ export class Renderer {
   }
 
   /** Minimap: whole map scaled to a square. */
-  drawMinimap(x: number, y: number, size: number, viewport: boolean): void {
-    const ctx = this.ctx;
+  /**
+   * `target` lets the minimap be drawn into a canvas of its own rather than
+   * into the main one. It lives in a DOM panel now, so it has its own surface.
+   */
+  drawMinimap(x: number, y: number, size: number, viewport: boolean, target?: CanvasRenderingContext2D): void {
+    const ctx = target ?? this.ctx;
     const map = this.world.map;
     const sx = size / map.width;
     const sy = size / map.height;
@@ -1211,7 +1215,10 @@ export class Renderer {
     // Through bakeFar, not bakeRegion: the coarse canvas is shared with the
     // zoomed-out view, and baking it here without the forest left the map bare
     // the moment the player opened a game and looked at the minimap first.
-    if ((!this.terrainFar || this.farStale) && this.terrainVersion === map.version) {
+    // The minimap is now the first thing that wants the coarse bake, because it
+    // is on screen from the first frame while the zoomed-out view may never be.
+    // Waiting for the terrain pass to agree about versions left it black.
+    if (!this.terrainFar || (this.farStale && this.terrainVersion === map.version)) {
       this.terrainFar = this.bakeFar(map, grassTexture());
     }
     if (this.terrainFar) {

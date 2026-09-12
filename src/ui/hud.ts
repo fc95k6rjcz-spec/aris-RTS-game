@@ -454,7 +454,7 @@ export function drawHud(
   }
 }
 
-function describeTask(u: Unit): string {
+export function describeTask(u: Unit): string {
   const t = u.task;
   switch (t.kind) {
     case "idle":
@@ -475,7 +475,7 @@ function describeTask(u: Unit): string {
 }
 
 /** Eight points, which is as precise as "over that way" needs to be. */
-function compass(dx: number, dy: number): string {
+export function compass(dx: number, dy: number): string {
   const a = (Math.atan2(dy, dx) * 180) / Math.PI;
   const i = Math.round(((a + 360) % 360) / 45) % 8;
   return ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"][i]!;
@@ -534,4 +534,120 @@ function drawObjective(ctx: CanvasRenderingContext2D, world: World, player: Play
   ctx.font = "12px system-ui, sans-serif";
   ctx.fillText(line, x + w / 2, y + 35);
   ctx.restore();
+}
+
+
+// ───────────────────────── command sets, for the DOM shell ─────────────────────────
+
+/** One tile's worth of command, with no geometry: the shell lays it out. */
+export interface CommandEntry {
+  label: string;
+  cost: string | null;
+  hotkey: string;
+  enabled: boolean;
+  description: string;
+  action: HudButton["action"];
+}
+
+export interface CommandSets {
+  tabs: Array<{ id: string; label: string }>;
+  byTab: Record<string, CommandEntry[]>;
+}
+
+function costLine(c: { gold: number; lumber: number; oil?: number }): string {
+  const parts = [String(c.gold), String(c.lumber)];
+  if (c.oil) parts.push(String(c.oil));
+  return parts.join(" · ");
+}
+
+/**
+ * What the current selection can be told to do, grouped into tabs.
+ *
+ * The same rules as the old command card, minus the geometry. Splitting build
+ * options across BUILD and ADVANCED tabs rather than paging them means the
+ * thirteen-button wall is gone and every tile can afford to carry its cost and
+ * its key without shrinking to an illegible square.
+ */
+export function commandSets(world: World, player: PlayerId, selUnits: Unit[], selBuildings: Building[]): CommandSets {
+  const faction = world.players.get(player)!.faction;
+  const orders: CommandEntry[] = [];
+  const builders = selUnits.filter((u) => UNITS[u.def]!.canBuild);
+
+  if (selUnits.length > 0) {
+    if (selUnits.some((u) => UNITS[u.def]!.damage > 0)) {
+      orders.push({ label: "Attack", cost: null, hotkey: "A", enabled: true, description: "Attack-move to a point. Engages what it meets on the way.", action: { type: "attack" } });
+    }
+    orders.push({ label: "Stop", cost: null, hotkey: "X", enabled: true, description: "Cancel current orders and hold.", action: { type: "stop" } });
+    if (selUnits.some((u) => UNITS[u.def]!.canGather)) {
+      orders.push({ label: "Harvest", cost: null, hotkey: "Q", enabled: true, description: "Send each worker to the nearest wood or gold and start working.", action: { type: "harvest" } });
+    }
+  }
+
+  if (builders.length > 0) {
+    const list = (ids: readonly string[]): CommandEntry[] =>
+      ids.map((id) => {
+        const d = BUILDINGS[id]!;
+        const missing = d.requires.find((r) => !world.hasBuilding(player, r));
+        const afford = world.canAfford(player, d.cost);
+        const nm = buildingName(id, faction);
+        const why = missing
+          ? `Requires ${buildingName(missing, faction)}.`
+          : !afford
+            ? "Not enough resources yet."
+            : "";
+        return {
+          label: nm,
+          cost: costLine(d.cost),
+          hotkey: d.hotkey,
+          enabled: !missing && afford,
+          description: `${d.description}${why ? " " + why : ""}`,
+          action: { type: "build", def: id } as HudButton["action"],
+        };
+      });
+    return {
+      tabs: [
+        { id: "build", label: "Build" },
+        { id: "advanced", label: "Advanced" },
+        { id: "orders", label: "Orders" },
+      ],
+      byTab: { build: list(BUILD_BASIC), advanced: list(BUILD_ADVANCED), orders },
+    };
+  }
+
+  if (selBuildings.length === 1 && selBuildings[0]!.owner === player) {
+    const b = selBuildings[0]!;
+    const d = BUILDINGS[b.def]!;
+    const out: CommandEntry[] = [];
+    if (!b.complete) {
+      out.push({ label: "Cancel", cost: null, hotkey: "Esc", enabled: true, description: "Cancel construction. Three quarters of the cost comes back.", action: { type: "cancelBuild" } });
+    } else {
+      for (const uid of d.trains) {
+        const u = UNITS[uid]!;
+        out.push({
+          label: unitName(uid, faction),
+          cost: costLine(u.cost),
+          hotkey: u.hotkey,
+          enabled: world.canAfford(player, u.cost),
+          description: u.description,
+          action: { type: "train", def: uid },
+        });
+      }
+      for (const up of upgradesFor(b.def)) {
+        const have = world.players.get(player)!.research[up.id] ?? 0;
+        const next = up.levels[have];
+        if (!next) continue;
+        out.push({
+          label: `${up.name} ${have + 1}`,
+          cost: costLine(next.cost),
+          hotkey: up.hotkey,
+          enabled: world.canAfford(player, next.cost) && b.research === null,
+          description: up.description,
+          action: { type: "research", id: up.id },
+        });
+      }
+    }
+    return { tabs: [{ id: "build", label: d.name }], byTab: { build: out, advanced: [], orders: [] } };
+  }
+
+  return { tabs: [{ id: "orders", label: "Orders" }], byTab: { build: [], advanced: [], orders } };
 }

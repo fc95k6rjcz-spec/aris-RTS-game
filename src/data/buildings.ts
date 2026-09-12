@@ -258,10 +258,16 @@ export function buildingName(def: string, faction: string): string {
  * row of Attack, Stop and the page toggle. Twelve of the fourteen buildings fit on
  * the first page; the rest sit behind "More".
  */
-export const BUILD_BASIC: string[] = [
-  "townhall", "farm", "lumbermill", "golddepot",
-  "barracks", "tower", "church", "stables",
-  "shipyard", "magetower", "foundry", "oilrig",
-];
-export const BUILD_ADVANCED: string[] = ["refinery", "airfactory"];
+/**
+ * The two build tabs.
+ *
+ * Split six and eight rather than twelve and two. Twelve tiles in one grid was
+ * the "thirteen-button wall" the interface was redesigned to get rid of: at
+ * that count each tile is too small to carry its own cost and hotkey, which is
+ * exactly the information you need to decide between them. Six is the first
+ * things you build in any match; everything with a prerequisite behind it is a
+ * tab away.
+ */
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower"];
+export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];

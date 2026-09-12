@@ -1,5 +1,5 @@
-import { BUILDINGS, BUILD_MENU } from "../data/buildings";
-import { UNITS } from "../data/units";
+import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
+import { unitName, UNITS } from "../data/units";
 import { Camera } from "../render/camera";
 import { Renderer, type Ghost } from "../render/renderer";
 import type { Command } from "../sim/commands";
@@ -15,13 +15,15 @@ import {
   type FrontHit,
   type FrontState,
 } from "../ui/frontScreen";
-import { drawHud, hudH, layoutButtons, minimapRect, panelX, TOP_H, type HudButton, type MenuPage } from "../ui/hud";
+import { commandSets, compass, describeTask, hudH, layoutButtons, type HudButton, type MenuPage } from "../ui/hud";
+import { createShell, type Shell, type ShellCommand } from "../ui/shell";
 import { SkirmishAI, type Difficulty } from "../ai/skirmish";
 import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
 import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
+import { WEAPON_OF } from "../sim/relic";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const EDGE = 14;
@@ -62,6 +64,8 @@ export class Game {
   private acc = 0;
   private last = performance.now();
   private running = true;
+  /** Last menu state pushed to the chrome, so the class is only toggled on change. */
+  private shownMenu = true;
   /** Whether this player's king has already been proclaimed, so it happens once. */
   private crowned = false;
   /** Test hook: number of ticks simulated. */
@@ -84,6 +88,10 @@ export class Game {
   private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
   private settingsPanel: SettingsPanel | null = null;
+  /** The DOM chrome: top bar, command bar, minimap. Null in headless tests. */
+  private shell: Shell | null = null;
+  /** Which command tab is showing. */
+  private tab = "build";
   private pauseButton: PauseButton | null = null;
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
@@ -128,6 +136,24 @@ export class Game {
     this.resize();
     const home = this.world.map.starts[0]!;
     this.cam.centerOn((home.x + 1) * SUB, (home.y + 1) * SUB);
+    // The chrome first: it re-parents the canvas into its own grid row, and the
+    // camera's size comes from that element rather than from the window.
+    if (typeof document !== "undefined" && document.body) {
+      this.shell = createShell(this.canvas);
+      this.shell.onCommand((a) => this.runAction(a));
+      this.shell.onTab((id) => {
+        this.tab = id;
+      });
+      this.shell.onPause(() => this.setPaused(!this.paused));
+      this.shell.onSettings(() => this.settingsPanel?.toggle());
+      this.bindMinimap(this.shell.minimap);
+      // The game opens on the front screen, which wants the whole window. The
+      // frame loop only toggles this on a change, so the opening state has to
+      // be set here or it never gets set at all.
+      this.shell.setPlaying(!this.menu);
+      this.shownMenu = this.menu;
+      this.resize();
+    }
     this.bind();
     // The panel is DOM, not canvas, so it is skipped in headless tests where
     // there is no document to hang it on.
@@ -228,8 +254,16 @@ export class Game {
     if (!this.running) return;
     const dt = Math.min(250, now - this.last);
     this.last = now;
+    // Chrome on or off, and the canvas resized to match, but only when it
+    // actually changes -- this runs sixty times a second.
+    if (this.menu !== this.shownMenu) {
+      this.shownMenu = this.menu;
+      this.shell?.setPlaying(!this.menu);
+      this.resize();
+    }
     if (this.menu) {
-      this.render(0);
+      // The front screen fills the canvas by itself; there is nothing to show
+      // behind it.
       this.drawMenu();
       requestAnimationFrame(this.frame);
       return;
@@ -363,11 +397,48 @@ export class Game {
 
   // ───────────────────────────── camera ─────────────────────────────
 
+  /**
+   * The canvas is one row of the shell's grid, not the window.
+   *
+   * Its backing store is set to the element's own pixel size, so the map fills
+   * exactly the space the layout gave it and the camera's idea of its extent
+   * matches what a click lands on. Without the shell -- headless tests -- it
+   * falls back to the window, where it is the only thing on the page.
+   */
   private resize(): void {
-    const dpr = 1; // Keep 1:1 for crisp, cheap rendering; bump for retina later.
-    this.canvas.width = window.innerWidth * dpr;
-    this.canvas.height = window.innerHeight * dpr;
-    this.cam.resize(this.canvas.width, this.canvas.height - hudH(this.canvas.height));
+    const host = this.shell?.viewport;
+    const w = host ? Math.max(1, Math.round(host.clientWidth)) : window.innerWidth;
+    const h = host ? Math.max(1, Math.round(host.clientHeight)) : window.innerHeight;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    // Without the shell the old bottom bar is still notionally there.
+    this.cam.resize(w, host ? h : h - hudH(h));
+    const mm = this.shell?.minimap;
+    if (mm) {
+      mm.width = Math.max(1, Math.round(mm.clientWidth));
+      mm.height = Math.max(1, Math.round(mm.clientHeight));
+    }
+  }
+
+  /** Click or drag the minimap to move the camera. */
+  private bindMinimap(mm: HTMLCanvasElement): void {
+    const jump = (e: MouseEvent) => {
+      const r = mm.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / Math.max(1, r.width);
+      const fy = (e.clientY - r.top) / Math.max(1, r.height);
+      this.cam.centerOn(fx * this.world.map.width * SUB - this.cam.viewW / this.cam.zoom / 2 * SUB, fy * this.world.map.height * SUB - this.cam.viewH / this.cam.zoom / 2 * SUB);
+    };
+    mm.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      jump(e);
+      const move = (m: MouseEvent) => jump(m);
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    });
   }
 
   private updateCamera(dt: number): void {
@@ -419,19 +490,14 @@ export class Game {
     window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
   }
 
+  /**
+   * The canvas holds the map and nothing else now, so every point on it is in
+   * the viewport. The bars above and below are elements, and the minimap has a
+   * canvas of its own -- neither can be clicked through to the map by accident,
+   * which is what these three tests used to be for.
+   */
   private inViewport(x: number, y: number): boolean {
-    return y >= TOP_H && y < this.canvas.height - hudH(this.canvas.height);
-  }
-  private inMinimap(x: number, y: number): boolean {
-    const m = minimapRect(this.canvas.width, this.canvas.height);
-    return x >= m.x && x < m.x + m.size && y >= m.y && y < m.y + m.size;
-  }
-  private minimapToWorld(x: number, y: number): { x: number; y: number } {
-    const m = minimapRect(this.canvas.width, this.canvas.height);
-    return {
-      x: ((x - m.x) / m.size) * this.world.map.width * SUB,
-      y: ((y - m.y) / m.size) * this.world.map.height * SUB,
-    };
+    return x >= 0 && y >= 0 && x < this.canvas.width && y < this.canvas.height;
   }
 
   private onMouseDown(e: MouseEvent): void {
@@ -458,15 +524,6 @@ export class Game {
       }
     }
     if (e.button === 0) {
-      if (this.inMinimap(x, y)) {
-        const w = this.minimapToWorld(x, y);
-        this.cam.centerOn(w.x, w.y);
-        return;
-      }
-      if (y >= this.canvas.height - hudH(this.canvas.height)) {
-        this.clickHud(x, y);
-        return;
-      }
       if (!this.inViewport(x, y)) return;
       if (this.buildMode) {
         this.tryPlace();
@@ -484,11 +541,6 @@ export class Game {
     } else if (e.button === 2) {
       if (this.buildMode) {
         this.buildMode = null;
-        return;
-      }
-      if (this.inMinimap(x, y)) {
-        const w = this.minimapToWorld(x, y);
-        this.contextOrder(w.x, w.y);
         return;
       }
       if (!this.inViewport(x, y)) return;
@@ -664,21 +716,14 @@ export class Game {
       if (btn.enabled) this.runButton(btn);
       return;
     }
-    // Queue item click → cancel.
-    const sb = this.selectedBuildings();
-    if (sb.length === 1 && this.selectedUnits().length === 0) {
-      const b = sb[0]!;
-      const y0 = this.canvas.height - hudH(this.canvas.height);
-      const px = panelX(this.canvas.height);
-      if (y >= y0 + 80 && y < y0 + 104) {
-        const i = Math.floor((x - (px + 56)) / 64);
-        if (i >= 0 && i < b.queue.length) this.issue({ type: "cancelTrain", player: this.player, building: b.id, index: i });
-      }
-    }
   }
 
   private runButton(btn: HudButton): void {
-    const a = btn.action;
+    this.runAction(btn.action);
+  }
+
+  /** One place a command turns into something happening, whatever pressed it. */
+  private runAction(a: HudButton["action"]): void {
     switch (a.type) {
       case "build":
         this.buildMode = a.def;
@@ -878,7 +923,7 @@ export class Game {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const selUnits = this.selectedUnits();
     const selBuildings = this.selectedBuildings();
-    this.renderer.draw(alpha, this.selected, this.ghost(), this.drag, this.canvas.height - hudH(this.canvas.height));
+    this.renderer.draw(alpha, this.selected, this.ghost(), this.drag, this.canvas.height);
     // Rally point for a selected building.
     for (const b of selBuildings) {
       if (!b.rally) continue;
@@ -891,17 +936,13 @@ export class Game {
       ctx.fillStyle = "#9cff9c";
       ctx.fillRect(p.x, p.y - 14, 8, 5);
     }
+    // Hotkeys still resolve against a laid-out card, because the keyboard has
+    // to work whether or not the chrome exists (it does not, headless).
     this.buttons = layoutButtons(this.world, this.player, selUnits, selBuildings, this.canvas.width, this.canvas.height, this.menuPage);
-    const hover = this.buttons.find((b) => this.mouse.x >= b.x && this.mouse.x < b.x + b.w && this.mouse.y >= b.y && this.mouse.y < b.y + b.h) ?? null;
-    const msg = this.message && performance.now() < this.message.until ? this.message : null;
-    const mode = this.buildMode ? `Placing ${BUILDINGS[this.buildMode]!.name} — click to place, right-click to cancel` : null;
-    drawHud(ctx, this.world, this.player, selUnits, selBuildings, this.buttons, hover, this.canvas.width, this.canvas.height, msg, mode);
-    this.drawBanner(ctx);
+
     // A paused game that looks identical to a running one is a support ticket.
-    // The settings panel says so itself, so this only appears when the panel is
-    // shut.
     if (this.paused && !this.menu && this.settingsPanel?.open !== true) {
-      const cy = (this.canvas.height - hudH(this.canvas.height)) / 2;
+      const cy = this.canvas.height / 2;
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -911,7 +952,7 @@ export class Game {
       ctx.lineWidth = 1;
       ctx.strokeRect(this.canvas.width / 2 - 96.5, cy - 26.5, 193, 53);
       ctx.fillStyle = "#e2e8f0";
-      ctx.font = "600 20px system-ui, sans-serif";
+      ctx.font = "600 20px Georgia, serif";
       ctx.fillText("PAUSED", this.canvas.width / 2, cy - 5);
       ctx.fillStyle = "#94a3b8";
       ctx.font = "12px system-ui, sans-serif";
@@ -935,7 +976,114 @@ export class Game {
     } else {
       this.surrenderRect = null;
     }
-    const mm = minimapRect(this.canvas.width, this.canvas.height);
-    this.renderer.drawMinimap(mm.x, mm.y, mm.size, true);
+
+    this.updateShell(selUnits, selBuildings);
   }
+
+  /**
+   * Hand this frame's state to the chrome.
+   *
+   * Everything here is a read of the simulation turned into strings and
+   * fractions. The shell cannot reach back: it raises actions, and those go
+   * through the same runAction the keyboard uses.
+   */
+  private updateShell(selUnits: Unit[], selBuildings: Building[]): void {
+    const shell = this.shell;
+    if (!shell || this.menu) return;
+    const p = this.world.players.get(this.player)!;
+    const sup = this.world.supply(this.player);
+    const sets = commandSets(this.world, this.player, selUnits, selBuildings);
+    if (!sets.byTab[this.tab] || !sets.tabs.some((t) => t.id === this.tab)) this.tab = sets.tabs[0]?.id ?? "orders";
+
+    // Elapsed match time, read as a day and a clock: twenty ticks a second, and
+    // a "day" every four minutes, which is about the length of an opening.
+    const secs = Math.floor(this.world.tick / TICKS_PER_SECOND);
+    const day = Math.floor(secs / 240) + 1;
+    const inDay = secs % 240;
+    const clock = `${String(Math.floor((inDay / 240) * 24)).padStart(2, "0")}:${String(Math.floor(((inDay / 240) * 24 % 1) * 60)).padStart(2, "0")}`;
+
+    // What is selected, said once.
+    let selection: { name: string; sub: string; hp: number; maxHp: number } | null = null;
+    let production: { name: string; progress: number; eta: string } | null = null;
+    const b = selBuildings[0];
+    if (selUnits.length > 0) {
+      const u = selUnits[0]!;
+      const def = UNITS[u.def]!;
+      const name = selUnits.length > 1 ? `${selUnits.length} selected` : unitName(u.def, p.faction).toUpperCase();
+      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others` : `${def.royal ? "Hero" : "Unit"} · ${describeTask(u)}`;
+      selection = { name, sub, hp: u.hp, maxHp: u.maxHp };
+    } else if (b) {
+      const d = BUILDINGS[b.def]!;
+      selection = { name: buildingName(b.def, p.faction).toUpperCase(), sub: b.complete ? "Structure" : "Under construction", hp: b.hp, maxHp: b.maxHp };
+      if (!b.complete) {
+        production = { name: buildingName(b.def, p.faction), progress: b.progress / d.buildTime, eta: eta((d.buildTime - b.progress) / TICKS_PER_SECOND) };
+      } else if (b.queue.length > 0) {
+        const q = b.queue[0]!;
+        const u = UNITS[q.unit]!;
+        production = { name: unitName(q.unit, p.faction), progress: 1 - q.remaining / Math.max(1, q.total), eta: eta(q.remaining / TICKS_PER_SECOND) };
+      }
+    }
+
+    // The line across the top of the map: whatever is most worth saying.
+    const msg = this.message && performance.now() < this.message.until ? this.message.text : null;
+    const mode = this.buildMode ? `Placing ${buildingName(this.buildMode, p.faction)} — click to place, right-click to cancel` : null;
+    const site = this.world.buildings().find((x) => x.owner === this.player && !x.complete);
+    const banner = mode ?? msg ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
+
+    const relic = this.world.relics.find((r) => r.owner === this.player && !r.taken);
+    let objective: { title: string; line: string } | null = null;
+    if (relic && this.world.winner === null) {
+      const man = selUnits[0] ?? this.world.units().find((u) => u.owner === this.player) ?? null;
+      const weapon = WEAPON_OF[p.faction].name;
+      if (man) {
+        const dx = relic.x + 0.5 - man.pos.x / SUB;
+        const dy = relic.y + 0.5 - man.pos.y / SUB;
+        objective = {
+          title: `FIND YOUR ${weapon.toUpperCase()}`,
+          line: `No king, no hall — until he takes it up. It lies ${Math.round(Math.hypot(dx, dy))} paces to the ${compass(dx, dy)}.`,
+        };
+      }
+    }
+
+    const bn = this.banner && performance.now() < this.banner.until ? this.banner : null;
+    if (!bn) this.banner = null;
+
+    shell.update({
+      gold: p.gold,
+      lumber: p.lumber,
+      oil: p.oil,
+      supplyUsed: sup.used,
+      supplyMax: sup.max,
+      day,
+      clock,
+      selection,
+      production,
+      tabs: sets.tabs,
+      activeTab: this.tab,
+      commands: (sets.byTab[this.tab] ?? []) as ShellCommand[],
+      banner: objective || !banner ? null : banner,
+      objective,
+      proclaim: bn ? { title: bn.title, line: bn.line } : null,
+      mapName: this.map.name,
+      paused: this.paused,
+    });
+
+    const mm = shell.minimap;
+    const mctx = mm.getContext("2d");
+    if (mctx) {
+      mctx.clearRect(0, 0, mm.width, mm.height);
+      // Square, centred: the map is square and the panel is not, so letterbox
+      // rather than stretch. A stretched minimap lies about where things are.
+      const size = Math.min(mm.width, mm.height);
+      this.renderer.drawMinimap((mm.width - size) / 2, (mm.height - size) / 2, size, true, mctx);
+    }
+  }
+
+}
+
+
+/** Seconds as m:ss, for the little countdowns in the selection panel. */
+function eta(secs: number): string {
+  const n = Math.max(0, Math.ceil(secs));
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 }
