@@ -78,6 +78,10 @@ export class Game {
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
   private readonly audio = new Audio();
+  /** Exposed for headless tests; the game itself uses the field directly. */
+  get audioForTest(): Audio {
+    return this.audio;
+  }
 
   /** The map this match is being played on. */
   map: MapDef = MAPS[0]!;
@@ -109,6 +113,10 @@ export class Game {
         this.last = performance.now();
         this.acc = 0;
         this.difficulty = settings.difficulty;
+        // Volume, mute and the score's own switch all land here.
+        if (settings.music) this.audio.startMusic();
+        else this.audio.stopMusic();
+        this.audio.syncMusic();
       });
     }
     requestAnimationFrame(this.frame);

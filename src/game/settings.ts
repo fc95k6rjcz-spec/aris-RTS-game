@@ -18,6 +18,10 @@ export interface Settings {
   volume: number;
   /** Effects gain relative to master, 0..1. */
   sfxVolume: number;
+  /** Score gain relative to master, 0..1. */
+  musicVolume: number;
+  /** The ambient score. Off leaves the effects alone. */
+  music: boolean;
   muted: boolean;
   /** Ticks are asked for this many times faster than real time. */
   gameSpeed: number;
@@ -57,6 +61,10 @@ export interface Settings {
 export const DEFAULTS: Settings = {
   volume: 0.7,
   sfxVolume: 0.8,
+  // The score sits well under the effects on purpose: it is weather, not a
+  // soundtrack, and it should never be the reason you miss a building going up.
+  musicVolume: 0.45,
+  music: true,
   muted: false,
   gameSpeed: 1,
   animations: true,
@@ -112,6 +120,8 @@ export function loadSettings(): void {
     const o = JSON.parse(raw) as Partial<Settings>;
     settings.volume = clamp(o.volume, 0, 1, DEFAULTS.volume);
     settings.sfxVolume = clamp(o.sfxVolume, 0, 1, DEFAULTS.sfxVolume);
+    settings.musicVolume = clamp(o.musicVolume, 0, 1, DEFAULTS.musicVolume);
+    settings.music = o.music !== false;
     settings.muted = o.muted === true;
     settings.gameSpeed = clamp(o.gameSpeed, 0.5, 3, DEFAULTS.gameSpeed);
     settings.animations = o.animations !== false;
@@ -156,4 +166,9 @@ export function resetSettings(): void {
 /** Effective gain for a sound effect, once master, effects and mute are applied. */
 export function sfxGain(): number {
   return settings.muted ? 0 : settings.volume * settings.sfxVolume;
+}
+
+/** The same, for the score. */
+export function musicGain(): number {
+  return settings.muted || !settings.music ? 0 : settings.volume * settings.musicVolume;
 }

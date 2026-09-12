@@ -152,7 +152,14 @@ function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, iw: nu
   ctx.drawImage(img, (W - iw * scale) / 2, (H - ih * scale) / 2, iw * scale, ih * scale);
 }
 
-/** Fit the whole picture inside the frame. Returns the box it landed in. */
+/**
+ * Fit the picture inside the frame, less whatever is trimmed off the bottom.
+ *
+ * The painting has PRESS ANY KEY lettered into it near the foot, so showing all
+ * of it and then drawing the prompt gave two of them, one above the other. The
+ * bottom tenth is cropped away instead: the painted prompt goes, the painted
+ * title stays, and the one on screen is the one that pulses.
+ */
 function drawContain(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
@@ -160,13 +167,15 @@ function drawContain(
   ih: number,
   W: number,
   H: number,
+  cropBottom = 0,
 ): { x: number; y: number; w: number; h: number } {
-  const scale = Math.min(W / iw, H / ih);
+  const sh = ih * (1 - cropBottom);
+  const scale = Math.min(W / iw, H / sh);
   const w = iw * scale;
-  const h = ih * scale;
+  const h = sh * scale;
   const x = (W - w) / 2;
   const y = (H - h) / 2;
-  ctx.drawImage(img, x, y, w, h);
+  ctx.drawImage(img, 0, 0, iw, sh, x, y, w, h);
   return { x, y, w, h };
 }
 
@@ -194,7 +203,7 @@ function drawSplash(ctx: CanvasRenderingContext2D, W: number, H: number): FrontH
 
   const art = menuArt();
   let box = { x: 0, y: 0, w: W, h: H };
-  if (art) box = drawContain(ctx, art, art.naturalWidth, art.naturalHeight, W, H);
+  if (art) box = drawContain(ctx, art, art.naturalWidth, art.naturalHeight, W, H, 0.12);
   else drawSubstitute(ctx, W, H);
 
   // Seat the prompt on something, whatever the picture does down there.
@@ -293,7 +302,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
     }
     case "credits": {
       const rows: Row[] = [
-        { numeral: "", label: "Design & Code", hint: "Justin Caruana", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
+        { numeral: "", label: "Made By", hint: "Ari Caruana, 8 years old", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
         { numeral: "", label: "Built With", hint: "TypeScript · Vite", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
         { numeral: "", label: "Engine", hint: "Deterministic lockstep sim", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
         { numeral: "", label: "Build", hint: VERSION, enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },

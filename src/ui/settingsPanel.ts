@@ -123,7 +123,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   const slider = (
     parent: HTMLElement,
     label: string,
-    key: "volume" | "sfxVolume" | "gameSpeed" | "scrollSpeed",
+    key: "volume" | "sfxVolume" | "musicVolume" | "gameSpeed" | "scrollSpeed",
     min: number,
     max: number,
     step: number,
@@ -151,7 +151,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     return sync;
   };
 
-  const check = (parent: HTMLElement, label: string, key: "muted" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
+  const check = (parent: HTMLElement, label: string, key: "muted" | "music" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
     const r = row(parent, label);
     const input = el("input");
     input.type = "checkbox";
@@ -172,7 +172,9 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   syncs.push(check(audio, "Mute", "muted"));
   syncs.push(slider(audio, "Master volume", "volume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
   syncs.push(slider(audio, "Effects", "sfxVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
-  audio.appendChild(el("p", "rts-note", "Sound starts on your first click. Off-screen fighting is quieter than what is in front of you."));
+  syncs.push(check(audio, "Score", "music"));
+  syncs.push(slider(audio, "Score volume", "musicVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
+  audio.appendChild(el("p", "rts-note", "Sound starts on your first click. Off-screen fighting is quieter than what is in front of you. The score is a drone and a few scattered notes — it is meant to sit under the game, not over it."));
 
   const gfx = group("Display");
   syncs.push(check(gfx, "Unit animation", "animations", "Bob, lean and idle motion. Turn off for a steadier picture on a slow machine."));
