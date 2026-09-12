@@ -541,6 +541,26 @@ export class World {
   }
 
   /** Nearest resource tile of a type to a position, searching outward. */
+  /**
+   * The closest thing worth working, of either kind.
+   *
+   * Exists for the Harvest order. Right-clicking a trunk stopped being reliable
+   * once peasants could walk into a wood: a click that lands a pixel off a tree
+   * is now a move order, and the worker strolls into the forest and stands
+   * there. A button that just says "go and work" needs somewhere to send him.
+   */
+  nearestResource(tx: number, ty: number, radius = 24): { x: number; y: number; resource: "lumber" | "gold" } | null {
+    const wood = this.findResourceNear(tx, ty, Tile.Tree, radius);
+    const gold = this.findResourceNear(tx, ty, Tile.Gold, radius);
+    const d = (p: [number, number] | null): number => (p ? (p[0] - tx) ** 2 + (p[1] - ty) ** 2 : Infinity);
+    if (!wood && !gold) return null;
+    // Gold is the scarcer of the two, so it wins a near-tie rather than losing
+    // one: a seam eight tiles off beats a trunk seven tiles off.
+    const pick = d(gold) <= d(wood) * 1.6 && gold ? gold : (wood ?? gold)!;
+    const isGold = gold !== null && pick[0] === gold[0] && pick[1] === gold[1];
+    return { x: pick[0], y: pick[1], resource: isGold ? "gold" : "lumber" };
+  }
+
   private findResourceNear(tx: number, ty: number, tile: Tile, radius = 8): [number, number] | null {
     let best: [number, number] | null = null;
     let bestD = Infinity;

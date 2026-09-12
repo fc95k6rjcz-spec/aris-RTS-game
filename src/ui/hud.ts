@@ -108,7 +108,8 @@ export interface HudButton {
     | { type: "page"; page: MenuPage }
     | { type: "research"; id: string }
     | { type: "cancelResearch" }
-    | { type: "attack" };
+    | { type: "attack" }
+    | { type: "harvest" };
 }
 
 /** Which page of the build menu a worker's command card is showing. */
@@ -165,10 +166,17 @@ export function layoutButtons(world: World, player: PlayerId, selUnits: Unit[], 
     put(last + 1, "Stop", "X", true, "Stop current task", { type: "stop" });
     if (page === "basic") put(last + 2, "More", "V", true, "Further structures", { type: "page", page: "advanced" });
     else put(last + 2, "Back", "Esc", true, "Back to the main structures", { type: "page", page: "basic" });
+    if (selUnits.some((u) => UNITS[u.def]!.canGather)) {
+      put(last + 3, "Harvest", "Q", true, "Send to the nearest wood or gold and start working", { type: "harvest" });
+    }
   } else if (selUnits.length > 0) {
     const fighters = selUnits.some((u) => UNITS[u.def]!.damage > 0);
     if (fighters) put(0, "Attack", "A", true, "Attack-move: advance and engage what you meet", { type: "attack" });
-    put(fighters ? 1 : 0, "Stop", "X", true, "Stop current task", { type: "stop" });
+    let n = fighters ? 1 : 0;
+    put(n++, "Stop", "X", true, "Stop current task", { type: "stop" });
+    if (selUnits.some((u) => UNITS[u.def]!.canGather)) {
+      put(n++, "Harvest", "Q", true, "Send to the nearest wood or gold and start working", { type: "harvest" });
+    }
   } else if (selBuildings.length === 1 && selBuildings[0]!.owner === player) {
     const b = selBuildings[0]!;
     const d = BUILDINGS[b.def]!;

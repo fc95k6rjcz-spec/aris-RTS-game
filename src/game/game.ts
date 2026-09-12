@@ -78,6 +78,16 @@ export class Game {
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
   private readonly audio = new Audio();
+  /** Exposed for headless tests: commands queued but not yet stepped. */
+  get pendingForTest(): Command[] {
+    return this.pending;
+  }
+
+  /** Exposed for headless tests: the command card as laid out this frame. */
+  get buttonsForTest(): HudButton[] {
+    return this.buttons;
+  }
+
   /** Exposed for headless tests; the game itself uses the field directly. */
   get audioForTest(): Audio {
     return this.audio;
@@ -589,6 +599,26 @@ export class Game {
       case "train": {
         const b = this.selectedBuildings()[0];
         if (b) this.issue({ type: "train", player: this.player, building: b.id, unit: a.def });
+        break;
+      }
+      case "harvest": {
+        // Each worker is sent to his own nearest node rather than all of them to
+        // one, so selecting six and pressing Harvest spreads them over the wood
+        // instead of queueing them at a single trunk.
+        const gatherers = this.selectedUnits().filter((u) => UNITS[u.def]!.canGather);
+        if (gatherers.length === 0) {
+          this.toast("Select a Worker first");
+          break;
+        }
+        let sent = 0;
+        for (const u of gatherers) {
+          const node = this.world.nearestResource(Math.floor(u.pos.x / SUB), Math.floor(u.pos.y / SUB));
+          if (!node) continue;
+          this.issue({ type: "gather", player: this.player, units: [u.id], tx: node.x, ty: node.y });
+          sent++;
+        }
+        if (sent === 0) this.toast("Nothing to harvest nearby");
+        else this.toast(sent === 1 ? "Off to work" : `${sent} sent to work`, "info");
         break;
       }
       case "cancelBuild": {
