@@ -1,0 +1,516 @@
+<title>Road to Warcraft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --paper: #efe7d6;
+    --paper-2: #e6dcc7;
+    --ink: #221d16;
+    --ink-soft: #554c3e;
+    --ink-faint: #7d7261;
+    --navy: #1e3a5f;
+    --navy-ink: #f3ece0;
+    --gold: #a8862a;
+    --rule: #cbbc9e;
+    --oxide: #8c3b2e;
+    --moss: #4a6b39;
+    --shadow: rgba(60, 45, 20, 0.16);
+    --display: "Cinzel", Georgia, "Times New Roman", serif;
+    --body: "Spectral", Georgia, "Times New Roman", serif;
+    --ui: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #16130f;
+      --paper-2: #1e1a15;
+      --ink: #e9e0cd;
+      --ink-soft: #b6aa93;
+      --ink-faint: #8a7e69;
+      --navy: #33587f;
+      --navy-ink: #f3ece0;
+      --gold: #dbb54c;
+      --rule: #3b342a;
+      --oxide: #d0705c;
+      --moss: #8fb473;
+      --shadow: rgba(0, 0, 0, 0.5);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #16130f;
+    --paper-2: #1e1a15;
+    --ink: #e9e0cd;
+    --ink-soft: #b6aa93;
+    --ink-faint: #8a7e69;
+    --navy: #33587f;
+    --navy-ink: #f3ece0;
+    --gold: #dbb54c;
+    --rule: #3b342a;
+    --oxide: #d0705c;
+    --moss: #8fb473;
+    --shadow: rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+  }
+
+  .sheet {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 40px 28px 90px;
+  }
+
+  /* ── masthead ─────────────────────────────────────────── */
+  header { text-align: center; padding: 20px 0 30px; }
+
+  .eyebrow {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(30px, 6vw, 50px);
+    letter-spacing: 0.03em;
+    margin: 10px 0 6px;
+    text-wrap: balance;
+  }
+
+  .sub {
+    font-style: italic;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0 auto;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 26px 0 34px;
+    color: var(--gold);
+  }
+  .divider::before, .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--rule), transparent);
+  }
+  .divider span { font-size: 13px; letter-spacing: 0.4em; }
+
+  /* ── standing ─────────────────────────────────────────── */
+  .standing {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--moss);
+    padding: 22px 26px;
+    margin-bottom: 12px;
+  }
+  .standing h2, .gap h2 {
+    font-family: var(--display);
+    font-size: 19px;
+    margin: 0 0 12px;
+    letter-spacing: 0.03em;
+  }
+  .standing p:last-child, .gap p:last-child { margin-bottom: 0; }
+
+  .gap {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--oxide);
+    padding: 22px 26px;
+    margin-bottom: 40px;
+  }
+
+  /* ── phases ───────────────────────────────────────────── */
+  .phase {
+    display: grid;
+    grid-template-columns: 62px 1fr;
+    gap: 22px;
+    padding: 30px 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .badge {
+    width: 46px;
+    height: 58px;
+    background: var(--navy);
+    color: var(--navy-ink);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 21px;
+    display: grid;
+    place-items: center;
+    clip-path: polygon(0 0, 100% 0, 100% 74%, 50% 100%, 0 74%);
+    box-shadow: 2px 3px 0 var(--shadow);
+  }
+
+  .phase h3 {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0 0 3px;
+    letter-spacing: 0.02em;
+    text-wrap: balance;
+  }
+
+  .meta {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 12px;
+  }
+  .meta .size { color: var(--gold); }
+
+  .why {
+    font-style: italic;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+  }
+
+  .phase ul { margin: 0; padding-left: 20px; }
+  .phase li { margin-bottom: 7px; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.86em;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+
+  .test {
+    font-family: var(--ui);
+    font-size: 13px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: var(--paper-2);
+    border-left: 3px solid var(--gold);
+    color: var(--ink-soft);
+  }
+  .test strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* ── closing sections ─────────────────────────────────── */
+  .section-head {
+    font-family: var(--display);
+    font-size: 24px;
+    letter-spacing: 0.03em;
+    margin: 54px 0 6px;
+    text-wrap: balance;
+  }
+  .section-head + p { margin-top: 0; color: var(--ink-soft); }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 18px;
+    margin-top: 22px;
+  }
+  .card {
+    border: 1px solid var(--rule);
+    padding: 18px 20px;
+    background: var(--paper-2);
+  }
+  .card h4 {
+    font-family: var(--ui);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0 0 8px;
+  }
+  .card p { margin: 0; font-size: 15.5px; }
+
+  .cut {
+    border: 1px dashed var(--rule);
+    padding: 20px 24px;
+    margin-top: 22px;
+  }
+  .cut ul { margin: 10px 0 0; padding-left: 20px; }
+  .cut li { margin-bottom: 6px; }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--ui);
+    font-size: 13px;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+
+  @media (max-width: 560px) {
+    .sheet { padding: 26px 18px 70px; }
+    .phase { grid-template-columns: 44px 1fr; gap: 14px; }
+    .badge { width: 36px; height: 46px; font-size: 17px; }
+  }
+</style>
+
+<div class="sheet">
+  <header>
+    <div class="eyebrow">OpenRTS &middot; Development Plan</div>
+    <h1>Road to Warcraft</h1>
+    <p class="sub">What separates the current build from a real-time strategy game people would
+      choose to play — and the order to close it in.</p>
+  </header>
+
+  <div class="divider"><span>&#10022;</span></div>
+
+  <div class="standing">
+    <h2>Where it actually stands</h2>
+    <p>The economy loop is complete and tested: workers gather gold and lumber, nine buildings
+      place, construct, train and upgrade through ten painted tiers each, and land, sea and air
+      units path around terrain that suits them. The simulation is deterministic and
+      command-driven, which is the expensive architectural decision most hobby RTS projects get
+      wrong and have to redo.</p>
+    <p>That is roughly the first third of an RTS, and it is the least fun third. What exists is a
+      city-builder with no opponent.</p>
+  </div>
+
+  <div class="gap">
+    <h2>What "as good as Warcraft" really means</h2>
+    <p>Not the art — yours is already better than Warcraft II's. The gap is that Warcraft is a
+      game about <em>decisions under pressure</em>: an opponent forces you to choose between
+      economy and army, your units respond crisply enough that losing feels like your fault, and
+      the map hides information so scouting matters. None of that exists yet. Phases 1 through 4
+      below are not polish — they are the game.</p>
+  </div>
+
+  <div class="phase">
+    <div class="badge">1</div>
+    <div>
+      <h3>Combat and death</h3>
+      <div class="meta"><span class="size">Large</span> &middot; The single biggest unlock</div>
+      <p class="why">Until units can kill each other there is no game, only a diorama. Everything
+        after this phase is refinement; this phase is the difference between a toy and a game.</p>
+      <ul>
+        <li>Attack damage, armour, range and cooldown in <code>data/units.ts</code>; damage
+          resolution and death in <code>World.step()</code>.</li>
+        <li>Acquisition: idle units auto-attack hostiles that come within range, and attack-move
+          as an order type alongside <code>move</code>.</li>
+        <li>Projectiles for archers and bombers — travel time matters, instant hits feel cheap.</li>
+        <li>Unit collision and separation. This is the one you cannot skip: units currently stack
+          on one tile, and armies will read as a blob without it.</li>
+        <li>Wire the Foundry's armour and the Watch Tower's radius into real combat maths rather
+          than the placeholder HP bonus and vision circle they drive today.</li>
+        <li>Building damage, rubble and a defeat condition.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> two roughly equal armies meet, one wins, and
+        watching it happen tells you which side played better.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">2</div>
+    <div>
+      <h3>Fog of war</h3>
+      <div class="meta"><span class="size">Medium</span> &middot; Makes scouting a decision</div>
+      <p class="why">Perfect information kills strategy — you cannot bluff, raid or be surprised.
+        Fog is also what makes the Watch Tower worth building.</p>
+      <ul>
+        <li>Per-player visibility grid updated from unit and building sight radii; unexplored,
+          explored-but-unseen, and visible states.</li>
+        <li>Remembered terrain and buildings under the shroud; units hidden until seen.</li>
+        <li>Renderer draws the shroud as a cached overlay so it costs one blit, not a per-tile pass.</li>
+        <li>The minimap must respect fog, or it leaks everything the fog just hid.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> you genuinely do not know what your opponent
+        is building without sending someone to look.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">3</div>
+    <div>
+      <h3>An opponent worth beating</h3>
+      <div class="meta"><span class="size">Large</span> &middot; Where single-player lives or dies</div>
+      <p class="why">A scripted AI that gathers, expands and attacks on a timer is enough to make
+        the game playable. An AI that reacts to what it scouts is what makes it replayable.</p>
+      <ul>
+        <li>Build-order executor: a declarative opening per difficulty, driven through the same
+          <code>Command</code> queue a human uses — never by mutating state directly.</li>
+        <li>Worker allocation that rebalances gold and lumber against what the build order needs.</li>
+        <li>Attack waves with rally, regroup and retreat-when-losing behaviour.</li>
+        <li>Difficulty through better decisions and earlier timings, not resource cheats — players
+          can always feel a cheating AI, and it teaches them nothing.</li>
+        <li>Expansion to a second gold mine when the first runs low.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> the medium AI beats you the first time you
+        play, and you can explain exactly what it did.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">4</div>
+    <div>
+      <h3>Feel and control</h3>
+      <div class="meta"><span class="size">Medium</span> &middot; Cheap to build, enormous payoff</div>
+      <p class="why">This is the phase most amateur RTS projects skip, and the reason they feel
+        amateur. Warcraft's controls are invisible; yours are still noticeable.</p>
+      <ul>
+        <li>Control groups (Ctrl+1–9), double-click select-all-of-type, box-select respecting unit
+          priority, and Tab to cycle subgroups.</li>
+        <li>Idle-worker key. Nothing else you build will save players as much time.</li>
+        <li>Order feedback: click markers, waypoint queueing with Shift, audible and visual
+          acknowledgement that a command registered.</li>
+        <li>Sound. Selection barks, combat, construction, and a "your building is under attack"
+          alert. Silence is the loudest thing missing right now.</li>
+        <li>Smooth unit turning and acceleration instead of instant facing changes.</li>
+        <li>Fix the hotkey collision: with a worker selected, <code>S</code> and <code>W</code>
+          build instead of panning the camera.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> you stop noticing the controls.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">5</div>
+    <div>
+      <h3>Depth: tech, counters and a second faction</h3>
+      <div class="meta"><span class="size">Large</span> &middot; Turns one match into a hundred</div>
+      <p class="why">Ten building tiers is progression, but it is not yet strategy — every tier is
+        strictly better than the last, so there is no choice, only a queue. Choice comes from
+        options that beat each other.</p>
+      <ul>
+        <li>A counter triangle: infantry beat archers, archers beat flyers, flyers beat siege.
+          Armour classes and damage types in the data tables, not in code.</li>
+        <li>Branching upgrades where a tier makes you pick one of two, so two players' tech paths
+          differ.</li>
+        <li>Give the Clans their own units and building art. They currently reuse Human sprites
+          with a colour tint, which is the most visible remaining shortcut.</li>
+        <li>Hero units or a signature ability per faction — Warcraft III's real innovation, and
+          what makes matches memorable rather than merely balanced.</li>
+        <li>Population cap tuning so armies have a natural ceiling and composition matters.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> two good players open differently and both
+        openings are defensible.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">6</div>
+    <div>
+      <h3>Maps and modes</h3>
+      <div class="meta"><span class="size">Medium</span></div>
+      <ul>
+        <li>Hand-authored maps in a simple JSON format, plus a map editor — even a crude one, since
+          you will otherwise author maps by editing numbers.</li>
+        <li>Better generation: guaranteed-fair mirrored starts, chokepoints, expansion sites and
+          verified path connectivity between every start pair.</li>
+        <li>A short campaign. Missions with objectives teach the game far better than a tutorial
+          popup, and are where your art will shine.</li>
+        <li>Victory conditions beyond annihilation, and a post-match summary screen.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">7</div>
+    <div>
+      <h3>Multiplayer</h3>
+      <div class="meta"><span class="size">Large</span> &middot; Cheaper than usual, because of a choice you already made</div>
+      <p class="why">The sim was built deterministic and command-driven from day one, so lockstep
+        is an addition rather than a rewrite. Do not start it until Phase 1 is finished — netcode
+        over a game with no combat tests nothing.</p>
+      <ul>
+        <li><strong>Prove determinism first.</strong> A state-hash test that replays a seed and
+          command log and compares hashes every tick. Until that exists, lockstep will desync and
+          you will have no way to find out why.</li>
+        <li>Move <code>facing</code> out of sim state, or replace <code>Math.atan2</code> — its
+          results are not guaranteed identical across JavaScript engines.</li>
+        <li>Lobby and matchmaking on Supabase; command relay over WebRTC with a WebSocket fallback.</li>
+        <li>Turn-delay lockstep with input buffering, plus a desync detector that dumps both
+          hashes rather than silently diverging.</li>
+        <li>Replays come free once the command log is authoritative — record it, ship it.</li>
+      </ul>
+      <div class="test"><strong>Done when:</strong> a 20-minute game between two machines ends with
+        identical state hashes.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="badge">8</div>
+    <div>
+      <h3>Production polish</h3>
+      <div class="meta"><span class="size">Medium</span></div>
+      <ul>
+        <li>Serve sprites as separate cached files instead of inlining 90 base64 PNGs into one
+          4.5&nbsp;MB HTML file; add a loading screen and lazy-load higher tiers.</li>
+        <li>Retina rendering — the canvas currently ignores <code>devicePixelRatio</code> and looks
+          soft on good screens.</li>
+        <li>Performance pass at 400+ units: spatial hash for target acquisition, dirty-rect or
+          batched drawing, flow fields instead of per-unit A*.</li>
+        <li>Settings: hotkey rebinding, volume, scroll speed, resolution.</li>
+        <li>Save and load a match, which falls out of the command log almost free.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="section-head">Three things to keep doing throughout</h2>
+  <p>These are not phases; they are habits that decide whether the phases stay cheap.</p>
+  <div class="cards">
+    <div class="card">
+      <h4>Guard the sim boundary</h4>
+      <p>Nothing outside <code>sim/</code> may mutate state except by issuing a
+        <code>Command</code>. Every shortcut here costs you multiplayer and replays later.</p>
+    </div>
+    <div class="card">
+      <h4>Tune in data, not code</h4>
+      <p>Balance belongs in <code>data/</code> tables. If changing a unit's damage means editing
+        a function, balancing the game becomes an engineering task and you will do it less.</p>
+    </div>
+    <div class="card">
+      <h4>Extend the headless playtest</h4>
+      <p>It already drives real sessions and catches real bugs. Add a case with every feature —
+        it is the only thing that will let you refactor combat without fear.</p>
+    </div>
+  </div>
+
+  <h2 class="section-head">What I would cut</h2>
+  <p>Scope is the thing that kills projects like this, and it usually arrives disguised as ambition.</p>
+  <div class="cut">
+    <ul>
+      <li><strong>More buildings and tiers.</strong> Nine buildings at ten tiers is already more
+        content than Warcraft II shipped with. Adding a tenth building is the most enjoyable way
+        to avoid writing combat.</li>
+      <li><strong>3D, or an engine port.</strong> Your art is 2D isometric and it looks excellent.
+        A port buys nothing and costs everything.</li>
+      <li><strong>Ranked ladders, accounts, cosmetics.</strong> These serve a player base you do
+        not have yet.</li>
+      <li><strong>Perfect balance before Phase 3.</strong> You cannot balance a game you cannot
+        play against an opponent. Ship rough numbers and fix them with real matches.</li>
+    </ul>
+  </div>
+
+  <h2 class="section-head">The honest summary</h2>
+  <p>Phases 1 to 4 are the game, and they are perhaps two-thirds of the remaining work to something
+    genuinely fun. Phase 5 is what makes it worth replaying. Phases 6 to 8 are what make it worth
+    releasing. If you only ever finish Phase 1, you will have a real RTS; if you finish Phase 4,
+    you will have one that feels good to play — and that, more than content volume, is what people
+    actually mean when they say a game is as good as Warcraft.</p>
+
+  <footer>OpenRTS &middot; drafted against the current build &middot; nine buildings, ten tiers, no combat yet</footer>
+</div>

@@ -1,0 +1,30 @@
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const html = readFileSync("dist/index.html", "utf8");
+const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+await page.setContent(html);
+await page.waitForFunction(() => !!window.game);
+await page.screenshot({ path: "test/shot-menu2.png" });
+await page.evaluate(() => {
+  const g = window.game, SUB = 64;
+  g.start("none");
+  const w = g.world;
+  const p = w.players.get(1); p.gold = 99999; p.lumber = 99999;
+  // Stage a battle in the open ground west of the lake.
+  const cx = 20, cy = 24;
+  for (let y = cy - 4; y < cy + 5; y++) for (let x = cx - 5; x < cx + 6; x++) if (w.map.get(x,y) !== 2) w.map.set(x, y, 0);
+  for (let i = 0; i < 6; i++) w.spawnUnit(1, "footman", { x: (cx - 3 + i * 0.5) * SUB, y: (cy - 1 + i * 0.4) * SUB });
+  for (let i = 0; i < 4; i++) w.spawnUnit(1, "archer", { x: (cx - 5 + i * 0.6) * SUB, y: (cy + 1.5) * SUB });
+  w.spawnUnit(1, "knight", { x: (cx - 4) * SUB, y: (cy + 3) * SUB });
+  for (let i = 0; i < 6; i++) w.spawnUnit(2, "footman", { x: (cx + 3 + i * 0.5) * SUB, y: (cy - 1 + i * 0.4) * SUB });
+  for (let i = 0; i < 3; i++) w.spawnUnit(2, "archer", { x: (cx + 5 + i * 0.6) * SUB, y: (cy + 1.5) * SUB });
+  const mine = w.units().filter(u => u.owner === 1 && u.def !== "worker").map(u => u.id);
+  g.issue({ type: "attackMove", player: 1, units: mine, x: (cx + 5) * SUB, y: cy * SUB });
+  for (let i = 0; i < 150; i++) g.tick();
+  g.cam.zoom = 54; g.cam.centerOn(cx * SUB, cy * SUB);
+  g.select(mine.slice(0, 4));
+});
+await page.waitForTimeout(700);
+await page.screenshot({ path: "test/shot-battle.png" });
+await browser.close();

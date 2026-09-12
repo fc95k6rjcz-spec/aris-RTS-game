@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const html = readFileSync("dist/index.html", "utf8");
+const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const page = await browser.newPage({ viewport: { width: 1200, height: 1300 } });
+await page.setContent(html);
+await page.waitForFunction(() => !!window.drawStyleSheet);
+await page.evaluate(() => { window.game.stop(); window.drawStyleSheet(document.getElementById("game"), "#3b82f6", 7); });
+const el = await page.$("#game");
+await el.screenshot({ path: "test/shot-styles.png" });
+await browser.close();
