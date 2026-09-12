@@ -21,6 +21,16 @@ export interface UpgradeLevel {
   armour?: number;
   /** Added to attack range, in tiles. */
   range?: number;
+  /**
+   * Marks an upgrade that changes the ground rather than a unit.
+   *
+   * Every other upgrade here makes a named unit better. Paving makes the roads
+   * better, which is to say it makes everything that walks on them better, so
+   * it has no unit list and nothing reads its numbers except the movement code.
+   * The field exists so the HUD can tell the difference and describe it without
+   * claiming a Knight got thicker plate.
+   */
+  ground?: boolean;
 }
 
 export interface UpgradeDef {
@@ -37,6 +47,16 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: Record<string, UpgradeDef> = {
+  paving: {
+    id: "paving",
+    name: "Paved Ways",
+    // The Mill cuts and hauls; laying a road is the same trade.
+    host: "lumbermill",
+    units: [],
+    hotkey: "5",
+    description: "Lay stone over the tracks your people have already beaten. Every worn path carries twice the advantage.",
+    levels: [{ cost: { gold: 300, lumber: 250 }, time: 20 * 60, ground: true }],
+  },
   barding: {
     id: "barding",
     name: "Barding",

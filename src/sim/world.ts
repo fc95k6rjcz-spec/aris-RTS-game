@@ -23,6 +23,25 @@ export const TICKS_PER_SECOND = 20;
  * made the opening a shopping trip; this makes it a decision.
  */
 export const START_PURSE = { gold: 450, lumber: 300, oil: 0 };
+/**
+ * Everything moves at this fraction of its listed speed.
+ *
+ * Kept as one number rather than halving every unit's `speed` in the data,
+ * because the data is the design ("a Knight is half again as quick as a
+ * Footman") and this is the tuning ("the whole game is too fast"). Changing the
+ * design to express a tuning decision loses the reason for both.
+ */
+const MOVE_SCALE = 0.5;
+
+/** Most a fully beaten dirt track can add to a unit's pace. */
+const PATH_BONUS = 0.35;
+
+/** The same, once the ways are paved. */
+const PAVED_BONUS = 0.7;
+
+/** Wear taken off the whole map, a slice at a time, so disused paths grow over. */
+const DECAY_SLICE = 256;
+
 const HARVEST_TICKS = 20 * 3; // 3 s per trip
 const DEPOSIT_TICKS = 10;
 const CANCEL_REFUND = 0.75;
@@ -33,7 +52,22 @@ const MAX_HEIRS = 3;
 const GRIND_TICKS = 20 * 2;
 
 /** People who turn up the moment a King is crowned. */
-const FOLLOWERS = 4;
+/**
+ * Who turns up when the weapon is lifted, and who follows on.
+ *
+ * Four men appearing out of thin air the instant the sword leaves the ground
+ * was the single most-asked-about moment in the game, and the honest answer was
+ * "because otherwise the walk changes nothing when it ends" -- which is a
+ * reason for something to happen, not a reason for four somethings to happen at
+ * once. One man is standing there when you are crowned. The rest hear about it
+ * and come, one at a time, over the next couple of minutes, which is both more
+ * believable and a better opening: you start alone enough that the first
+ * decisions matter, and the clan gathering is something you watch happen.
+ */
+const FOLLOWERS_AT_ONCE = 1;
+const FOLLOWERS_LATER = 3;
+/** Ticks between each of the latecomers. */
+const FOLLOWER_GAP = 20 * 40;
 
 /** What a King may raise without the usual chain of buildings behind it. */
 const ROYAL_LICENCE = new Set(["tower"]);
@@ -76,6 +110,8 @@ export type FxEvent =
   | { kind: "hit"; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
   | { kind: "death"; x: number; y: number; def: string; owner: PlayerId; facing: number; building: boolean }
   | { kind: "built"; x: number; y: number; def: string }
+  /** Ground broken: the moment a site is pegged out and the crew start. */
+  | { kind: "buildStart"; x: number; y: number; def: string }
   | { kind: "deposit"; x: number; y: number; resource: "gold" | "lumber" }
   | { kind: "chop"; id: EntityId; x: number; y: number }
   | { kind: "crowned"; x: number; y: number; owner: PlayerId };
@@ -148,6 +184,38 @@ export class World {
    * from somewhere, and "somewhere" is home.
    */
   readonly homes = new Map<PlayerId, { x: number; y: number }>();
+  /** Followers still walking in to a crowned King, by player. */
+  private readonly latecomers = new Map<PlayerId, { left: number; at: number }>();
+
+  /**
+   * Word spreads. One more of the clan arrives at the hall, or at the King if
+   * there is no hall yet, every forty seconds until they have all come in.
+   */
+  private stepLatecomers(): void {
+    for (const [player, state] of this.latecomers) {
+      if (this.tick < state.at) continue;
+      let at: { x: number; y: number } | null = null;
+      for (const e of this.entities.values()) {
+        if (e.owner !== player) continue;
+        if (e.kind === "building") {
+          at = centerOf(e);
+          break;
+        }
+        if (e.kind === "unit" && UNITS[e.def]!.royal && !at) at = { x: e.pos.x, y: e.pos.y };
+      }
+      if (!at) {
+        // Nobody left to come to. Stop rather than spawning into nothing.
+        this.latecomers.delete(player);
+        continue;
+      }
+      this.spawnUnit(player, "worker", at);
+      this.emit(player, "Another of your clan has come in.", "info");
+      state.left--;
+      if (state.left <= 0) this.latecomers.delete(player);
+      else state.at = this.tick + this.paced(FOLLOWER_GAP);
+    }
+  }
+
   /** Earliest tick each clan may send its next man out. */
   private readonly nextHeir = new Map<PlayerId, number>();
 
@@ -290,7 +358,7 @@ export class World {
     ] as const;
     let placed = 0;
     for (const [dx, dy] of ring) {
-      if (placed >= FOLLOWERS) break;
+      if (placed >= FOLLOWERS_AT_ONCE) break;
       const tx = Math.floor(king.pos.x / SUB) + dx;
       const ty = Math.floor(king.pos.y / SUB) + dy;
       if (!this.map.isWalkable(tx, ty, "land")) continue;
@@ -299,11 +367,13 @@ export class World {
     }
     // If he was crowned somewhere tight, they can still stand on his own tile
     // rather than simply never arriving.
-    while (placed < FOLLOWERS) {
+    while (placed < FOLLOWERS_AT_ONCE) {
       this.spawnUnit(king.owner, "worker", { x: king.pos.x, y: king.pos.y });
       placed++;
     }
-    this.emit(king.owner, `${FOLLOWERS} followers have come to serve the King`, "info");
+    // The rest are on their way.
+    this.latecomers.set(king.owner, { left: FOLLOWERS_LATER, at: this.tick + this.paced(FOLLOWER_GAP) });
+    this.emit(king.owner, "A man of your clan has come to serve. Others are on the road.", "info");
   }
 
   /**
@@ -677,6 +747,7 @@ export class World {
         const d = BUILDINGS[c.building]!;
         this.spend(c.player, d.cost);
         const b = this.placeBuilding(c.player, c.building, c.tx, c.ty)!;
+        this.fx.push({ kind: "buildStart", x: (c.tx + b.size / 2) * SUB, y: (c.ty + b.size / 2) * SUB, def: b.def });
         for (const u of workers) {
           u.task = { kind: "build", building: b.id };
           this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), true);
@@ -884,6 +955,8 @@ export class World {
     this.pumpOil();
     this.checkDiscovery();
     this.checkRelics();
+    this.stepLatecomers();
+    this.decayPaths();
     this.checkVictory();
     // Projectiles are cosmetic; advance and retire them.
     for (const p of this.projectiles) p.t += p.speed;
@@ -1549,6 +1622,42 @@ export class World {
   }
 
   /** Advance along the path. Returns true when the path is exhausted. */
+  /**
+   * Wear a tile down a little. Only open ground takes a path: you cannot beat a
+   * track into a lake, and a tile of forest is not a track until the trees are
+   * gone, at which point it is grass and eligible like anything else.
+   */
+  private tread(tx: number, ty: number, amount: number): void {
+    const t = this.map.get(tx, ty);
+    if (t !== Tile.Grass && t !== Tile.Dirt) return;
+    const i = this.map.idx(tx, ty);
+    this.map.wear[i] = Math.min(255, this.map.wear[i]! + amount);
+  }
+
+  /** How much a fully worn path is worth to this player, paved or not. */
+  private pathBonus(player: PlayerId): number {
+    return (this.players.get(player)?.research.paving ?? 0) > 0 ? PAVED_BONUS : PATH_BONUS;
+  }
+
+  /**
+   * Paths grow over when nobody uses them.
+   *
+   * Without this the whole board is a road within ten minutes, because wear only
+   * ever went up. A slice of the map is swept each tick rather than all of it,
+   * so the cost is flat and small however big the board is; a tile loses a
+   * point roughly every thirteen seconds, against the twenty a single crossing
+   * puts on. A route in daily use stays a road. A route you used once while
+   * scouting goes back to grass.
+   */
+  private decayPaths(): void {
+    const n = this.map.wear.length;
+    const slice = Math.ceil(n / DECAY_SLICE);
+    const from = (this.tick % DECAY_SLICE) * slice;
+    for (let i = from; i < Math.min(n, from + slice); i++) {
+      if (this.map.wear[i]! > 0) this.map.wear[i]!--;
+    }
+  }
+
   private followPath(u: Unit): boolean {
     if (u.path.length === 0) return true;
     const def = UNITS[u.def]!;
@@ -1568,9 +1677,16 @@ export class World {
       while (u.path.length > 0 && u.path[0]![0] === utx && u.path[0]![1] === uty) u.path.shift();
       if (u.path.length === 0) return true;
     }
-    let speed = def.speed;
+    // Everything moves at half the pace it used to.
+    //
+    // The board is 160 tiles across and armies were crossing it faster than you
+    // could think about what they were crossing it for, which makes ground
+    // worth nothing: if a march is instant then holding a pass is not a
+    // decision. Halving it makes distance a cost, which is what makes the next
+    // paragraph worth having.
+    let speed = def.speed * MOVE_SCALE;
     // Swimmers move at roughly half pace while they are in the water.
-    if (def.domain === "amphibious" && this.isAfloat(u)) speed = Math.max(1, Math.round(speed * 0.5));
+    if (def.domain === "amphibious" && this.isAfloat(u)) speed *= 0.5;
     // Pushing through standing timber: a third of the pace. The wood is not a
     // wall any more, it is a cost -- and that is the whole tactical value of a
     // forest, because a defender who knows the ground can hold the open lane
@@ -1578,7 +1694,20 @@ export class World {
     if (def.domain === "land" || def.domain === "amphibious") {
       const tx0 = Math.floor(u.pos.x / SUB);
       const ty0 = Math.floor(u.pos.y / SUB);
-      if (this.map.inBounds(tx0, ty0) && this.map.get(tx0, ty0) === Tile.Tree) speed = Math.max(1, Math.round(speed * 0.35));
+      if (this.map.inBounds(tx0, ty0)) {
+        const t0 = this.map.get(tx0, ty0);
+        if (t0 === Tile.Tree) speed *= 0.35;
+        else if (!this.isAfloat(u)) {
+          // A beaten path is easier going. Nobody builds these; they appear
+          // under the traffic that is already happening, which is why they end
+          // up exactly where they are useful.
+          const worn = this.map.wear[this.map.idx(tx0, ty0)]! / 255;
+          speed *= 1 + worn * this.pathBonus(u.owner);
+          // And walking it wears it further. Capped, so a path becomes a path
+          // and not a motorway.
+          this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);
+        }
+      }
     }
     // An Icebreaker in the pack is grinding, not sailing: she stops dead on a
     // floe until it has broken, then carries on into the next one. Merely

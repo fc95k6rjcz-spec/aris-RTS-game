@@ -23,7 +23,7 @@ import { musicGain, sfxGain } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build";
+export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
@@ -36,6 +36,7 @@ const CROWD_MS: Record<SoundName, number> = {
   coin: 120,
   chop: 110,
   build: 300,
+  workstart: 400,
 };
 
 /** Most voices allowed to start in one tick, whatever the battle is doing. */
@@ -110,22 +111,24 @@ export class Audio {
     return buf;
   }
 
-  private burst(dur: number, gain: number, type: BiquadFilterType, freq: number, q: number, sweepTo?: number): void {
+  /** `delay` lets a caller place two strikes apart rather than on top of each other. */
+  private burst(dur: number, gain: number, type: BiquadFilterType, freq: number, q: number, sweepTo?: number, delay = 0): void {
     const ctx = this.ctx!;
+    const t = ctx.currentTime + delay;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
     src.loop = true;
     const f = ctx.createBiquadFilter();
     f.type = type;
-    f.frequency.value = freq;
+    f.frequency.setValueAtTime(freq, t);
     f.Q.value = q;
-    if (sweepTo !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), ctx.currentTime + dur);
+    if (sweepTo !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), t + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0008, ctx.currentTime + dur);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     src.connect(f).connect(g).connect(this.master!);
-    src.start();
-    src.stop(ctx.currentTime + dur + 0.02);
+    src.start(t);
+    src.stop(t + dur + 0.02);
   }
 
   private tone(type: OscillatorType, from: number, to: number, dur: number, gain: number, delay = 0): void {
@@ -199,6 +202,16 @@ export class Audio {
         // A wooden knock: dense low band, gone almost at once.
         this.burst(0.09, 0.45, "bandpass", 320, 3.2, 190);
         this.tone("triangle", 190, 120, 0.09, 0.1);
+        break;
+      case "workstart":
+        // Ground broken. A horn note to call them over, then two mallet strikes
+        // on a peg -- the sound of a site being set out rather than finished.
+        // Deliberately unlike "build": that one is a thing completed and rings
+        // upward; this one is flatter and ends on the wood.
+        this.tone("triangle", 196, 262, 0.42, 0.16);
+        this.tone("triangle", 147, 196, 0.42, 0.12, 0.02);
+        this.burst(0.1, 0.3, "bandpass", 900, 1.4, 380);
+        this.burst(0.1, 0.26, "bandpass", 820, 1.4, 340, 0.17);
         break;
       case "build":
         this.tone("sine", 320, 480, 0.16, 0.2);
@@ -458,6 +471,9 @@ export class Audio {
           break;
         case "built":
           this.play("build", vol);
+          break;
+        case "buildStart":
+          this.play("workstart", vol);
           break;
         case "deposit":
           this.play("coin", vol * (e.resource === "gold" ? 1 : 0.7));

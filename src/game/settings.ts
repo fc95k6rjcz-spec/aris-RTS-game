@@ -78,7 +78,11 @@ export const DEFAULTS: Settings = {
   stockade: true,
   crowning: true,
   wildlife: true,
-  pace: 1,
+  // Twice as long for everything: building, training, gathering, research.
+  // At 1 the whole arc of a match went past before you had decided what you
+  // wanted from it. Movement is halved separately, in the simulation, because
+  // that is about distance being worth something rather than about pacing.
+  pace: 2,
 };
 
 const KEY = "openrts.settings.v1";

@@ -73,6 +73,20 @@ export class GameMap {
    * receipt. It is cosmetic -- nothing in the simulation reads it.
    */
   readonly felled: Uint8Array;
+  /**
+   * How worn each tile is, 0 to 255: the path people have beaten into it.
+   *
+   * Feet wear ground down. A tile that gets walked over repeatedly becomes a
+   * track, and a track is easier going than raw grass, so the route your
+   * workers actually use gets quicker the more they use it. It is the one piece
+   * of terrain in the game the player shapes without deciding to -- the paths
+   * between your hall, your wood and your mine draw themselves, and where they
+   * run tells you what your economy has been doing.
+   *
+   * Part of the simulation, not the picture: it changes how fast units move, so
+   * both machines in a network game must agree about it to the byte.
+   */
+  readonly wear: Uint8Array;
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -109,6 +123,7 @@ export class GameMap {
     this.occupant = new Int32Array(width * height);
     this.amount = new Int32Array(width * height);
     this.felled = new Uint8Array(width * height);
+    this.wear = new Uint8Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 

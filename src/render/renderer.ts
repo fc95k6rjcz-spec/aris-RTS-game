@@ -111,6 +111,8 @@ export class Renderer {
     ctx.rect(0, 0, cam.viewW, viewH);
     ctx.clip();
     this.drawTerrain();
+    // Tracks go on the ground, under everything that stands on it.
+    this.drawPaths();
     this.drawOreCarts(alpha);
     this.drawGoldMines();
     this.drawTrees();
@@ -411,6 +413,56 @@ export class Renderer {
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
     ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * The tracks people have beaten into the ground.
+   *
+   * Drawn live rather than baked, because wear changes constantly and rebaking a
+   * terrain chunk every time somebody walks across it would be absurd. It is
+   * three rounded blobs per tile at an alpha that follows how worn the tile is,
+   * which at any distance reads as a path rather than as a row of squares.
+   *
+   * Paved roads are the same shape in grey with a pale edge, so an upgraded
+   * route is recognisable at a glance without being a different system.
+   */
+  private drawPaths(): void {
+    const s = this.cam.zoom;
+    const map = this.world.map;
+    const paved = (this.world.players.get(1)?.research.paving ?? 0) > 0;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const ctx = this.ctx;
+    ctx.save();
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const w = map.wear[map.idx(x, y)]!;
+        if (w < 24 || map.isHidden(x, y)) continue;
+        const t = map.get(x, y);
+        if (t !== Tile.Grass && t !== Tile.Dirt) continue;
+        const a = Math.min(0.72, (w / 255) * (paved ? 0.85 : 0.7));
+        const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
+        const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        ctx.fillStyle = paved ? `rgba(126,124,120,${a})` : `rgba(104,82,52,${a})`;
+        // Three overlapping blobs, jittered per tile, so the track wanders.
+        for (let i = 0; i < 3; i++) {
+          const jx = (((h >> (i * 5)) & 31) / 31 - 0.5) * s * 0.34;
+          const jy = (((h >> (i * 5 + 3)) & 31) / 31 - 0.5) * s * 0.34;
+          ctx.beginPath();
+          ctx.ellipse(p.x + jx, p.y + jy, s * 0.3, s * 0.24, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (paved && s > 22) {
+          ctx.strokeStyle = `rgba(182,180,174,${a * 0.5})`;
+          ctx.lineWidth = Math.max(1, s * 0.03);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, s * 0.34, s * 0.27, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    ctx.restore();
   }
 
   /**
@@ -838,9 +890,46 @@ export class Renderer {
 
   // ───────────────────────────── units ─────────────────────────────
 
+  /**
+   * Whether this unit is currently inside something and should not be drawn.
+   *
+   * A man at a gold seam is down the shaft, and a man delivering a load has
+   * walked in through the door. Leaving him standing on the roof of the Town
+   * Hall with a sack, or hovering in the mouth of the mine, is the sort of
+   * thing you stop noticing while you are making the game and everybody
+   * notices the moment they play it.
+   *
+   * Purely a drawing decision. He is still there, still selectable, still doing
+   * the work -- the simulation has no idea any of this is happening, which is
+   * how it has to be, because two machines running a network game must agree
+   * about the world and they are allowed to disagree about the picture.
+   */
+  private indoors(u: Unit): boolean {
+    const t = u.task;
+    if (t.kind !== "gather") return false;
+    // Down the shaft, or through the door with a load.
+    return (t.phase === "harvest" && t.resource === "gold") || t.phase === "deposit";
+  }
+
   private drawUnit(u: Unit, alpha: number, selected: boolean): void {
     const ctx = this.ctx;
     const s = this.cam.zoom;
+    if (this.indoors(u)) {
+      // A ring stays where he went in, so a selected worker is not simply lost.
+      if (selected) {
+        const pv = this.prev.get(u.id) ?? u.pos;
+        const q = this.cam.toScreen(pv.x, pv.y);
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = "#9cff9c";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(q.x, q.y + s * 0.42, s * 0.4, s * 0.17, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      return;
+    }
     const pv = this.prev.get(u.id) ?? u.pos;
     const wx = pv.x + (u.pos.x - pv.x) * alpha;
     const wy = pv.y + (u.pos.y - pv.y) * alpha;
