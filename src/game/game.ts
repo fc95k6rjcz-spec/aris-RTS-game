@@ -556,13 +556,55 @@ export class Game {
     }
   }
 
-  /** Click or drag the minimap to move the camera. */
+  /**
+   * Where the map square actually sits inside the minimap's canvas.
+   *
+   * The map is square and the panel is not, so the square is centred and the
+   * spare width is a margin. This function exists because that sum used to be
+   * written out twice -- once where the minimap is drawn and once where a click
+   * on it is read -- and the two copies did not agree. Anything that needs the
+   * layout asks here, so they cannot drift apart again.
+   */
+  private static minimapLayout(mm: HTMLCanvasElement): { x: number; y: number; size: number } {
+    const size = Math.min(mm.width, mm.height);
+    return { x: (mm.width - size) / 2, y: (mm.height - size) / 2, size };
+  }
+
+  /**
+   * Click or drag the minimap to move the camera.
+   *
+   * This was out by a long way, in two directions at once, and both mistakes
+   * are the easy ones to make:
+   *
+   *   - it measured the click across the WHOLE canvas element and treated that
+   *     as the whole map. The map is drawn as a centred square, so on a panel
+   *     wider than it is tall every click was stretched horizontally and
+   *     shifted by half the margin. Clicking the right-hand edge of the panel
+   *     jumped somewhere past the right edge of the map;
+   *   - and it subtracted half a viewport before calling `centerOn`, which
+   *     subtracts half a viewport itself. The camera landed half a screen up
+   *     and to the left of the spot you clicked, every time.
+   *
+   * Both are now one conversion: canvas pixels in, tile position out, centred
+   * on it. A click in the margin clamps to the edge of the map rather than
+   * doing nothing, so dragging off the side keeps panning the way you expect.
+   */
   private bindMinimap(mm: HTMLCanvasElement): void {
     const jump = (e: MouseEvent) => {
       const r = mm.getBoundingClientRect();
-      const fx = (e.clientX - r.left) / Math.max(1, r.width);
-      const fy = (e.clientY - r.top) / Math.max(1, r.height);
-      this.cam.centerOn(fx * this.world.map.width * SUB - this.cam.viewW / this.cam.zoom / 2 * SUB, fy * this.world.map.height * SUB - this.cam.viewH / this.cam.zoom / 2 * SUB);
+      if (r.width <= 0 || r.height <= 0) return;
+      const { x, y, size } = Game.minimapLayout(mm);
+      if (size <= 0) return;
+      // CSS pixels to canvas pixels. They are the same today because `resize`
+      // sets the backing store from the element's client size, but a device
+      // pixel ratio or a CSS transform would part them, and a minimap that is
+      // subtly wrong is worse than one that is obviously wrong.
+      const px = (e.clientX - r.left) * (mm.width / r.width) - x;
+      const py = (e.clientY - r.top) * (mm.height / r.height) - y;
+      const map = this.world.map;
+      const tx = Math.max(0, Math.min(map.width, (px / size) * map.width));
+      const ty = Math.max(0, Math.min(map.height, (py / size) * map.height));
+      this.cam.centerOn(tx * SUB, ty * SUB);
     };
     mm.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -1425,8 +1467,8 @@ export class Game {
       mctx.clearRect(0, 0, mm.width, mm.height);
       // Square, centred: the map is square and the panel is not, so letterbox
       // rather than stretch. A stretched minimap lies about where things are.
-      const size = Math.min(mm.width, mm.height);
-      this.renderer.drawMinimap((mm.width - size) / 2, (mm.height - size) / 2, size, true, mctx);
+      const { x, y, size } = Game.minimapLayout(mm);
+      this.renderer.drawMinimap(x, y, size, true, mctx);
     }
   }
 
