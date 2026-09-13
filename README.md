@@ -46,7 +46,8 @@ src/
   ai/         Skirmish AI. Issues Commands only — it never touches sim state.
   game/       Client orchestration: input → commands → fixed 20 Hz tick → render
 tools/        Sprite extraction from the painted progression sheets
-test/         Playwright headless playtest and screenshot gallery
+test/         Playwright headless playtest and screenshot gallery.
+              night.mjs covers sleeping men, camp fires and the wildlife.
 ```
 
 Key rule: **nothing outside `sim/` mutates sim state except by issuing a `Command`**.
@@ -84,5 +85,22 @@ identical state on every machine.
    through the same command queue a human uses. Still to come: reacting to what it
    scouts, expanding to a second mine, retreating when losing.
 4. Content — Clans faction art & roster (Humans are done), more buildings, upgrades, tech tree.
+
+   **The country** — the map is a place with things living in it. Bears are
+   territorial and worth sixty gold in hide; wolves come in packs of three or
+   four and are loudest after dark; deer bolt and need a horse to catch; cows
+   and sheep stand about and are worth walking to. Everything but the predators
+   is meat, and meat is food, so hunting is the fast way to a full larder and a
+   Farm is the slow one. Every animal calls, through the same deterministic
+   event stream a sword stroke uses, so both players in a network game hear the
+   same wolf.
+
+   **Night** — the day runs on a four-minute clock (`sim/weather.ts`). Camp
+   fires are laid across the map at world generation and beside every Town Hall
+   and Barracks, they burn low by day and throw real pools of light after dusk,
+   and men left standing idle in the dark lie down and sleep. Sleep is a paint
+   job and nothing else: a sleeper has the same hit points, sight and reach as a
+   man on his feet, and he is up again the moment he is given an order or
+   anything hostile comes within eleven tiles.
 5. Multiplayer — lobby (Supabase), lockstep over WebRTC, replay/desync detection built on
    the existing command stream. Requires a state-hash test first (see review notes).

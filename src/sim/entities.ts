@@ -30,6 +30,14 @@ export interface Unit {
   cooldown: number;
   /** What it is currently shooting at, for auto-acquired targets. */
   engaging: EntityId | null;
+  /** Consecutive ticks spent with nothing to do. Reset by any order. */
+  idleFor: number;
+  /**
+   * Lying down for the night. Purely how the unit is drawn: a sleeper fights,
+   * sees and takes damage exactly as a man on his feet does, and is on his feet
+   * the moment anything hostile comes near. See `World.stepRest`.
+   */
+  asleep: boolean;
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */

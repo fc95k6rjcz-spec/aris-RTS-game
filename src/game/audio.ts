@@ -23,7 +23,25 @@ import { musicGain, sfxGain } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart";
+export type SoundName =
+  | "sword"
+  | "bow"
+  | "boom"
+  | "impact"
+  | "death"
+  | "collapse"
+  | "coin"
+  | "chop"
+  | "build"
+  | "workstart"
+  /** A wolf, at length. */
+  | "howl"
+  /** A bear, briefly, and close enough to be a problem. */
+  | "growl"
+  | "moo"
+  | "bleat"
+  /** A deer's alarm bark: the sound of one noticing you first. */
+  | "snort";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
@@ -37,6 +55,23 @@ const CROWD_MS: Record<SoundName, number> = {
   chop: 110,
   build: 300,
   workstart: 400,
+  // Animals are ambience, and ambience that stacks is a farmyard. A pack of six
+  // wolves rolling a howl in the same second should be heard as one wolf
+  // answered by another, not as six.
+  howl: 1400,
+  growl: 900,
+  moo: 1100,
+  bleat: 700,
+  snort: 800,
+};
+
+/** Which noise each animal makes. */
+const CALL_OF: Record<string, SoundName> = {
+  wolf: "howl",
+  bear: "growl",
+  cow: "moo",
+  sheep: "bleat",
+  deer: "snort",
 };
 
 /** Most voices allowed to start in one tick, whatever the battle is doing. */
@@ -111,8 +146,11 @@ export class Audio {
     return buf;
   }
 
-  /** `delay` lets a caller place two strikes apart rather than on top of each other. */
-  private burst(dur: number, gain: number, type: BiquadFilterType, freq: number, q: number, sweepTo?: number, delay = 0): void {
+  /**
+   * `delay` lets a caller place two strikes apart rather than on top of each
+   * other; `dest` lets one escape the master gain -- see `callBus`.
+   */
+  private burst(dur: number, gain: number, type: BiquadFilterType, freq: number, q: number, sweepTo?: number, delay = 0, dest?: AudioNode): void {
     const ctx = this.ctx!;
     const t = ctx.currentTime + delay;
     const src = ctx.createBufferSource();
@@ -126,12 +164,12 @@ export class Audio {
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-    src.connect(f).connect(g).connect(this.master!);
+    src.connect(f).connect(g).connect(dest ?? this.master!);
     src.start(t);
     src.stop(t + dur + 0.02);
   }
 
-  private tone(type: OscillatorType, from: number, to: number, dur: number, gain: number, delay = 0): void {
+  private tone(type: OscillatorType, from: number, to: number, dur: number, gain: number, delay = 0, dest?: AudioNode): void {
     const ctx = this.ctx!;
     const t = ctx.currentTime + delay;
     const o = ctx.createOscillator();
@@ -142,7 +180,7 @@ export class Audio {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-    o.connect(g).connect(this.master!);
+    o.connect(g).connect(dest ?? this.master!);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
@@ -218,7 +256,140 @@ export class Audio {
         this.tone("sine", 480, 640, 0.2, 0.16, 0.11);
         this.burst(0.2, 0.22, "lowpass", 700, 0.7, 200);
         break;
+
+      // ── animals ──
+      //
+      // Every one of these is the same two ingredients as a sword stroke: a
+      // pitched oscillator and a band of filtered noise. What makes an animal
+      // rather than an instrument is the ENVELOPE. A howl is defined by taking
+      // most of a second to arrive and twice that to leave; a bark is defined
+      // by doing neither. Get the shape right and a sawtooth is a wolf.
+      case "howl": {
+        // Up onto the note, hold, and a long fall off the back of it. Two
+        // voices a few cents apart, which is what stops it sounding like a
+        // theremin -- a real howl is never quite one pitch.
+        const bus = this.callBus(vol);
+        this.cry(bus, "sawtooth", [300, 470, 500, 380], 2.0, 0.11, 900, 1.6);
+        this.cry(bus, "sawtooth", [296, 462, 494, 372], 2.1, 0.07, 780, 1.5, 0.09);
+        // A breath under it.
+        this.burst(1.4, 0.05, "bandpass", 620, 0.9, 380, 0.18, bus);
+        break;
+      }
+      case "growl": {
+        // Low, and modulated hard enough to be heard as a rasp rather than a
+        // note: that amplitude wobble is the whole character of the sound.
+        const bus = this.callBus(vol);
+        this.rasp(bus, 62, 0.75, 0.3, 24);
+        this.burst(0.62, 0.16, "lowpass", 420, 0.8, 180, 0, bus);
+        break;
+      }
+      case "moo": {
+        // Two-part, the way a cow actually does it: a short push, then the
+        // long fall. One continuous glide sounds like a foghorn.
+        const bus = this.callBus(vol);
+        this.cry(bus, "sawtooth", [168, 196, 188], 0.34, 0.13, 700, 1.2);
+        this.cry(bus, "sawtooth", [190, 150, 122], 0.85, 0.14, 620, 1.1, 0.3);
+        this.burst(0.5, 0.06, "lowpass", 700, 0.7, 260, 0.3, bus);
+        break;
+      }
+      case "bleat": {
+        // A sheep is a cow an octave up with a fast tremolo on it. The tremolo
+        // is not a flourish -- without it this is a kazoo.
+        const bus = this.callBus(vol);
+        this.rasp(bus, 430, 0.42, 0.1, 17, "square", 1500);
+        this.burst(0.2, 0.06, "bandpass", 1700, 1.1, 900, 0.04, bus);
+        break;
+      }
+      case "snort": {
+        // A chuff of air with almost no pitch in it, and gone at once.
+        const bus = this.callBus(vol);
+        this.burst(0.12, 0.3, "bandpass", 780, 1.0, 320, 0, bus);
+        this.tone("triangle", 220, 130, 0.1, 0.07, 0, bus);
+        break;
+      }
     }
+  }
+
+  /**
+   * A private output at a fixed volume, for a sound that lasts.
+   *
+   * Everything else here leans on a shortcut: `play` writes the volume it wants
+   * straight onto the master gain and the effect rides it. That is fine for a
+   * sword, which is over in a tenth of a second, and wrong for a two-second
+   * howl -- the next sword swung anywhere on the map would rewrite the master
+   * gain underneath it and the wolf would jump in volume mid-breath. Anything
+   * long enough to overlap something else gets its own node instead.
+   */
+  private callBus(vol: number): GainNode {
+    const g = this.ctx!.createGain();
+    g.gain.value = vol;
+    g.connect(this.ctx!.destination);
+    return g;
+  }
+
+  /**
+   * A pitched call that moves through a set of frequencies.
+   *
+   * `pts` are joined with exponential ramps spread evenly over `dur`, and the
+   * envelope opens over the first third and closes across the rest -- slow in,
+   * slower out, which is what a called note does and a struck one does not.
+   */
+  private cry(dest: AudioNode, type: OscillatorType, pts: number[], dur: number, gain: number, cut: number, q: number, delay = 0): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + delay;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(pts[0]!, t);
+    for (let i = 1; i < pts.length; i++) {
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, pts[i]!), t + (dur * i) / (pts.length - 1));
+    }
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = cut;
+    f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.32);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(f).connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  /**
+   * A note with its amplitude chewed up by a fast low-frequency oscillator.
+   *
+   * A growl and a bleat are the same trick at two ends of the register: a
+   * steady tone is an instrument, and the same tone with 20 Hz of tremolo on it
+   * is an animal.
+   */
+  private rasp(dest: AudioNode, hz: number, dur: number, gain: number, wobble: number, type: OscillatorType = "sawtooth", cut = 700): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(hz, t);
+    o.frequency.exponentialRampToValueAtTime(hz * 0.82, t + dur);
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = cut;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.18);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    // The wobble rides on the same gain node, so it cannot drift out of the
+    // envelope's way.
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = wobble;
+    const amt = ctx.createGain();
+    amt.gain.value = gain * 0.55;
+    lfo.connect(amt).connect(g.gain);
+    o.connect(f).connect(g).connect(dest);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
   }
 
 
@@ -483,6 +654,69 @@ export class Audio {
     r.filter.frequency.setTargetAtTime(1300 + amount * 2600, t, 0.6);
   }
 
+  /**
+   * A fire, as a sound.
+   *
+   * The same construction as the rain: one noise source started once and left
+   * running at zero gain, opened and closed by a filter. A fire differs from
+   * rain in one way that matters, which is that it is not a steady hiss -- it
+   * pops. So there is a second layer of short bursts fired off at irregular
+   * intervals on top of the bed, and that is entirely what makes it read as
+   * burning wood rather than as more weather.
+   *
+   * Driven from how much fire is near the camera, not from whether any exists:
+   * a camp on the far side of the map should be silent, exactly like a battle
+   * there is.
+   */
+  private fire: { gain: GainNode; filter: BiquadFilterNode; src: AudioBufferSourceNode; nextPop: number; lcg: number } | null = null;
+
+  /** Follow how much fire is close by, 0 to 1. Called every frame; cheap. */
+  setFire(amount: number): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const ctx = this.ctx;
+    if (!this.fire) {
+      if (amount <= 0) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      // Narrow and low: the body of a fire is a rush of air, and everything
+      // above about a kilohertz in white noise is a hiss that sounds like a
+      // broken speaker rather than like heat.
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 180;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 900;
+      filter.Q.value = 0.5;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(hp).connect(filter).connect(gain).connect(ctx.destination);
+      src.start();
+      this.fire = { gain, filter, src, nextPop: 0, lcg: 7717 };
+    }
+    const f = this.fire;
+    const t = ctx.currentTime;
+    // Quieter than the rain at full tilt: a fire is something you notice, not
+    // something you listen to.
+    f.gain.gain.setTargetAtTime(sfxGain() * amount * 0.3, t, 0.5);
+    f.filter.frequency.setTargetAtTime(700 + amount * 500, t, 0.6);
+
+    // Crackle. Scheduled off the wall clock rather than the sim tick because
+    // nothing about it is shared -- it is the one part of the soundscape that
+    // is genuinely just decoration on this machine.
+    if (amount <= 0.05) return;
+    const now = performance.now();
+    if (now < f.nextPop) return;
+    f.lcg = (f.lcg * 1664525 + 1013904223) >>> 0;
+    const r = f.lcg / 0xffffffff;
+    f.nextPop = now + 90 + r * 520 / Math.max(0.2, amount);
+    const bus = ctx.createGain();
+    bus.gain.value = sfxGain() * amount * (0.1 + r * 0.22);
+    bus.connect(ctx.destination);
+    this.burst(0.02 + r * 0.05, 0.5, "bandpass", 700 + r * 2200, 2.2, 300, 0, bus);
+  }
+
   /** Test hooks: whether audio started, and whether the score is running. */
   get readyForTest(): boolean {
     return this.ready;
@@ -505,8 +739,12 @@ export class Audio {
       const at = "x" in e ? e : null;
       if (!at) continue;
       const d = Math.hypot(at.x - view.x, at.y - view.y) / Math.max(SUB, view.r);
-      if (d > 1.5) continue;
-      const vol = Math.max(0, 1 - d / 1.5) ** 1.6;
+      // An animal carries further than a sword does. Two and a half screens for
+      // a howl against one and a half for everything else, and the falloff is
+      // gentler, so the wood off the edge of the view sounds occupied.
+      const reach = e.kind === "call" ? 2.6 : 1.5;
+      if (d > reach) continue;
+      const vol = Math.max(0, 1 - d / reach) ** 1.6;
       switch (e.kind) {
         case "attack":
           this.play(e.def === "cannon" ? "boom" : e.ranged ? "bow" : "sword", vol);
@@ -528,6 +766,13 @@ export class Audio {
           break;
         case "chop":
           this.play("chop", vol * 0.8);
+          break;
+        case "call":
+          // Louder than its distance would suggest, and deliberately. A call is
+          // the one sound in the game whose whole job is to come from somewhere
+          // you cannot see; attenuated like a sword stroke it would be silent
+          // exactly when it mattered.
+          this.play(CALL_OF[e.def] ?? "snort", Math.min(1, vol * 1.6));
           break;
       }
     }

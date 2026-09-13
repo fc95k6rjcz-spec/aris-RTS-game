@@ -170,6 +170,23 @@ const KEYS: Array<{ at: number; r: number; g: number; b: number; a: number }> = 
   { at: 1.0, r: 12, g: 20, b: 52, a: 0.52 },
 ];
 
+/**
+ * How dark it is, 0 through 1.
+ *
+ * Read off the same keyframes as the wash, so it can never disagree with what
+ * is on screen: it is the wash's own alpha, rescaled so that full night reads
+ * as 1 and a bright noon as 0. What it is for is the things that only make
+ * sense in the dark -- a camp fire's pool of light, a torch, a window lit from
+ * inside. Those want to come up as the light goes down, and they want to do it
+ * on exactly the same curve the sky does or the two will visibly disagree
+ * across dusk.
+ */
+export function darkness(tick: number): number {
+  const a = lightAt(tick).alpha;
+  // 0.52 is the alpha of the night keyframes; 0.06 is broad daylight.
+  return Math.min(1, Math.max(0, (a - 0.06) / (0.52 - 0.06)));
+}
+
 export function lightAt(tick: number): { css: string; alpha: number } {
   const t = dayAt(tick).through;
   let a = KEYS[0]!;

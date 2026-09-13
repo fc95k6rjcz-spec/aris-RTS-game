@@ -8,7 +8,7 @@ import { GameMap, type MapKind } from "./map";
 import { Vision, VISION_INTERVAL } from "./vision";
 import { findPath } from "./pathfinding";
 import { REACH, WEAPON_OF, type Relic } from "./relic";
-import { intensityAt, skyAt, type Sky } from "./weather";
+import { intensityAt, phaseAt, skyAt, type Sky } from "./weather";
 import type { Domain } from "../data/units";
 import { Rng } from "./rng";
 import { Faction, SUB, Tile, type EntityId, type Player, type PlayerId, type Vec } from "./types";
@@ -115,6 +115,36 @@ const FARM_FOOD_EVERY = 20 * 6;
 
 /** How close a person may come before a skittish animal bolts, in tiles. */
 const SPOOK = 7;
+
+/**
+ * How long a man must stand about at night before he lies down, in ticks.
+ *
+ * Six seconds. Long enough that a unit paused between two orders does not flop
+ * over mid-stride, short enough that a garrison left alone settles for the
+ * night while you are still watching it.
+ */
+const DROWSY = 20 * 6;
+
+/**
+ * How close a stranger may come before a sleeper is on his feet, in tiles.
+ *
+ * Comfortably wider than any weapon's watch radius, which is the point: men
+ * wake up BEFORE the fighting starts, so a night attack finds a camp rousing
+ * rather than a row of men being killed in their blankets. Sleep is atmosphere
+ * here, not a mechanic, and a mechanic is what that would be.
+ */
+const WAKE_NEAR = 11;
+
+/** How often a sleeper looks up to see whether anything is out there. */
+const WAKE_CHECK = 10;
+
+/**
+ * How often each animal considers making a noise, in ticks, and how likely it
+ * is to when it does.
+ *
+ * Staggered per animal by its id so a herd does not speak in chorus.
+ */
+const CALL_EVERY = 20 * 4;
 /** Chance a blow lands as a critical hit. */
 const CRIT_CHANCE = 0.08;
 /** What a critical hit multiplies the rolled damage by. */
@@ -149,7 +179,39 @@ export type FxEvent =
   | { kind: "buildStart"; x: number; y: number; def: string }
   | { kind: "deposit"; x: number; y: number; resource: "gold" | "lumber" }
   | { kind: "chop"; id: EntityId; x: number; y: number }
+  /**
+   * An animal made a noise. Which animal is all the sound needs to know.
+   *
+   * Rolled in the simulation rather than by the audio, for the same reason the
+   * weather is: it uses the seeded generator, so two machines watching the same
+   * wood hear the same wolf at the same moment. Nothing reads it back -- a howl
+   * changes no state -- but a sound that fired off a private timer would be the
+   * one thing in the game that differed between two players, and the whole
+   * point of routing it through here is that it cannot be.
+   */
+  | { kind: "call"; x: number; y: number; def: string }
   | { kind: "crowned"; x: number; y: number; owner: PlayerId };
+
+/**
+ * A fire somebody laid on the ground and left burning.
+ *
+ * Scenery with a job: it is what makes night worth having on screen. The
+ * daylight wash turns the whole picture blue after dusk, and a wash on its own
+ * is just a dark picture -- it needs something warm in it to be read as night
+ * rather than as a rendering fault. Fires are placed once, deterministically,
+ * and never move, so both machines in a network game light the same hearths.
+ */
+export interface Campfire {
+  /** World sub-units, at the centre of the ring of stones. */
+  x: number;
+  y: number;
+  /** Per-fire variation, so neighbouring flames do not flicker in step. */
+  seed: number;
+  /** A hearth beside a building, as opposed to a camp out in the country. */
+  hearth: boolean;
+  /** The building this hearth belongs to, if any. It goes out when that does. */
+  of?: EntityId;
+}
 
 /**
  * The whole game state. `step()` advances exactly one tick given the commands
@@ -417,6 +479,10 @@ export class World {
   private readonly grinding = new Map<number, number>();
   /** Where each wild animal was born, so it has somewhere to wander around. */
   private readonly lairs = new Map<EntityId, { x: number; y: number }>();
+  /** Every fire burning on the map. Scenery: nothing in the sim reads it. */
+  readonly campfires: Campfire[] = [];
+  /** Buildings that have already had a hearth laid beside them. */
+  private readonly hearths = new Set<EntityId>();
 
   /**
    * Begin as one peasant with no king and no hall.
@@ -554,13 +620,16 @@ export class World {
    * practically invisible.
    *
    * It is three times that now, and it is not all bears. Deer bolt and are
-   * worth chasing; cows stand about near water and are worth walking to; bears
-   * are the reason you think about where you send one man. The mix is what
-   * makes the wild a place with things in it rather than a hazard with a
-   * respawn rate -- two thirds of what you meet is an opportunity.
+   * worth chasing; cows stand about near water and are worth walking to; sheep
+   * are the one animal a lone peasant can catch; bears and wolves are the
+   * reason you think about where you send one man. The mix is what makes the
+   * wild a place with things in it rather than a hazard with a respawn rate --
+   * two thirds of what you meet is an opportunity.
    *
    * Herd animals are placed in small groups, because a lone cow is a curiosity
-   * and four cows are a reason to build a road.
+   * and four cows are a reason to build a road. Wolves are the same rule read
+   * the other way: one is nothing and four are a problem, so they only ever
+   * arrive as a pack.
    */
   spawnWildlife(count: number): void {
     const home: Array<{ x: number; y: number }> = [];
@@ -578,19 +647,205 @@ export class World {
       home.push({ x: tx, y: ty });
 
       const roll = this.rng.next();
-      const kind = roll < 0.34 ? "bear" : roll < 0.72 ? "deer" : "cow";
-      const herd = kind === "bear" ? 1 : 2 + this.rng.int(3);
+      const kind =
+        roll < 0.2 ? "bear" : roll < 0.34 ? "wolf" : roll < 0.6 ? "deer" : roll < 0.8 ? "cow" : "sheep";
+      // Wolves are budgeted against bears, not added on top of them. Thirteen
+      // bears used to be the whole of the danger; seven bears and a handful of
+      // packs comes out at roughly the same amount of teeth on the board, which
+      // is the point -- the wild got more varied, not more lethal.
+      const herd =
+        kind === "bear" ? 1 : kind === "wolf" ? 3 + this.rng.int(2) : kind === "sheep" ? 3 + this.rng.int(3) : 2 + this.rng.int(3);
       for (let i = 0; i < herd; i++) {
         // Spread a herd over a few tiles rather than stacking it on one.
-        const ox = i === 0 ? 0 : this.rng.int(5) - 2;
-        const oy = i === 0 ? 0 : this.rng.int(5) - 2;
-        const px = tx + ox;
-        const py = ty + oy;
-        if (!this.map.inBounds(px, py) || !this.map.isWalkable(px, py, "land")) continue;
+        //
+        // Each member gets several tries at a tile. It used to get exactly one,
+        // and a member whose offset landed in a lake or a stand of trees was
+        // dropped without replacement -- which on wooded ground is how a pack
+        // of four wolves arrived as one wolf standing in a clearing by itself,
+        // and one wolf is not a wolf, it is a slow footman.
+        let px = tx;
+        let py = ty;
+        if (i > 0) {
+          let placed = false;
+          for (let t = 0; t < 8 && !placed; t++) {
+            const ox = tx + this.rng.int(5) - 2;
+            const oy = ty + this.rng.int(5) - 2;
+            if (!this.map.inBounds(ox, oy) || !this.map.isWalkable(ox, oy, "land")) continue;
+            px = ox;
+            py = oy;
+            placed = true;
+          }
+          if (!placed) continue;
+        }
         const beast = this.spawnUnit(WILD, kind, { x: (px + 0.5) * SUB, y: (py + 0.5) * SUB });
         this.lairs.set(beast.id, { x: beast.pos.x, y: beast.pos.y });
       }
     }
+  }
+
+  /**
+   * Lay fires about the country.
+   *
+   * Somebody was here before you. The camps are cold rings of stone by day and
+   * the only warm thing in the picture by night, and they are placed the same
+   * way the animals are -- deterministically, from the map's own generator, so
+   * every machine lights the same hearths in the same order.
+   *
+   * They are put where a fire would actually be: on open ground, out of the
+   * trees, spaced far enough apart that two never share a pool of light. A seat
+   * always gets one, because the first night of a match should find your people
+   * around something.
+   */
+  spawnCampfires(count: number): void {
+    const lit: Array<{ x: number; y: number }> = [];
+    const place = (tx: number, ty: number, hearth: boolean): boolean => {
+      if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "land")) return false;
+      for (const l of lit) if (Math.hypot(tx - l.x, ty - l.y) < 12) return false;
+      lit.push({ x: tx, y: ty });
+      this.campfires.push({
+        x: Math.round((tx + 0.5) * SUB),
+        y: Math.round((ty + 0.5) * SUB),
+        seed: this.campfires.length * 2654435761 + tx * 73856093 + ty * 19349663,
+        hearth,
+      });
+      return true;
+    };
+    // A fire at every seat first, so nobody's opening night is spent in the
+    // dark while a wanderer's camp burns cheerfully on the far side of the map.
+    for (const seat of this.map.starts) {
+      for (const [dx, dy] of [[3, 2], [-3, 2], [2, -3], [-2, -3], [4, 0], [0, 4]] as const) {
+        if (place(seat.x + dx, seat.y + dy, true)) break;
+      }
+    }
+    for (let attempt = 0; attempt < count * 40 && this.campfires.length < count + this.map.starts.length; attempt++) {
+      const tx = 3 + this.rng.int(this.map.width - 6);
+      const ty = 3 + this.rng.int(this.map.height - 6);
+      // Out in the open. A fire inside a wood is a forest fire, and a fire
+      // hard against a lake is half in the water.
+      let clear = true;
+      for (let dy = -1; dy <= 1 && clear; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!this.map.isWalkable(tx + dx, ty + dy, "land")) {
+            clear = false;
+            break;
+          }
+        }
+      }
+      if (clear) place(tx, ty, false);
+    }
+  }
+
+  /**
+   * A finished hall or barracks lights its own fire.
+   *
+   * The camps scattered at world generation are somebody else's; this is yours,
+   * and it appears the moment there is a roof to sit under. Only the two
+   * buildings men actually live in get one -- a hearth outside every refinery
+   * would turn a built-up base into a bonfire.
+   */
+  private lightHearth(b: Building): void {
+    if (this.hearths.has(b.id)) return;
+    if (b.def !== "townhall" && b.def !== "barracks") return;
+    this.hearths.add(b.id);
+    // Just off the near corner of the footprint, where a fire would not be in
+    // the doorway.
+    for (const [dx, dy] of [[-1, b.size], [b.size, b.size], [-1, -1], [b.size, -1]] as const) {
+      const tx = b.tx + dx;
+      const ty = b.ty + dy;
+      if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "land")) continue;
+      this.campfires.push({
+        x: Math.round((tx + 0.5) * SUB),
+        y: Math.round((ty + 0.5) * SUB),
+        seed: b.id * 2654435761,
+        hearth: true,
+        of: b.id,
+      });
+      return;
+    }
+  }
+
+  /** Is it dark out? Read by the renderer and by whether men lie down. */
+  get night(): boolean {
+    return phaseAt(this.tick) === "night";
+  }
+
+  /**
+   * Men sleep.
+   *
+   * Deliberately the thinnest possible version of the idea: a man who has been
+   * standing about for a few seconds after dark lies down, and he is on his
+   * feet again the instant he is given an order or anything hostile comes
+   * within earshot. It changes nothing the simulation computes -- no slower
+   * reactions, no penalty for being caught asleep, no rest bonus. It is tracked
+   * here rather than worked out by the renderer for one reason: `idleFor` has
+   * to be counted somewhere that both machines in a network game count it the
+   * same way, and every other candidate is a frame timer.
+   *
+   * A night raid finding a camp already scrambling to its feet is the intended
+   * picture. Men who died in their sleep would be a real mechanic, and a real
+   * mechanic wants designing and balancing rather than arriving with a paint
+   * job.
+   */
+  private stepRest(u: Unit): void {
+    const def = UNITS[u.def]!;
+    // Beasts do not keep our hours, and nothing that floats or flies lies down.
+    if (def.beast || def.domain === "sea" || def.domain === "air") return;
+    if (u.task.kind !== "idle") {
+      u.idleFor = 0;
+      u.asleep = false;
+      return;
+    }
+    u.idleFor++;
+    if (!this.night || u.idleFor < this.paced(DROWSY)) {
+      u.asleep = false;
+      return;
+    }
+    // The scan for company is the expensive part, so it happens a couple of
+    // times a second and staggered across the army rather than every tick for
+    // everybody. Waking a fifth of a second late is not perceptible; doing it
+    // properly for two hundred men every tick is.
+    //
+    // Throttled whether or not he is already asleep. Gating this on `asleep`
+    // alone left the awkward case scanning flat out: a man standing idle at
+    // night with an enemy eleven tiles off across a river never falls asleep,
+    // never trips the gate, and walks the whole entity list every tick.
+    if ((this.tick + u.id) % WAKE_CHECK !== 0) return;
+    const near = (WAKE_NEAR * SUB) ** 2;
+    for (const other of this.units()) {
+      if (!this.hostile(u, other)) continue;
+      const d = (other.pos.x - u.pos.x) ** 2 + (other.pos.y - u.pos.y) ** 2;
+      if (d < near) {
+        u.asleep = false;
+        return;
+      }
+    }
+    u.asleep = true;
+  }
+
+  /**
+   * Animals make noise.
+   *
+   * The wild is a place you cannot see most of, which is exactly why it should
+   * be a place you can hear. A wolf pack somewhere off the edge of the screen
+   * tells you more about the country than any amount of scenery does, and it
+   * costs one event.
+   *
+   * Rolled from the world's own generator so it is the same on every machine,
+   * and thrown away by the audio if it happens too far from the camera to
+   * matter -- the same treatment a sword stroke gets.
+   */
+  private stepBeastVoice(u: Unit): void {
+    if ((this.tick + u.id * 7) % CALL_EVERY !== 0) return;
+    // Wolves are a night animal here: they will speak in daylight, but the
+    // country after dark should belong to them.
+    const chance =
+      u.def === "wolf" ? (this.night ? 0.28 : 0.06)
+      : u.def === "bear" ? 0.08
+      : u.def === "cow" ? 0.1
+      : u.def === "sheep" ? 0.12
+      : 0.05;
+    if (this.rng.next() > chance) return;
+    this.fx.push({ kind: "call", x: u.pos.x, y: u.pos.y, def: u.def });
   }
 
   /**
@@ -702,6 +957,8 @@ export class World {
       facing: 4,
       cooldown: 0,
       engaging: null,
+      idleFor: 0,
+      asleep: false,
     };
     this.entities.set(u.id, u);
     return u;
@@ -1170,6 +1427,12 @@ export class World {
       if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost);
       for (const u of this.units())
         if ((u.task.kind === "build" || u.task.kind === "repair") && u.task.building === id) u.task = { kind: "idle" };
+      // The hearth goes out with the roof it belonged to. Leaving it burning
+      // where a razed barracks stood is a fire nobody is sitting at, and over a
+      // long match the ruins of both sides end up better lit than the towns.
+      this.hearths.delete(id);
+      const hearth = this.campfires.findIndex((f) => f.of === id);
+      if (hearth >= 0) this.campfires.splice(hearth, 1);
     }
     this.entities.delete(id);
   }
@@ -1660,7 +1923,11 @@ export class World {
   private stepUnit(u: Unit): void {
     if (u.cooldown > 0) u.cooldown--;
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
-    if (UNITS[u.def]!.beast) this.stepBeast(u);
+    if (UNITS[u.def]!.beast) {
+      this.stepBeast(u);
+      this.stepBeastVoice(u);
+    }
+    this.stepRest(u);
     const t = u.task;
     switch (t.kind) {
       case "idle": {
@@ -2026,6 +2293,10 @@ export class World {
 
   private stepBuilding(b: Building): void {
     if (!b.complete) return;
+    // A roof, and then a fire outside it. Done here rather than at the moment
+    // construction finishes so that halls placed by `spawnStart` -- which never
+    // pass through the build queue -- get one too.
+    this.lightHearth(b);
     // A farm grows food. This is the reason an army can be fed without anybody
     // going hunting, and the reason the AI -- which builds farms for supply
     // without being told anything about food -- never starves. Hunting is the

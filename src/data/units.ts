@@ -264,7 +264,18 @@ export const UNITS: Record<string, UnitDef> = {
     // Not trainable: you do not recruit a deer, you hunt one.
     cost: { gold: 0, lumber: 0 },
     hp: 70,
-    speed: 15,
+    /**
+     * Quicker than any man on foot, slower than a horse.
+     *
+     * It was 15, which is faster than a Knight at 12 and faster than everything
+     * else on the board except the King and an aeroplane. The intent written
+     * down beside it -- "it outruns a worker and does not outrun a Knight,
+     * which is the whole decision" -- was never true of the number, so the
+     * decision it describes did not exist: a deer could not be caught by
+     * anything a player could sensibly send, and a food source nothing can
+     * reach is scenery. Eleven restores the choice the comment is describing.
+     */
+    speed: 11,
     trainTime: 0,
     supply: 0,
     domain: "land",
@@ -285,6 +296,41 @@ export const UNITS: Record<string, UnitDef> = {
     skittish: true,
     food: 120,
     description: "Quick, watchful, and worth a great deal of meat to whoever can catch one.",
+  },
+  /**
+   * A wolf is a bear divided by four and multiplied by the pack.
+   *
+   * One is a nuisance: ninety hit points and a bite a footman shrugs off. Four
+   * are a real fight, and four is how they come. That is the whole reason they
+   * are here -- a bear teaches you not to send one man, and a pack teaches you
+   * that four men in a loose line is not the same thing as four men together.
+   *
+   * They are quick enough to make running away a decision rather than a
+   * default, and they are loudest at night, which is when you will meet them.
+   */
+  wolf: {
+    id: "wolf",
+    name: "Wolf",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 90,
+    speed: 13,
+    trainTime: 0,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 11,
+    range: 1.0,
+    cooldown: 16,
+    armour: 1,
+    sight: 9,
+    spread: 0.4,
+    beast: true,
+    // Lean, and not worth eating. The pelt is the whole of the prize.
+    bounty: 20,
+    description: "Hunts in packs, and hunts at night. Twenty gold in pelt to whoever puts one down.",
   },
   cow: {
     id: "cow",
@@ -308,6 +354,39 @@ export const UNITS: Record<string, UnitDef> = {
     beast: true,
     food: 180,
     description: "Slow, placid and full of dinner. Wanders the open ground near water.",
+  },
+  /**
+   * The tamest thing on the map, and the reason a Farm is not the only larder.
+   *
+   * A sheep bolts like a deer and runs like a cow, which makes it the one
+   * animal a peasant can catch on his own -- a flock near the seat is an early
+   * economy decision that costs nothing but the walk. Less meat a head than a
+   * cow, but they come four and five at a time.
+   */
+  sheep: {
+    id: "sheep",
+    name: "Sheep",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 55,
+    speed: 5,
+    trainTime: 0,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 0,
+    range: 0,
+    cooldown: 0,
+    armour: 0,
+    sight: 4,
+    spread: 0.3,
+    beast: true,
+    // It runs, and it is no good at it.
+    skittish: true,
+    food: 90,
+    description: "Bolts, slowly. Ninety in meat, and they graze in flocks.",
   },
   king: {
     id: "king",

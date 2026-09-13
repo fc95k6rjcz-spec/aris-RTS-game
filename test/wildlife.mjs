@@ -102,7 +102,10 @@ const chase = await (async () => {
     const U = window.rts?.UNITS;
     return {
       bear: U ? U.bear.speed : null,
-      onFoot: U ? ["worker", "footman", "archer", "king", "prince", "mage", "ballista"].map((d) => U[d].speed) : [],
+      // The King is the documented exception -- see the note on `speed` in
+      // data/units.ts. He is the quickest thing on two legs on purpose, and he
+      // is not the man you were worried about meeting a bear.
+      onFoot: U ? ["worker", "footman", "archer", "prince", "mage", "ballista"].map((d) => U[d].speed) : [],
     };
   });
   await b2.close();
@@ -114,5 +117,5 @@ if (chase.bear !== null) {
     console.log("FAIL: something on foot can outrun a bear");
     process.exit(1);
   }
-  console.log("PASS: nobody on foot outruns a bear");
+  console.log("PASS: nobody on foot outruns a bear, save the King");
 }

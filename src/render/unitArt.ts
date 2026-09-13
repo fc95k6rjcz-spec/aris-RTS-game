@@ -612,8 +612,361 @@ const bear: UnitDrawer = (a) => {
   });
 };
 
+/**
+ * The rest of the wildlife: one quadruped, four ways.
+ *
+ * Deer, cows, sheep and wolves were on the map for a long time with no art at
+ * all, which meant the simulation faithfully modelled a herd of coloured
+ * circles. They share a skeleton -- a barrel on four legs with a head at one
+ * end -- and differ in the numbers that actually read at this size: how long
+ * the body is, how high the head is carried, and the silhouette on top of it.
+ * A deer is a horizontal line with antlers, a cow is a heavy box, a sheep is a
+ * cloud on stilts, a wolf is a low wedge with its head down. You can tell them
+ * apart at a glance from across the map, which is the whole specification.
+ *
+ * Three things do most of the work of stopping these looking like paper
+ * cutouts, and all three were learned by getting them wrong first:
+ *
+ *   - the far pair of legs is drawn BEFORE the body and in the darker shade,
+ *     the near pair after it and in the coat. Four legs at four x-positions
+ *     with one colour between them is two thick stumps, because at this size
+ *     the near and far legs of a pair are a few pixels apart and merge;
+ *   - the body is filled with a vertical gradient and outlined. A flat fill is
+ *     a shape, and a shape with a lit back and a shaded belly is an animal;
+ *   - the head sits entirely OUTSIDE the barrel. Put its centre where the
+ *     anatomy says and the body ellipse swallows it, and every species ends up
+ *     as the same headless loaf.
+ */
+interface BeastLook {
+  /** Body colour, and the darker shade used for legs, belly and the outline. */
+  coat: string;
+  dark: string;
+  /** Overall scale against the standard sprite height. */
+  size: number;
+  /** Half-length of the barrel and its depth, as fractions of that height. */
+  long: number;
+  deep: number;
+  /** How high the belly line sits above the feet. */
+  stand: number;
+  /** Leg thickness. */
+  limb: number;
+  /** Head radius. */
+  head: number;
+  /** Where the head is carried against the line of the back: + is above. */
+  headUp: number;
+  /** Rough, for a sheep's fleece; smooth for everything else. */
+  fleece?: boolean;
+  /** Drawn last, in the head's frame: antlers, horns, ears. */
+  crest?: (c: CanvasRenderingContext2D, u: number, hx: number, hy: number) => void;
+  /** A tail, drawn at the rump. */
+  tail?: "flag" | "brush" | "switch";
+}
+
+/** Blend a hex colour towards another, for the lit back and the shaded belly. */
+function mix(hex: string, towards: string, k: number): string {
+  const p = (h: string): [number, number, number] => [
+    parseInt(h.slice(1, 3), 16),
+    parseInt(h.slice(3, 5), 16),
+    parseInt(h.slice(5, 7), 16),
+  ];
+  const a = p(hex);
+  const b = p(towards);
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i]! - v) * k)).join(",")})`;
+}
+
+function quadruped(look: BeastLook): UnitDrawer {
+  return (a) => {
+    withSprite(a, (c, unit) => {
+      const u = unit * look.size;
+      /** Half the length of the barrel. Everything else is measured off it. */
+      const L = u * look.long;
+      /** Underside of the barrel, which is also where the legs start. */
+      const belly = -u * look.stand;
+      /** The line of the back. */
+      const back = belly - u * look.deep;
+      const mid = (belly + back) / 2;
+      const lit = mix(look.coat, "#ffffff", 0.22);
+      const shade = mix(look.coat, look.dark, 0.55);
+      const sw = a.moving ? Math.sin(a.phase * Math.PI * 2) * u * 0.11 : 0;
+
+      c.fillStyle = "rgba(0,0,0,0.3)";
+      c.beginPath();
+      c.ellipse(0, 0, L * 1.05, u * 0.09, 0, 0, Math.PI * 2);
+      c.fill();
+
+      const leg = (lx: number, dir: number, color: string, short: number): void => {
+        c.strokeStyle = color;
+        c.lineWidth = u * look.limb;
+        c.lineCap = "round";
+        c.beginPath();
+        c.moveTo(lx, belly + u * 0.02);
+        c.lineTo(lx + sw * dir, -short);
+        c.stroke();
+      };
+      // The far side of the animal, in shadow and standing a little short, so
+      // the ground it is on reads as further away.
+      leg(-L * 0.5, -1, look.dark, u * 0.05);
+      leg(L * 0.56, 1, look.dark, u * 0.05);
+
+      // The barrel: back line, chest, belly, rump. Drawn as a path rather than
+      // an ellipse because the difference between a cow and a deer is mostly in
+      // where the withers are.
+      const body = new Path2D();
+      body.moveTo(-L, mid);
+      body.bezierCurveTo(-L * 1.02, back + u * 0.02, -L * 0.45, back, L * 0.1, back);
+      body.bezierCurveTo(L * 0.62, back, L * 1.0, back + u * 0.05, L, mid);
+      body.bezierCurveTo(L * 1.0, belly - u * 0.02, L * 0.45, belly, 0, belly);
+      body.bezierCurveTo(-L * 0.5, belly, -L * 1.02, belly - u * 0.03, -L, mid);
+      body.closePath();
+      const g = c.createLinearGradient(0, back, 0, belly);
+      g.addColorStop(0, lit);
+      g.addColorStop(0.55, look.coat);
+      g.addColorStop(1, shade);
+      c.fillStyle = g;
+      c.fill(body);
+      c.strokeStyle = look.dark;
+      c.lineWidth = Math.max(0.6, u * 0.022);
+      c.stroke(body);
+
+      if (look.fleece) {
+        // Wool is lumps, not a curve -- and crucially the lumps have to break
+        // the OUTLINE. The first cut clipped them inside the barrel, where they
+        // were a faint mottle on a smooth loaf; a sheep is recognised by its
+        // bumpy edge before it is recognised by anything else.
+        for (let i = -2; i <= 2; i++) {
+          const t = i / 2;
+          const cx = L * t * 0.78;
+          const cy = back + u * look.deep * (0.3 + t * t * 0.3);
+          const r = u * look.deep * (0.6 - Math.abs(t) * 0.1);
+          c.fillStyle = i % 2 === 0 ? lit : look.coat;
+          c.beginPath();
+          c.arc(cx, cy, r, 0, Math.PI * 2);
+          c.fill();
+          c.strokeStyle = "rgba(60,48,38,0.45)";
+          c.lineWidth = Math.max(0.6, u * 0.018);
+          c.stroke();
+        }
+      }
+
+      // Neck and head. The head's centre is a full head-radius clear of the
+      // chest, which is the only way it survives being drawn over the barrel.
+      const hx = L + u * look.head * 0.95;
+      const hy = back - u * look.headUp;
+      c.strokeStyle = look.coat;
+      c.lineWidth = u * look.head * 1.15;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(L * 0.6, back + u * look.deep * 0.3);
+      c.lineTo(hx - u * look.head * 0.3, hy + u * look.head * 0.2);
+      c.stroke();
+
+      const headG = c.createLinearGradient(0, hy - u * look.head, 0, hy + u * look.head);
+      headG.addColorStop(0, lit);
+      headG.addColorStop(1, shade);
+      c.fillStyle = headG;
+      c.beginPath();
+      c.ellipse(hx, hy, u * look.head * 1.05, u * look.head * 0.7, look.headUp > 0.2 ? -0.5 : -0.12, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = look.dark;
+      c.lineWidth = Math.max(0.6, u * 0.02);
+      c.stroke();
+      // Muzzle: the one mark that stops a head being a bean.
+      c.fillStyle = look.dark;
+      c.beginPath();
+      c.ellipse(hx + u * look.head * 0.78, hy + u * look.head * 0.22, u * look.head * 0.34, u * look.head * 0.26, 0, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = "#1b140d";
+      c.beginPath();
+      c.arc(hx + u * look.head * 0.2, hy - u * look.head * 0.18, Math.max(0.7, u * 0.022), 0, Math.PI * 2);
+      c.fill();
+
+      // The near side, over everything: this is the pair the eye reads. In the
+      // mid shade rather than the coat -- a cream cow standing on cream legs
+      // reads as a cream loaf on stilts, because nothing separates the two.
+      leg(-L * 0.72, 1, shade, 0);
+      leg(L * 0.4, -1, shade, 0);
+
+      if (look.tail === "flag") {
+        // A white scut. The only bright thing on a deer, and what you actually
+        // see when one bolts.
+        c.fillStyle = "#f2ebdc";
+        c.beginPath();
+        c.ellipse(-L * 1.04, mid - u * 0.02, u * 0.035, u * 0.055, 0.5, 0, Math.PI * 2);
+        c.fill();
+      } else if (look.tail === "brush") {
+        c.strokeStyle = shade;
+        c.lineWidth = u * 0.07;
+        c.lineCap = "round";
+        c.beginPath();
+        c.moveTo(-L * 0.96, mid);
+        c.quadraticCurveTo(-L * 1.5, mid + u * 0.02, -L * 1.6, belly - u * 0.02);
+        c.stroke();
+      } else if (look.tail === "switch") {
+        c.strokeStyle = look.dark;
+        c.lineWidth = Math.max(0.8, u * 0.022);
+        c.beginPath();
+        c.moveTo(-L * 0.98, back + u * 0.03);
+        c.quadraticCurveTo(-L * 1.12, mid, -L * 1.04, belly - u * 0.03);
+        c.stroke();
+      }
+
+      look.crest?.(c, u, hx, hy);
+    });
+  };
+}
+
+const deer = quadruped({
+  coat: "#a4713f",
+  dark: "#5c3d23",
+  size: 0.92,
+  long: 0.3,
+  deep: 0.23,
+  stand: 0.36,
+  limb: 0.045,
+  head: 0.095,
+  headUp: 0.26,
+  tail: "flag",
+  crest: (c, u, hx, hy) => {
+    // Antlers: a swept beam with one fork, twice, off-parallel so they read as
+    // two rather than as a thick line. Every deer is a stag -- at this size a
+    // hind is a small cow.
+    c.strokeStyle = "#e0d0ab";
+    c.lineWidth = Math.max(0.8, u * 0.024);
+    c.lineCap = "round";
+    for (const lean of [-0.05, 0.05]) {
+      c.beginPath();
+      c.moveTo(hx - u * 0.05, hy - u * 0.06);
+      c.quadraticCurveTo(hx - u * (0.13 - lean), hy - u * 0.22, hx - u * (0.02 - lean * 2), hy - u * 0.3);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(hx - u * (0.1 - lean), hy - u * 0.17);
+      c.lineTo(hx - u * (0.19 - lean), hy - u * 0.22);
+      c.stroke();
+    }
+    // An ear behind them.
+    c.fillStyle = "#5c3d23";
+    c.beginPath();
+    c.ellipse(hx - u * 0.09, hy - u * 0.02, u * 0.04, u * 0.025, -0.6, 0, Math.PI * 2);
+    c.fill();
+  },
+});
+
+const cow = quadruped({
+  coat: "#e6ded0",
+  dark: "#3b322a",
+  size: 1.0,
+  long: 0.35,
+  deep: 0.29,
+  stand: 0.29,
+  limb: 0.062,
+  head: 0.11,
+  headUp: 0.02,
+  tail: "switch",
+  crest: (c, u, hx, hy) => {
+    // Two short horns and an ear. A cow's silhouette is otherwise a box, and a
+    // box is what a barn looks like too.
+    c.strokeStyle = "#d9cdae";
+    c.lineWidth = Math.max(0.8, u * 0.026);
+    c.lineCap = "round";
+    for (const dy of [-0.02, 0.012]) {
+      c.beginPath();
+      c.moveTo(hx - u * 0.02, hy - u * 0.055 + u * dy);
+      c.quadraticCurveTo(hx - u * 0.07, hy - u * 0.105 + u * dy, hx - u * 0.1, hy - u * 0.075 + u * dy);
+      c.stroke();
+    }
+    c.fillStyle = "#3b322a";
+    c.beginPath();
+    c.ellipse(hx - u * 0.12, hy - u * 0.005, u * 0.05, u * 0.03, -0.25, 0, Math.PI * 2);
+    c.fill();
+    // Patches: a plain cream cow is a sheep with long legs.
+    c.fillStyle = "rgba(59,50,42,0.9)";
+    for (const [px, py, rx, ry] of [
+      [-0.14, -0.42, 0.09, 0.06],
+      [0.1, -0.34, 0.06, 0.045],
+    ] as const) {
+      c.beginPath();
+      c.ellipse(u * px, u * py, u * rx, u * ry, 0.3, 0, Math.PI * 2);
+      c.fill();
+    }
+  },
+});
+
+const sheep = quadruped({
+  coat: "#efe9dc",
+  dark: "#4e4238",
+  size: 0.76,
+  long: 0.29,
+  deep: 0.3,
+  stand: 0.26,
+  limb: 0.05,
+  head: 0.1,
+  headUp: 0.02,
+  fleece: true,
+  crest: (c, u, hx, hy) => {
+    // A sheep's head is the dark bit sticking out of the wool, so it is painted
+    // back over in the dark shade rather than left the colour of the fleece.
+    c.fillStyle = "#4e4238";
+    c.beginPath();
+    c.ellipse(hx, hy, u * 0.1, u * 0.068, -0.12, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = "#1b140d";
+    c.beginPath();
+    c.arc(hx + u * 0.018, hy - u * 0.016, Math.max(0.7, u * 0.02), 0, Math.PI * 2);
+    c.fill();
+    // A floppy ear, and a curl of fleece over the brow.
+    c.fillStyle = "#3d332b";
+    c.beginPath();
+    c.ellipse(hx - u * 0.07, hy + u * 0.005, u * 0.038, u * 0.022, 0.5, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = "#efe9dc";
+    c.beginPath();
+    c.arc(hx - u * 0.055, hy - u * 0.055, u * 0.045, 0, Math.PI * 2);
+    c.fill();
+  },
+});
+
+/**
+ * A wolf: low, long and head-down, which is the pose that says predator before
+ * any of the detail arrives. Grey rather than brown, so a pack in the trees is
+ * never mistaken for a herd of deer at the distance you first see it.
+ */
+const wolf = quadruped({
+  coat: "#75767c",
+  dark: "#3c3d43",
+  size: 0.88,
+  long: 0.31,
+  deep: 0.2,
+  stand: 0.3,
+  limb: 0.048,
+  head: 0.095,
+  // Carried BELOW the line of the back. The single most important number here.
+  headUp: -0.05,
+  tail: "brush",
+  crest: (c, u, hx, hy) => {
+    // Pricked ears, and a pale cheek and throat so the muzzle reads at a
+    // distance -- a uniformly grey head is a stone.
+    c.fillStyle = "#5f6066";
+    for (const dx of [-0.055, -0.115]) {
+      c.beginPath();
+      c.moveTo(hx + u * dx, hy - u * 0.04);
+      c.lineTo(hx + u * (dx + 0.012), hy - u * 0.14);
+      c.lineTo(hx + u * (dx + 0.062), hy - u * 0.05);
+      c.closePath();
+      c.fill();
+    }
+    c.fillStyle = "#c2beb4";
+    c.beginPath();
+    c.ellipse(hx + u * 0.04, hy + u * 0.05, u * 0.055, u * 0.028, 0.05, 0, Math.PI * 2);
+    c.fill();
+  },
+});
+
 const HUMAN_UNITS: Record<string, UnitDrawer> = {
   bear,
+  wolf,
+  deer,
+  cow,
+  sheep,
   worker: peasant,
   footman,
   archer,

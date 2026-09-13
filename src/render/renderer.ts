@@ -12,14 +12,14 @@ import { bucket, stamp } from "./stamp";
 import { settings } from "../game/settings";
 import { Fx } from "./fx";
 import { drawWalk, gait, swingLean, LEG_SWING, type Gait } from "./gait";
-import { drawFire } from "./fire";
+import { drawCampfire, drawFire, drawFireGlow, BURN_AT } from "./fire";
 import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
-import { lightAt } from "../sim/weather";
+import { darkness, lightAt } from "../sim/weather";
 import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
@@ -122,6 +122,7 @@ export class Renderer {
     this.drawPaths();
     this.drawOreCarts(alpha);
     this.drawGoldMines();
+    this.drawCampfires(alpha);
     this.drawTrees();
     this.drawResources();
     this.drawRelics();
@@ -144,6 +145,8 @@ export class Renderer {
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
     this.drawDaylight(viewH);
+    // After the wash, never before it: see drawFireGlow.
+    this.drawFirelight(alpha);
     this.drawWeather(viewH);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
@@ -429,6 +432,65 @@ export class Renderer {
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
     ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * Camp fires.
+   *
+   * Two passes, and they have to be two. This one draws the thing -- stones,
+   * logs, flame -- with the rest of the world, so a unit walking past a fire
+   * passes in front of it and the night wash falls on it like everything else.
+   * `drawFirelight` then adds the pool of light back on top of the finished
+   * picture, because a glow multiplied by night-blue is not a glow.
+   *
+   * A fire on ground nobody has explored is not drawn at all: finding a camp in
+   * the dark should be something that happens, not something the minimap told
+   * you about at tick zero.
+   */
+  private drawCampfires(alpha: number): void {
+    const fires = this.world.campfires;
+    if (fires.length === 0) return;
+    const s = this.cam.zoom;
+    const t = this.world.tick + alpha;
+    // By day a camp is embers and a wisp; after dark somebody feeds it.
+    const heat = 0.14 + darkness(this.world.tick) * 0.86;
+    for (const f of fires) {
+      const p = this.cam.toScreen(f.x, f.y);
+      if (p.x < -s * 2 || p.y < -s * 2 || p.x > this.cam.viewW + s * 2 || p.y > this.cam.viewH + s * 2) continue;
+      if (!this.exploredAt(f.x / SUB, f.y / SUB)) continue;
+      drawCampfire(this.ctx, p.x, p.y + s * 0.2, s, heat, t, f.seed);
+    }
+  }
+
+  /**
+   * What the fires light up, laid over the night.
+   *
+   * Burning buildings throw light too, and they throw a great deal more of it
+   * than a camp fire does -- a barracks going up is the brightest thing on a
+   * night map, which is exactly right: you can see a siege from across the
+   * valley.
+   */
+  private drawFirelight(alpha: number): void {
+    const dark = darkness(this.world.tick);
+    if (dark <= 0.02) return;
+    const s = this.cam.zoom;
+    const t = this.world.tick + alpha;
+    const ctx = this.ctx;
+    for (const f of this.world.campfires) {
+      const p = this.cam.toScreen(f.x, f.y);
+      const r = s * (f.hearth ? 3.4 : 2.8);
+      if (p.x < -r || p.y < -r || p.x > this.cam.viewW + r || p.y > this.cam.viewH + r) continue;
+      if (!this.exploredAt(f.x / SUB, f.y / SUB)) continue;
+      drawFireGlow(ctx, p.x, p.y + s * 0.2, r, dark, t, f.seed);
+    }
+    for (const b of this.world.buildings()) {
+      const frac = b.hp / b.maxHp;
+      if (frac >= BURN_AT || !b.complete) continue;
+      if (b.owner !== this.viewer && !this.exploredAt(b.tx + b.size / 2, b.ty + b.size / 2)) continue;
+      const heat = Math.min(1, (BURN_AT - frac) / BURN_AT);
+      const p = this.cam.toScreen((b.tx + b.size / 2) * SUB, (b.ty + b.size / 2) * SUB);
+      drawFireGlow(ctx, p.x, p.y, s * (2 + b.size * 1.6) * (0.5 + heat * 0.5), dark * heat, t, b.id);
+    }
   }
 
   /**
@@ -1160,6 +1222,24 @@ export class Renderer {
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
+    // Asleep: tip the whole figure over about its own feet.
+    //
+    // Rotating rather than cutting a lying-down pose means every unit in the
+    // game -- painted sheet, painted still, procedural drawing, plain fallback
+    // circle -- lies down the same way and none of them needed new art. It is a
+    // cheat and it looks like one at maximum zoom; at the zoom anybody plays at
+    // it reads as a camp turning in, which is what it is for.
+    const sleeping = u.asleep;
+    if (sleeping) {
+      ctx.save();
+      const feet = p.y + s * 0.4;
+      ctx.translate(p.x, feet);
+      // Not quite flat, and to the side he is facing, so a row of sleepers is
+      // not a row of identical logs.
+      ctx.rotate((u.facing >= 2 && u.facing <= 5 ? -1 : 1) * 1.35);
+      ctx.scale(0.92, 0.92);
+      ctx.translate(-p.x, -feet);
+    }
     // A cut sheet wins over the painted still, and everything else -- crown,
     // health bar, selection ring -- hangs off whatever actually got drawn, so
     // the two paths are interchangeable from the outside.
@@ -1183,6 +1263,17 @@ export class Renderer {
       ctx.fill();
     }
     if (flash > 0) ctx.restore();
+    if (sleeping) {
+      ctx.restore();
+      this.drawSleepMark(p.x, p.y, s, this.world.tick + alpha, u.id);
+      // Nothing else hangs off a sleeper: a crown lying in the grass beside a
+      // rotated King looks like he dropped it, and a health bar over a man who
+      // is not hurt is noise. Both come back the moment he stands up.
+      if (this.wantsBar(u.hp / u.maxHp, selected)) {
+        this.bar(p.x - s * 0.3, p.y - s * 0.35, s * 0.6, u.hp / u.maxHp, "#4ce04c");
+      }
+      return;
+    }
     // A crown, so the King is never lost in a crowd of his own footmen. Gold for
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
@@ -1212,6 +1303,36 @@ export class Renderer {
       const barY = p.y + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
       this.bar(p.x - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
     }
+  }
+
+  /**
+   * Three Zs going up, so a lying figure reads as asleep rather than as dead.
+   *
+   * Worth the cartoon: without it the only difference between a sleeping
+   * garrison and a massacre is that one of them still has health bars, and that
+   * is not a thing anybody should have to check at a glance.
+   */
+  private drawSleepMark(x: number, y: number, s: number, tick: number, seed: number): void {
+    if (s < 14) return; // illegible, and there would be a hundred of them
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i < 3; i++) {
+      // Each Z has its own slow cycle up and out, offset so they trail.
+      const k = (((tick * 0.006 + i / 3 + (seed % 17) / 17) % 1) + 1) % 1;
+      const size = s * (0.2 + k * 0.16);
+      ctx.globalAlpha = Math.sin(k * Math.PI) * 0.75;
+      ctx.font = `600 ${Math.round(size)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.fillStyle = "#dfe8f5";
+      ctx.strokeStyle = "rgba(10,16,30,0.7)";
+      ctx.lineWidth = Math.max(1, size * 0.14);
+      const zx = x + s * (0.22 + k * 0.4);
+      const zy = y - s * (0.1 + k * 0.85);
+      ctx.strokeText("z", zx, zy);
+      ctx.fillText("z", zx, zy);
+    }
+    ctx.restore();
   }
 
   /**

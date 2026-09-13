@@ -4,7 +4,7 @@ import { Camera } from "../render/camera";
 import { spriteImage } from "../render/sprites";
 import { Renderer, type Ghost } from "../render/renderer";
 import type { Command } from "../sim/commands";
-import type { Building, Unit } from "../sim/entities";
+import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
 import { Faction, TICKS_PER_SECOND, WILD, World } from "../sim/world";
 import {
@@ -32,7 +32,8 @@ import crowning2 from "../assets/anim/crowning_2.png";
 import crowning3 from "../assets/anim/crowning_3.png";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
-import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
+import { clockAt, darkness, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
+import { BURN_AT } from "../render/fire";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 /** How long the crowning plays for, in milliseconds. */
@@ -294,6 +295,10 @@ export class Game {
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
+    // Somebody's camp, every so often, and one at each seat. Scaled the same
+    // way, and laid whatever the wildlife setting says -- an empty country
+    // still had people through it once.
+    w.spawnCampfires(Math.round(5 * ((n * n) / (64 * 64))));
     return w;
   }
 
@@ -1238,6 +1243,35 @@ export class Game {
    * fractions. The shell cannot reach back: it raises actions, and those go
    * through the same runAction the keyboard uses.
    */
+  /**
+   * How much fire is close enough to hear, 0 to 1.
+   *
+   * Camp fires count for as much as they are burning -- which after dark is all
+   * the way and by day is barely at all -- and a building on fire counts for a
+   * great deal more, because a barracks alight is not a camp fire. Summed over
+   * everything within a screen of the middle of the view and clamped, so
+   * standing in a burning base is loud and standing next to one hearth is not.
+   */
+  private fireNearby(): number {
+    const cx = this.cam.x + this.cam.viewW / this.cam.scale / 2;
+    const cy = this.cam.y + this.cam.viewH / this.cam.scale / 2;
+    const reach = Math.max(SUB * 6, this.cam.viewW / this.cam.scale);
+    const near = (x: number, y: number): number => {
+      const d = Math.hypot(x - cx, y - cy) / reach;
+      return d > 1 ? 0 : (1 - d) ** 1.4;
+    };
+    const lit = darkness(this.world.tick);
+    let total = 0;
+    for (const f of this.world.campfires) total += near(f.x, f.y) * (0.12 + lit * 0.5);
+    for (const b of this.world.buildings()) {
+      const frac = b.hp / b.maxHp;
+      if (frac >= BURN_AT) continue;
+      const c = centerOf(b);
+      total += near(c.x, c.y) * Math.min(1, (BURN_AT - frac) / BURN_AT) * 1.6;
+    }
+    return Math.min(1, total);
+  }
+
   private updateShell(selUnits: Unit[], selBuildings: Building[]): void {
     const shell = this.shell;
     if (!shell || this.menu) return;
@@ -1329,6 +1363,7 @@ export class Game {
     // The sky drives the rain bed. Read from the simulation, because how hard it
     // is raining is the same number that decides how fast people walk.
     this.audio.setRain(this.world.rain);
+    this.audio.setFire(this.fireNearby());
 
     shell.update({
       gold: p.gold,
