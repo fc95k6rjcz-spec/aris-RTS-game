@@ -473,27 +473,28 @@ export class Renderer {
   private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, moving: boolean): number | null {
     const sheet = sheetFor(faction, u.def);
     if (!sheet) return null;
-    const img = spriteImage(sheet.src);
-    if (!img) {
-      this.missedArt = true;
-      return null;
-    }
     let state = stateFor(u, moving);
     if (state === "walk" && moving && isRunning(u)) state = "run";
     const clip = clipFor(sheet, state);
     if (!clip) return null;
     // Wall clock, not sim tick: which frame is showing is not a decision the
     // simulation is allowed to see, so it must never be derived from its state.
-    const f = frameAt(clip, performance.now() / 1000, u.id);
+    const src = frameAt(clip, performance.now() / 1000, u.id);
+    if (!src) return null;
+    const img = spriteImage(src);
+    if (!img) {
+      this.missedArt = true;
+      return null;
+    }
     const h = s * sheet.height;
-    const w = (f.w / f.h) * h;
+    const w = (img.naturalWidth / img.naturalHeight) * h;
     const ctx = this.ctx;
     ctx.save();
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.beginPath();
     ctx.ellipse(x, y + s * 0.42, s * 0.3, s * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.drawImage(img, f.x, f.y, f.w, f.h, x - w / 2, y + s * 0.45 - h, w, h);
+    ctx.drawImage(img, x - w / 2, y + s * 0.45 - h, w, h);
     ctx.restore();
     return h;
   }

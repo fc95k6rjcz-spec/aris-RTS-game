@@ -49,16 +49,19 @@ export type AnimState =
   | "hurt"
   | "die";
 
-/** One frame's box within the sheet image. */
-export interface Frame {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
+/**
+ * A clip is a list of images, not a list of boxes in one sheet.
+ *
+ * The sheets the art arrives on cannot be used directly -- every figure is
+ * painted onto its own patch of ground, under a selection ring, sometimes
+ * beside a tree that belongs to the scene. So the frames are cut out and keyed
+ * to transparency ahead of time by tools/extract_frames.mjs, and what reaches
+ * the game is one small PNG per frame with the bundler's hash on it. That also
+ * means a frame that came out badly can simply be left out of the list, which
+ * is exactly what happened to three of them.
+ */
 export interface Clip {
-  frames: Frame[];
+  srcs: string[];
   /** Frames a second. */
   fps: number;
   /** Whether it runs round again, or holds on the last frame. */
@@ -66,8 +69,6 @@ export interface Clip {
 }
 
 export interface SheetDef {
-  /** Resolved image URL, from the bundler. */
-  src: string;
   /** How tall the character stands, in tiles, so frames scale with the zoom. */
   height: number;
   clips: Partial<Record<AnimState, Clip>>;
@@ -110,11 +111,11 @@ export function stateFor(u: Unit, moving: boolean): AnimState {
  * of the same walk cycle reads as a chorus line, not a crowd -- and is the
  * unit's id, so a given man is consistent with himself from frame to frame.
  */
-export function frameAt(clip: Clip, seconds: number, offset: number): Frame {
-  const n = clip.frames.length;
-  if (n === 0) return { x: 0, y: 0, w: 1, h: 1 };
+export function frameAt(clip: Clip, seconds: number, offset: number): string | null {
+  const n = clip.srcs.length;
+  if (n === 0) return null;
   const i = Math.floor(seconds * clip.fps + (offset % n));
-  return clip.frames[clip.loop ? ((i % n) + n) % n : Math.min(n - 1, Math.max(0, i))]!;
+  return clip.srcs[clip.loop ? ((i % n) + n) % n : Math.min(n - 1, Math.max(0, i))]!;
 }
 
 /**
@@ -141,14 +142,27 @@ const FALLBACK: Record<AnimState, AnimState[]> = {
   die: ["hurt", "idle"],
 };
 
+/**
+ * Movement is the only place a substitute is welcome.
+ *
+ * A sheet with WALK but no RUN should show a walk when the man runs, because a
+ * walk is what running looks like with the wrong timing and the alternative is
+ * a frozen figure. But a worker with no CHOP clip must NOT fall back to
+ * standing idle at a tree: the game already has a painted woodcutter who is
+ * mid-swing and looks right, and reaching him means returning null from here.
+ * Falling back everywhere would have quietly replaced six good task sprites
+ * with one man standing still.
+ */
+const MOVEMENT = new Set<AnimState>(["idle", "walk", "run", "carry"]);
+
 export function clipFor(sheet: SheetDef, state: AnimState): Clip | null {
   const direct = sheet.clips[state];
-  if (direct && direct.frames.length > 0) return direct;
+  if (direct && direct.srcs.length > 0) return direct;
+  if (!MOVEMENT.has(state)) return null;
   for (const alt of FALLBACK[state]) {
     const c = sheet.clips[alt];
-    if (c && c.frames.length > 0) return c;
+    if (c && c.srcs.length > 0) return c;
   }
-  for (const c of Object.values(sheet.clips)) if (c && c.frames.length > 0) return c;
   return null;
 }
 

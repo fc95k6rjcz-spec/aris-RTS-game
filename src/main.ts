@@ -1,4 +1,5 @@
 import { Game } from "./game/game";
+import { registerSheets } from "./render/sheets";
 import { drawStyleSheet } from "./render/sheet";
 import { GameMap } from "./sim/map";
 import { findPath } from "./sim/pathfinding";
@@ -21,6 +22,8 @@ if (location.search.includes("sheet")) {
   };
   loop();
 } else {
+  // Animation frames before the first render, so nothing falls back on frame one.
+  registerSheets();
   const game = new Game(canvas);
   // Exposed for debugging and headless tests.
   (window as unknown as { game: Game }).game = game;
