@@ -554,9 +554,10 @@ export interface CommandSets {
   byTab: Record<string, CommandEntry[]>;
 }
 
-function costLine(c: { gold: number; lumber: number; oil?: number }): string {
+function costLine(c: { gold: number; lumber: number; oil?: number; food?: number }): string {
   const parts = [String(c.gold), String(c.lumber)];
-  if (c.oil) parts.push(String(c.oil));
+  if (c.food) parts.push(`${c.food}f`);
+  if (c.oil) parts.push(`${c.oil}o`);
   return parts.join(" · ");
 }
 

@@ -27,7 +27,7 @@ import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
-import { skyName } from "../sim/weather";
+import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const EDGE = 14;
@@ -1190,10 +1190,8 @@ export class Game {
 
     // Elapsed match time, read as a day and a clock: twenty ticks a second, and
     // a "day" every four minutes, which is about the length of an opening.
-    const secs = Math.floor(this.world.tick / TICKS_PER_SECOND);
-    const day = Math.floor(secs / 240) + 1;
-    const inDay = secs % 240;
-    const clock = `${String(Math.floor((inDay / 240) * 24)).padStart(2, "0")}:${String(Math.floor(((inDay / 240) * 24 % 1) * 60)).padStart(2, "0")}`;
+    const { day } = dayAt(this.world.tick);
+    const clock = clockAt(this.world.tick);
 
     // What is selected, said once.
     let selection: ShellState["selection"] = null;
@@ -1278,6 +1276,7 @@ export class Game {
       gold: p.gold,
       lumber: p.lumber,
       oil: p.oil,
+      food: p.food,
       supplyUsed: sup.used,
       supplyMax: sup.max,
       day,
@@ -1291,7 +1290,9 @@ export class Game {
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
       mapName: this.map.name,
-      weather: skyName(this.world.sky),
+      // The sky when it is doing something, otherwise the hour: "Storm" matters
+      // more than "Dusk", and "Dusk" matters more than "Clear".
+      weather: this.world.rain > 0 ? skyName(this.world.sky) : phaseName(phaseAt(this.world.tick)),
       paused: this.paused,
     });
 

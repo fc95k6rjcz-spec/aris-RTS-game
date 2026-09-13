@@ -23,7 +23,7 @@ export const TICKS_PER_SECOND = 20;
  * thing the money can buy, and everything after it has to be earned. A fat purse
  * made the opening a shopping trip; this makes it a decision.
  */
-export const START_PURSE = { gold: 450, lumber: 300, oil: 0 };
+export const START_PURSE = { gold: 450, lumber: 300, oil: 0, food: 400 };
 /**
  * Everything moves at this fraction of its listed speed.
  *
@@ -100,6 +100,13 @@ const BEAST_AGGRO = 6;
 
 /** How far a beast will drift from where it was born, in tiles. */
 const BEAST_RANGE = 9;
+
+/** A farm yields this much food, this often. */
+const FARM_FOOD = 10;
+const FARM_FOOD_EVERY = 20 * 6;
+
+/** How close a person may come before a skittish animal bolts, in tiles. */
+const SPOOK = 7;
 /** Chance a blow lands as a critical hit. */
 const CRIT_CHANCE = 0.08;
 /** What a critical hit multiplies the rolled damage by. */
@@ -517,6 +524,24 @@ export class World {
    * They are kept well clear of the seats. A bear standing on your Town Hall at
    * tick zero is not strategy, it is a coin toss.
    */
+  /**
+   * Put animals on the map.
+   *
+   * The country used to hold bears and nothing else, thirty-eight of them on a
+   * 160-tile board -- one per six hundred tiles, which with fog of war means a
+   * player can go a whole match without meeting one. The density was set on a
+   * 64-tile map and scaled by area, so it was technically constant and
+   * practically invisible.
+   *
+   * It is three times that now, and it is not all bears. Deer bolt and are
+   * worth chasing; cows stand about near water and are worth walking to; bears
+   * are the reason you think about where you send one man. The mix is what
+   * makes the wild a place with things in it rather than a hazard with a
+   * respawn rate -- two thirds of what you meet is an opportunity.
+   *
+   * Herd animals are placed in small groups, because a lone cow is a curiosity
+   * and four cows are a reason to build a road.
+   */
   spawnWildlife(count: number): void {
     const home: Array<{ x: number; y: number }> = [];
     for (let attempt = 0; attempt < count * 40 && home.length < count; attempt++) {
@@ -524,12 +549,27 @@ export class World {
       const ty = 2 + this.rng.int(this.map.height - 4);
       if (!this.map.isWalkable(tx, ty, "land")) continue;
       let tooClose = false;
+      // Bears keep their distance from a seat; a deer on your doorstep is
+      // breakfast, not an ambush, so the rule is only as strict as it needs to
+      // be for the thing that bites.
       for (const s of this.map.starts) if (Math.hypot(tx - s.x, ty - s.y) < 16) tooClose = true;
-      for (const h of home) if (Math.hypot(tx - h.x, ty - h.y) < 8) tooClose = true;
+      for (const h of home) if (Math.hypot(tx - h.x, ty - h.y) < 7) tooClose = true;
       if (tooClose) continue;
       home.push({ x: tx, y: ty });
-      const bear = this.spawnUnit(WILD, "bear", { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB });
-      this.lairs.set(bear.id, { x: bear.pos.x, y: bear.pos.y });
+
+      const roll = this.rng.next();
+      const kind = roll < 0.34 ? "bear" : roll < 0.72 ? "deer" : "cow";
+      const herd = kind === "bear" ? 1 : 2 + this.rng.int(3);
+      for (let i = 0; i < herd; i++) {
+        // Spread a herd over a few tiles rather than stacking it on one.
+        const ox = i === 0 ? 0 : this.rng.int(5) - 2;
+        const oy = i === 0 ? 0 : this.rng.int(5) - 2;
+        const px = tx + ox;
+        const py = ty + oy;
+        if (!this.map.inBounds(px, py) || !this.map.isWalkable(px, py, "land")) continue;
+        const beast = this.spawnUnit(WILD, kind, { x: (px + 0.5) * SUB, y: (py + 0.5) * SUB });
+        this.lairs.set(beast.id, { x: beast.pos.x, y: beast.pos.y });
+      }
     }
   }
 
@@ -541,16 +581,66 @@ export class World {
    * an animal with a patch of country it considers its own.
    */
   private stepBeast(u: Unit): void {
+    const def = UNITS[u.def]!;
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
       const t = u.task.kind === "attack" ? this.entities.get(u.task.target) : null;
       if (t) return;
     }
     // Looking for prey is a scan over every entity on the board, and there are
-    // dozens of bears: doing it every tick for each of them cost more than the
+    // dozens of beasts: doing it every tick for each of them cost more than the
     // rest of the simulation. A bear noticing you a fifth of a second late is
     // not something anyone can perceive.
     if ((this.tick + u.id) % 5 !== 0) return;
-    const prey = this.findTarget(u, BEAST_AGGRO * SUB);
+
+    /**
+     * A deer does the opposite of a bear with the same information.
+     *
+     * It looks for the nearest person rather than the nearest victim and runs
+     * directly away from them, and it keeps running while anyone is close. That
+     * is what makes hunting an activity: a deer you can walk up to is a slow
+     * cow, and a deer that ignores you is scenery. It outruns a worker and does
+     * not outrun a knight, which is the whole decision -- send somebody fast, or
+     * do not bother.
+     */
+    if (def.skittish) {
+      let near: Unit | null = null;
+      let bestD = Infinity;
+      for (const other of this.units()) {
+        if (other.owner === WILD) continue;
+        const d = (other.pos.x - u.pos.x) ** 2 + (other.pos.y - u.pos.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          near = other;
+        }
+      }
+      const flee = (SPOOK * SUB) ** 2;
+      if (near && bestD < flee) {
+        const dx = u.pos.x - near.pos.x;
+        const dy = u.pos.y - near.pos.y;
+        const away = Math.atan2(dy, dx);
+        // Straight away first, then wider and wider off that line.
+        //
+        // An animal cornered against the edge of the map -- or a lake, or a
+        // cliff -- flees into it, finds nothing walkable, and gives up
+        // standing still, which looks exactly like a deer that has not noticed
+        // you. Trying a fan of directions means it runs along the shore
+        // instead, which is both what an animal does and what makes the chase
+        // worth having.
+        for (const turn of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.2, -2.2, Math.PI]) {
+          const a = away + turn;
+          const tx = Math.floor(u.pos.x / SUB + Math.cos(a) * 7);
+          const ty = Math.floor(u.pos.y / SUB + Math.sin(a) * 7);
+          if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "land")) continue;
+          this.pathTo(u, tx, ty, true);
+          if (u.path.length === 0) continue;
+          u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+          break;
+        }
+        return;
+      }
+    }
+
+    const prey = def.damage > 0 ? this.findTarget(u, BEAST_AGGRO * SUB) : null;
     if (prey) {
       u.task = { kind: "attack", target: prey.id };
       return;
@@ -681,23 +771,25 @@ export class World {
     return false;
   }
 
-  canAfford(player: PlayerId, cost: { gold: number; lumber: number; oil?: number }): boolean {
+  canAfford(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): boolean {
     const p = this.players.get(player)!;
-    return p.gold >= cost.gold && p.lumber >= cost.lumber && p.oil >= (cost.oil ?? 0);
+    return p.gold >= cost.gold && p.lumber >= cost.lumber && p.oil >= (cost.oil ?? 0) && p.food >= (cost.food ?? 0);
   }
 
-  private spend(player: PlayerId, cost: { gold: number; lumber: number; oil?: number }): void {
+  private spend(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): void {
     const p = this.players.get(player)!;
     p.gold -= cost.gold;
     p.lumber -= cost.lumber;
     p.oil -= cost.oil ?? 0;
+    p.food -= cost.food ?? 0;
   }
 
-  private refund(player: PlayerId, cost: { gold: number; lumber: number; oil?: number }, rate = 1): void {
+  private refund(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }, rate = 1): void {
     const p = this.players.get(player)!;
     p.gold += Math.floor(cost.gold * rate);
     p.lumber += Math.floor(cost.lumber * rate);
     p.oil += Math.floor((cost.oil ?? 0) * rate);
+    p.food += Math.floor((cost.food ?? 0) * rate);
   }
 
   /** Why a building can't be placed, or null if it can. */
@@ -1303,6 +1395,14 @@ export class World {
       facing: target.kind === "unit" ? target.facing : 6,
       building: target.kind === "building",
     });
+    // Meat. A hunted animal pays in food rather than in coin, which is what
+    // makes hunting an economy and not just a way to make the map safer.
+    const meat = target.kind === "unit" ? UNITS[target.def]!.food : undefined;
+    if (meat) {
+      const p = this.players.get(attacker.owner);
+      if (p) p.food += meat;
+      this.emit(attacker.owner, `${UNITS[target.def]!.name} taken — ${meat} food`, "info");
+    }
     const bounty = target.kind === "unit" ? UNITS[target.def]!.bounty : undefined;
     if (bounty) {
       const p = this.players.get(attacker.owner);
@@ -1906,6 +2006,14 @@ export class World {
 
   private stepBuilding(b: Building): void {
     if (!b.complete) return;
+    // A farm grows food. This is the reason an army can be fed without anybody
+    // going hunting, and the reason the AI -- which builds farms for supply
+    // without being told anything about food -- never starves. Hunting is the
+    // fast way to a full larder, not the only way.
+    if (b.def === "farm" && this.tick % this.paced(FARM_FOOD_EVERY) === 0) {
+      const p = this.players.get(b.owner);
+      if (p) p.food += FARM_FOOD;
+    }
     // A completed Church mends friendly units standing within its radius.
     const lv = LEVELLED[b.def] ? levelDef(b.def, b.level) : null;
     if (lv?.heal && lv.radius) {

@@ -39,6 +39,8 @@ export interface Cost {
   lumber: number;
   /** Oil, pumped by Oil Rigs. Ships and aircraft need it. */
   oil?: number;
+  /** Food, from farms and from hunting. Soldiers eat. */
+  food?: number;
 }
 
 /**
@@ -65,6 +67,7 @@ export interface Player {
   gold: number;
   lumber: number;
   oil: number;
+  food: number;
   /** Researched upgrade levels, by upgrade id. */
   research: Record<string, number>;
   /** Colour used purely by the renderer. */

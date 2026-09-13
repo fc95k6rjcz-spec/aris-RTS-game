@@ -18,6 +18,7 @@ import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
 import { groundFor } from "./ground";
+import { lightAt } from "../sim/weather";
 import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
@@ -141,6 +142,7 @@ export class Renderer {
     if (ghost) this.drawGhost(ghost);
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
+    this.drawDaylight(viewH);
     this.drawWeather(viewH);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
@@ -426,6 +428,34 @@ export class Renderer {
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
     ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * The colour of the hour, washed over the world.
+   *
+   * Under everything the weather does, so a storm at dusk is dark AND orange
+   * rather than one or the other. Drawn with `multiply` rather than a flat
+   * overlay: a wash of translucent blue over grass gives grey, while
+   * multiplying by blue gives grass at night, which is a different and much
+   * better-looking thing.
+   */
+  private drawDaylight(viewH: number): void {
+    const light = lightAt(this.world.tick);
+    if (light.alpha <= 0.01) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.globalAlpha = light.alpha;
+    ctx.fillStyle = light.css;
+    ctx.fillRect(0, 0, this.cam.viewW, viewH);
+    ctx.restore();
+    // A touch of the same colour laid on top, so a dawn actually glows rather
+    // than merely failing to be dark.
+    ctx.save();
+    ctx.globalAlpha = light.alpha * 0.28;
+    ctx.fillStyle = light.css;
+    ctx.fillRect(0, 0, this.cam.viewW, viewH);
+    ctx.restore();
   }
 
   /**

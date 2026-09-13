@@ -47,6 +47,7 @@ export interface ShellState {
   gold: number;
   lumber: number;
   oil: number;
+  food: number;
   supplyUsed: number;
   supplyMax: number;
   /** Elapsed match time, as a day count and a clock. */
@@ -152,6 +153,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-res.lumber { background: rgba(120,150,90,0.08); }
 .rv-res.lumber .mk { background: #8fae63; }
 .rv-res.lumber .vl { color: #e4ecd8; }
+.rv-res.food { background: rgba(196,120,70,0.08); }
+.rv-res.food .mk { background: #d08a55; border-radius: 50% 50% 40% 40%; }
+.rv-res.food .vl { color: #f0ddc8; }
 .rv-res.oil { background: rgba(255,255,255,0.03); }
 .rv-res.oil .mk { background: #5c6470; border-radius: 50%; }
 .rv-res.oil .lb { color: var(--faint); }
@@ -368,6 +372,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   };
   const goldVal = mkRes("gold", "Gold");
   const lumberVal = mkRes("lumber", "Lumber");
+  const foodVal = mkRes("food", "Food");
   const oilVal = mkRes("oil", "Oil");
   top.appendChild(el("div", "rv-div"));
   const supply = el("div", "rv-supply");
@@ -528,6 +533,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
     update(s: ShellState): void {
       goldVal.textContent = String(s.gold);
       lumberVal.textContent = String(s.lumber);
+      foodVal.textContent = String(s.food);
       oilVal.textContent = String(s.oil);
       supUsed.nodeValue = String(s.supplyUsed);
       supDen.textContent = `/${s.supplyMax}`;

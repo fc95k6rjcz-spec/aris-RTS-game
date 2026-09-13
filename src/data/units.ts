@@ -68,6 +68,16 @@ export interface UnitDef {
    * anything that comes too close.
    */
   beast?: boolean;
+  /**
+   * Runs rather than fights.
+   *
+   * A skittish beast bolts from anything that comes near and keeps bolting
+   * while it is being chased, which is what makes hunting a thing you do rather
+   * than a thing that happens to you.
+   */
+  skittish?: boolean;
+  /** Meat, to whoever kills it. */
+  food?: number;
   /** Gold paid to whoever kills this, for the hide. */
   bounty?: number;
   /**
@@ -118,7 +128,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "footman",
     name: "Footman",
     hotkey: "F",
-    cost: { gold: 120, lumber: 0 },
+    cost: { gold: 120, lumber: 0, food: 40 },
     hp: 120,
     speed: 6,
     trainTime: 20 * 20,
@@ -139,7 +149,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "archer",
     name: "Archer",
     hotkey: "A",
-    cost: { gold: 100, lumber: 40 },
+    cost: { gold: 100, lumber: 40, food: 35 },
     hp: 70,
     speed: 7,
     trainTime: 20 * 22,
@@ -160,7 +170,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "knight",
     name: "Knight",
     hotkey: "K",
-    cost: { gold: 200, lumber: 60 },
+    cost: { gold: 200, lumber: 60, food: 70 },
     hp: 240,
     speed: 12,
     trainTime: 20 * 30,
@@ -181,7 +191,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "mage",
     name: "Mage",
     hotkey: "M",
-    cost: { gold: 220, lumber: 40 },
+    cost: { gold: 220, lumber: 40, food: 60 },
     hp: 65,
     speed: 6,
     trainTime: 20 * 35,
@@ -202,7 +212,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "ballista",
     name: "Ballista",
     hotkey: "V",
-    cost: { gold: 300, lumber: 220 },
+    cost: { gold: 300, lumber: 220, food: 50 },
     hp: 150,
     speed: 4,
     trainTime: 20 * 45,
@@ -243,6 +253,58 @@ export const UNITS: Record<string, UnitDef> = {
     beast: true,
     bounty: 60,
     description: "Wild, territorial, and more than a match for one man. Worth sixty gold in hide.",
+  },
+  deer: {
+    id: "deer",
+    name: "Deer",
+    hotkey: "",
+    // Not trainable: you do not recruit a deer, you hunt one.
+    cost: { gold: 0, lumber: 0 },
+    hp: 70,
+    speed: 15,
+    trainTime: 0,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    // It will not fight. A cornered stag in a real wood would; a stag that
+    // fights back here would just be a weaker bear, and the whole point of
+    // putting deer on the map is that some of the wildlife is an opportunity
+    // rather than a threat.
+    damage: 0,
+    range: 0,
+    cooldown: 0,
+    armour: 0,
+    sight: 9,
+    spread: 0.35,
+    beast: true,
+    skittish: true,
+    food: 120,
+    description: "Quick, watchful, and worth a great deal of meat to whoever can catch one.",
+  },
+  cow: {
+    id: "cow",
+    name: "Cow",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 110,
+    speed: 4,
+    trainTime: 0,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 0,
+    range: 0,
+    cooldown: 0,
+    armour: 0,
+    sight: 5,
+    spread: 0.4,
+    beast: true,
+    food: 180,
+    description: "Slow, placid and full of dinner. Wanders the open ground near water.",
   },
   king: {
     id: "king",
@@ -293,7 +355,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "cannon",
     name: "Cannon",
     hotkey: "N",
-    cost: { gold: 400, lumber: 180 },
+    cost: { gold: 400, lumber: 180, food: 60 },
     hp: 180,
     speed: 3,
     trainTime: 20 * 55,
@@ -316,7 +378,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "scout",
     name: "Scout Plane",
     hotkey: "S",
-    cost: { gold: 140, lumber: 90, oil: 30 },
+    cost: { gold: 140, lumber: 90, oil: 30, food: 25 },
     hp: 90,
     speed: 22,
     trainTime: 20 * 25,
@@ -337,7 +399,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "bomber",
     name: "Bomber",
     hotkey: "B",
-    cost: { gold: 260, lumber: 180, oil: 70 },
+    cost: { gold: 260, lumber: 180, oil: 70, food: 45 },
     hp: 220,
     speed: 15,
     trainTime: 20 * 40,
