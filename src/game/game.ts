@@ -26,6 +26,7 @@ import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
+import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -41,7 +42,14 @@ export class Game {
   world: World;
   cam: Camera;
   renderer: Renderer;
-  readonly player: PlayerId = 1;
+  /**
+   * Which seat this machine is playing.
+   *
+   * One in a single-player game and for whoever hosts a network match; two for
+   * the guest. Not readonly any more, because the guest only learns which seat
+   * it has when the host answers its knock.
+   */
+  player: PlayerId = 1;
 
   /**
    * The turn scheduler. Every game goes through it, including this one.
@@ -100,8 +108,21 @@ export class Game {
   /** Clickable rectangles the front screen put on the canvas this frame. */
   private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
+  /** The room this machine is in, if any. */
+  private room: Room | null = null;
   /** Set before start() to play over a network instead of alone. */
   transport: Transport | null = null;
+  /**
+   * The match both machines must build, when there are two of them.
+   *
+   * Both sides construct their own world from nothing and have to construct
+   * the SAME one, so the seed, the map and every setting the simulation reads
+   * come down the wire from the host and override whatever this machine had
+   * chosen for itself. Settings the simulation does not read -- volume, health
+   * bars, edge scrolling -- are left alone, which is exactly why they were
+   * separated in the first place.
+   */
+  setup: MatchSetup | null = null;
   private settingsPanel: SettingsPanel | null = null;
   /** The DOM chrome: top bar, command bar, minimap. Null in headless tests. */
   private shell: Shell | null = null;
@@ -111,6 +132,21 @@ export class Game {
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
   private readonly audio = new Audio();
+  /** Exposed for headless tests: drive the lobby without a mouse. */
+  hostForTest(): void {
+    void this.openRoom();
+  }
+  joinForTest(code: string): void {
+    this.front.net.typed = code;
+    void this.knock();
+  }
+  get frontNetForTest(): { code: string; typed: string; status: string } {
+    return this.front.net;
+  }
+  get netStateForTest(): string {
+    return this.net.state(performance.now()).kind;
+  }
+
   /** Exposed for headless tests: which command tab is showing. */
   set tabForTest(id: string) {
     this.tab = id;
@@ -154,7 +190,7 @@ export class Game {
     this.cam = new Camera(this.world.map.width, this.world.map.height);
     this.renderer = new Renderer(canvas, this.world, this.cam);
     this.resize();
-    const home = this.world.map.starts[0]!;
+    const home = this.world.map.starts[this.player === 2 ? 1 : 0] ?? this.world.map.starts[0]!;
     this.cam.centerOn((home.x + 1) * SUB, (home.y + 1) * SUB);
     // The chrome first: it re-parents the canvas into its own grid row, and the
     // camera's size comes from that element rather than from the window.
@@ -200,6 +236,8 @@ export class Game {
 
   /** The map the settings ask for, resolving "random" against the catalogue. */
   private chooseMap(): MapDef {
+    // In a network game the map is not this machine's to pick.
+    if (this.setup) return MAP_BY_ID.get(this.setup.mapId) ?? MAPS[0]!;
     const want = settings.mapId;
     if (want && want !== "random") {
       const found = MAP_BY_ID.get(want);
@@ -212,7 +250,8 @@ export class Game {
   /** A fresh world on the given map, with both players seated at its starts. */
   private buildWorld(def: MapDef, seedOverride?: number): World {
     const n = def.size ?? 64;
-    const w = new World(n, n, seedOverride ?? def.seed, def.kind, settings.pace, settings.stockade);
+    const m = this.setup;
+    const w = new World(n, n, seedOverride ?? m?.seed ?? def.seed, def.kind, m?.pace ?? settings.pace, m?.stockade ?? settings.stockade);
     w.addPlayer(1, Faction.Human, "#3b82f6");
     w.addPlayer(2, Faction.Human, "#ef4444");
     // The country itself, and whatever lives in it.
@@ -220,11 +259,14 @@ export class Game {
     // Seats come from the map, not from two hard-coded corners, so a layout can
     // put them where it makes sense -- and so more than two will fit later.
     const starts = w.map.starts;
-    if (settings.crowning) {
+    const crowning = m?.crowning ?? settings.crowning;
+    const nomad = m?.nomad ?? settings.nomad;
+    const wild = m?.wildlife ?? settings.wildlife;
+    if (crowning) {
       // One peasant each, no king and no hall. Act one is finding the weapon.
       w.spawnCrowning(1, starts[0]!.x - 1, starts[0]!.y - 1);
       w.spawnCrowning(2, starts[1]!.x - 2, starts[1]!.y - 2);
-    } else if (settings.nomad) {
+    } else if (nomad) {
       // Both sides start homeless, or it is not a fair race for the good ground.
       w.spawnNomad(1, starts[0]!.x - 1, starts[0]!.y - 1);
       w.spawnNomad(2, starts[1]!.x - 2, starts[1]!.y - 2);
@@ -234,7 +276,7 @@ export class Game {
     }
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
-    if (settings.wildlife) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
+    if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
     return w;
   }
 
@@ -249,6 +291,9 @@ export class Game {
     // stale one would pin the view inside the old map's corner.
     this.cam = new Camera(this.world.map.width, this.world.map.height);
     this.renderer = new Renderer(this.canvas, this.world, this.cam);
+    // Fog, unit colours and the minimap are all drawn from one seat's point of
+    // view, and the guest's is not seat one.
+    this.renderer.viewer = this.player;
     this.selected.clear();
     this.pending = [];
     this.buildMode = null;
@@ -258,15 +303,16 @@ export class Game {
     this.net = new Lockstep(this.transport ?? new LocalTransport());
     this.net.start();
     this.resize();
-    const home = this.world.map.starts[0]!;
+    const home = this.world.map.starts[this.player === 2 ? 1 : 0] ?? this.world.map.starts[0]!;
     this.cam.centerOn((home.x + 1) * SUB, (home.y + 1) * SUB);
     this.renderer.fx.clear();
     // Player 2 is run by the AI, issuing the same commands a human would.
-    this.ai = difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    // Nobody plays the other seat in a network game; there is somebody in it.
+    this.ai = this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
     this.banner = null;
     this.crowned = false;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
-    if (settings.crowning) {
+    if (this.setup?.crowning ?? settings.crowning) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
     }
     this.last = performance.now();
@@ -839,13 +885,34 @@ export class Game {
         this.runFront({ kind: "pane", pane: "menu" });
         return;
       }
+      // The join screen takes typing before it takes navigation: W and S are
+      // letters here, not up and down.
+      if (this.front.pane === "join") {
+        if (k === "backspace") {
+          this.front.net.typed = this.front.net.typed.slice(0, -1);
+          this.front.net.status = "";
+          return;
+        }
+        if (k.length === 1 && /[a-z0-9]/.test(k) && this.front.net.typed.length < 4) {
+          this.front.net.typed += k.toUpperCase();
+          this.front.net.status = "";
+          return;
+        }
+        if (k === "enter") {
+          void this.knock();
+          return;
+        }
+      }
       if (k === "arrowdown" || k === "s") this.moveFrontCursor(1);
       else if (k === "arrowup" || k === "w") this.moveFrontCursor(-1);
       else if (k === "enter" || k === " ") {
         const a = frontRowAction(this.front, this.difficulty, settings.mapId, this.front.cursor);
         if (a) this.runFront(a);
       } else if (k === "escape") {
-        this.runFront({ kind: "pane", pane: this.front.pane === "menu" ? "splash" : "menu" });
+        if (this.front.pane === "host") this.runFront({ kind: "leaveRoom" });
+        else if (this.front.pane === "join") this.runFront({ kind: "pane", pane: "multiplayer" });
+        else if (this.front.pane === "multiplayer") this.runFront({ kind: "pane", pane: "menu" });
+        else this.runFront({ kind: "pane", pane: this.front.pane === "menu" ? "splash" : "menu" });
       }
       return;
     }
@@ -928,10 +995,101 @@ export class Game {
       case "settings":
         this.settingsPanel?.toggle();
         break;
+      case "host":
+        void this.openRoom();
+        break;
+      case "join":
+        void this.knock();
+        break;
+      case "leaveRoom":
+        this.closeRoom();
+        this.front.pane = "multiplayer";
+        this.front.cursor = 0;
+        break;
       case "scroll":
         this.front.scroll = Math.max(0, this.front.scroll + a.by);
         break;
     }
+  }
+
+  /**
+   * The match this machine would like to play, to send to whoever joins.
+   *
+   * The host's own settings, snapshotted: everything the simulation reads and
+   * nothing it does not. The seed is rolled here rather than taken from the map
+   * so that two matches on the same map are still different games.
+   */
+  private proposal(): MatchSetup {
+    const map = this.chooseMap();
+    return {
+      seed: (Math.random() * 0x7fffffff) | 0,
+      mapId: map.id,
+      pace: settings.pace,
+      stockade: settings.stockade,
+      crowning: settings.crowning,
+      nomad: settings.nomad,
+      wildlife: settings.wildlife,
+    };
+  }
+
+  /** Open a room and wait for a friend to walk in. */
+  private async openRoom(): Promise<void> {
+    this.front.pane = "host";
+    this.front.cursor = 0;
+    this.front.net = { code: "", typed: "", status: "Opening a room…", busy: true };
+    try {
+      const room = await hostRoom(this.proposal(), (e) => {
+        if (e.kind === "waiting") {
+          this.front.net.code = e.code;
+          this.front.net.status = "Waiting for your friend to join.";
+        }
+      });
+      this.beginNetworkMatch(room);
+    } catch (err) {
+      this.front.net = { code: "", typed: "", status: err instanceof Error ? err.message : "Could not open a room.", busy: false };
+      this.front.pane = "multiplayer";
+      this.front.cursor = 0;
+    }
+  }
+
+  /** Knock on somebody else's room. */
+  private async knock(): Promise<void> {
+    const code = this.front.net.typed;
+    if (code.length !== 4) return;
+    this.front.net.status = `Knocking on ${code}…`;
+    this.front.net.busy = true;
+    try {
+      const room = await joinRoom(code, () => {});
+      this.beginNetworkMatch(room);
+    } catch (err) {
+      this.front.net.status = err instanceof Error ? err.message : "Could not join.";
+      this.front.net.busy = false;
+    }
+  }
+
+  /**
+   * Sit down and play.
+   *
+   * The seat, the transport and the agreed match are all set before start(),
+   * because start() is what builds the world and every one of them changes what
+   * it builds.
+   */
+  private beginNetworkMatch(room: Room): void {
+    this.room = room;
+    this.transport = room.transport;
+    this.setup = room.setup;
+    this.player = room.slot === 0 ? 1 : 2;
+    this.front.net.status = "";
+    this.start("none");
+  }
+
+  private closeRoom(): void {
+    this.room?.transport.close();
+    this.room = null;
+    this.transport = null;
+    this.setup = null;
+    this.player = 1;
+    this.front.net = { code: "", typed: "", status: "", busy: false };
   }
 
   /** Step the keyboard cursor past any rows that are not selectable. */
@@ -1101,6 +1259,17 @@ export class Game {
     const bn = this.banner && performance.now() < this.banner.until ? this.banner : null;
     if (!bn) this.banner = null;
 
+    // What the network is doing, when there is one. A lockstep game that stops
+    // advancing looks exactly like a game that has crashed unless it says
+    // otherwise, so it says otherwise.
+    let netBanner: string | null = null;
+    if (this.transport) {
+      const st = this.net.state(performance.now());
+      if (st.kind === "stalled" && st.ms > 350) netBanner = `Waiting for the other player — ${(st.ms / 1000).toFixed(1)}s`;
+      else if (st.kind === "desync") netBanner = `The two games have drifted apart at turn ${st.turn}. This is a bug, not your fault.`;
+      else if (st.kind === "over") netBanner = st.why;
+    }
+
     // The sky drives the rain bed. Read from the simulation, because how hard it
     // is raining is the same number that decides how fast people walk.
     this.audio.setRain(this.world.rain);
@@ -1118,7 +1287,7 @@ export class Game {
       tabs: sets.tabs,
       activeTab: this.tab,
       commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action) })) as ShellCommand[],
-      banner: objective || !banner ? null : banner,
+      banner: netBanner ?? (objective || !banner ? null : banner),
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
       mapName: this.map.name,

@@ -30,10 +30,13 @@ const EPIGRAPH = "Eight kingdoms, one winter. Choose where the war begins.";
 const VERSION = "0.1.0";
 
 /** Which list of rows the column is showing. */
-export type FrontPane = "splash" | "menu" | "credits";
+export type FrontPane = "splash" | "menu" | "credits" | "multiplayer" | "host" | "join";
 
 export type FrontAction =
   | { kind: "begin" }
+  | { kind: "host" }
+  | { kind: "join" }
+  | { kind: "leaveRoom" }
   | { kind: "pane"; pane: FrontPane }
   | { kind: "difficulty"; value: Difficulty }
   | { kind: "map"; id: string }
@@ -51,6 +54,14 @@ export interface FrontHit {
 
 export interface FrontState {
   pane: FrontPane;
+  /**
+   * The lobby, while one is open.
+   *
+   * `code` is the room, `typed` is what the guest has keyed in so far, and
+   * `status` is whatever the last thing that happened was -- all of it is just
+   * text on the screen, so it lives here rather than anywhere cleverer.
+   */
+  net: { code: string; typed: string; status: string; busy: boolean };
   /** Highlighted row, for the keyboard. The mouse highlights whatever it is over. */
   cursor: number;
   /** First visible row in a list long enough to scroll. */
@@ -58,7 +69,7 @@ export interface FrontState {
 }
 
 export function newFrontState(): FrontState {
-  return { pane: "splash", cursor: 0, scroll: 0 };
+  return { pane: "splash", cursor: 0, scroll: 0, net: { code: "", typed: "", status: "", busy: false } };
 }
 
 /** One line in the column. */
@@ -247,6 +258,51 @@ function drawSplash(ctx: CanvasRenderingContext2D, W: number, H: number): FrontH
 /** Which rows each pane is made of. */
 function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { rows: Row[]; note: string; heading: string | null } {
   switch (state.pane) {
+    case "multiplayer": {
+      const rows: Row[] = [
+        {
+          numeral: numeral(0),
+          label: "Host a Game",
+          hint: "Get a code",
+          enabled: !state.net.busy,
+          marked: false,
+          action: { kind: "host" },
+          note: "Opens a room and gives you a four-letter code to read out.",
+        },
+        {
+          numeral: numeral(1),
+          label: "Join a Game",
+          hint: "Type a code",
+          enabled: !state.net.busy,
+          marked: false,
+          action: { kind: "pane", pane: "join" },
+          note: "Type the code your friend read out to you.",
+        },
+        { numeral: "", label: "Back", hint: "Esc", enabled: true, marked: false, action: { kind: "pane", pane: "menu" } },
+      ];
+      return { rows, note: state.net.status || "Two players, one match, over the internet.", heading: "PLAY A FRIEND" };
+    }
+    case "host": {
+      const rows: Row[] = [
+        { numeral: "", label: "Give Up Waiting", hint: "Esc", enabled: true, marked: false, action: { kind: "leaveRoom" } },
+      ];
+      return { rows, note: state.net.status, heading: "YOUR ROOM" };
+    }
+    case "join": {
+      const rows: Row[] = [
+        {
+          numeral: "",
+          label: "Knock",
+          hint: "Enter",
+          enabled: state.net.typed.length === 4 && !state.net.busy,
+          marked: false,
+          action: { kind: "join" },
+          note: "Ask to join that room.",
+        },
+        { numeral: "", label: "Back", hint: "Esc", enabled: true, marked: false, action: { kind: "pane", pane: "multiplayer" } },
+      ];
+      return { rows, note: state.net.status || "Type the four letters your friend gave you.", heading: "JOIN A GAME" };
+    }
     case "credits": {
       const rows: Row[] = [
         { numeral: "", label: "Made By", hint: "Ari Caruana, 8 years old", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
@@ -279,6 +335,15 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
         },
         {
           numeral: numeral(2),
+          label: "Play a Friend",
+          hint: "2 players",
+          enabled: true,
+          marked: false,
+          action: { kind: "pane", pane: "multiplayer" },
+          note: "Host a game and read out the code, or join one you have been given.",
+        },
+        {
+          numeral: numeral(3),
           label: "Settings",
           hint: "Gear",
           enabled: true,
@@ -287,7 +352,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Sound, speed, the opponent, and which of the hundred realms you fight over.",
         },
         {
-          numeral: numeral(3),
+          numeral: numeral(4),
           label: "Credits",
           hint: "",
           enabled: true,
@@ -296,7 +361,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Who made this, and what with.",
         },
         {
-          numeral: numeral(4),
+          numeral: numeral(5),
           label: "Leave the Realm",
           hint: "Esc",
           enabled: true,
@@ -419,6 +484,51 @@ export function drawFrontScreen(
   ctx.font = "10px system-ui, sans-serif";
   ctx.fillStyle = MUTED;
   tracked(ctx, TAGLINE, x, y, 3);
+
+  // ── the room code, when there is one ──
+  //
+  // Big, spaced and boxed, because its whole job is to be read aloud down a
+  // phone and typed in correctly at the other end. Four characters from an
+  // alphabet with no O, no zero, no I and no one in it, so there is nothing to
+  // mishear or mistype.
+  if (state.pane === "host" || state.pane === "join") {
+    const shown = state.pane === "host" ? state.net.code : state.net.typed;
+    const box = Math.round(Math.min(66, colW / 5.2));
+    const gap = Math.round(box * 0.22);
+    const bx = x;
+    const by = y + 34;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i < 4; i++) {
+      const cx = bx + i * (box + gap);
+      const filled = i < shown.length;
+      ctx.fillStyle = filled ? "rgba(216,179,90,0.16)" : "rgba(255,255,255,0.03)";
+      ctx.fillRect(cx, by, box, box);
+      ctx.strokeStyle = filled ? GOLD : "rgba(255,255,255,0.14)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx + 0.5, by + 0.5, box - 1, box - 1);
+      if (filled) {
+        ctx.fillStyle = CREAM;
+        ctx.font = `${Math.round(box * 0.56)}px Georgia, 'Times New Roman', serif`;
+        ctx.fillText(shown[i]!, cx + box / 2, by + box / 2 + 1);
+      }
+    }
+    // A caret under the next empty box, so it is obvious the thing takes typing.
+    if (state.pane === "join" && shown.length < 4) {
+      const cx = bx + shown.length * (box + gap);
+      const blink = Math.sin(performance.now() / 320) > 0;
+      if (blink) {
+        ctx.fillStyle = GOLD_HOT;
+        ctx.fillRect(cx + box * 0.25, by + box + 5, box * 0.5, 2);
+      }
+    }
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.fillStyle = MUTED;
+    tracked(ctx, state.pane === "host" ? "READ THIS OUT TO YOUR FRIEND" : "TYPE THE FOUR LETTERS", x, by + box + 30, 3);
+    y = by + box + 44;
+  }
 
   // ── rows ──
   const footerH = 96;
