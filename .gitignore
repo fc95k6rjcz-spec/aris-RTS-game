@@ -5,3 +5,6 @@ node_modules
 .vercel
 .env*
 vite.config.ts.timestamp-*.mjs
+server/dist
+server/data
+server/testdata

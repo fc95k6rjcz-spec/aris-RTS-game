@@ -18,6 +18,7 @@ import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
 import { groundFor } from "./ground";
+import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
 import { grassReady } from "./grass";
 
@@ -810,6 +811,16 @@ export class Renderer {
    * board, so it gets a slow beacon of light rather than realism: the eye needs
    * something to catch on from across a screen of trees.
    */
+  /**
+   * The weapon in the ground.
+   *
+   * Painted art now rather than two strokes of a pen. It arrives as a whole
+   * little scene -- a sword standing in a cracked outcrop with grass round it --
+   * and rather than cutting the grass away it is drawn with a soft edge and
+   * allowed to blend, because the thing it is standing on is grass too. The
+   * shaft of light over it stays: the sword is what the whole opening is
+   * waiting on, and it has to be findable from across a field.
+   */
   private drawRelics(): void {
     if (this.world.relics.length === 0) return;
     const ctx = this.ctx;
@@ -822,19 +833,30 @@ export class Renderer {
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
       const pulse = 0.55 + 0.45 * Math.sin(t * 0.08);
 
+      const size = bucket(s * 2.6);
+      const art = stamp(`relic@${size}`, size, size, (c, w, h) => {
+        const img = spriteImage(relicSword);
+        if (!img) return;
+        c.drawImage(img, 0, 0, w, h);
+        c.globalCompositeOperation = "destination-in";
+        const g = c.createRadialGradient(w / 2, h / 2, w * 0.2, w / 2, h / 2, w * 0.5);
+        g.addColorStop(0, "rgba(0,0,0,1)");
+        g.addColorStop(0.7, "rgba(0,0,0,0.92)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        c.fillStyle = g;
+        c.fillRect(0, 0, w, h);
+      });
+      if (!spriteImage(relicSword)) this.missedArt = true;
+
       ctx.save();
-      // A shaft of light standing over it.
-      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s * 1.6);
-      glow.addColorStop(0, `rgba(255,238,170,${0.5 * pulse})`);
+      // A shaft of light standing over it, so it can be found from across a
+      // field rather than only stumbled upon.
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s * 2);
+      glow.addColorStop(0, `rgba(255,238,170,${0.42 * pulse})`);
       glow.addColorStop(1, "rgba(255,238,170,0)");
       ctx.fillStyle = glow;
-      ctx.fillRect(p.x - s * 1.6, p.y - s * 1.6, s * 3.2, s * 3.2);
-
-      ctx.translate(p.x, p.y);
-      ctx.lineCap = "round";
-      ctx.strokeStyle = "#f2e6c2";
-      ctx.lineWidth = Math.max(2, s * 0.09);
-      drawWeapon(ctx, WEAPON_OF[r.faction].name, s);
+      ctx.fillRect(p.x - s * 2, p.y - s * 2, s * 4, s * 4);
+      ctx.drawImage(art, Math.round(p.x - size / 2), Math.round(p.y - size / 2));
       ctx.restore();
     }
   }

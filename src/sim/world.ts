@@ -311,6 +311,18 @@ export class World {
     return h >>> 0;
   }
 
+  /**
+   * Put a restored world back on its own clock.
+   *
+   * The persistent server keeps the world on disk and rebuilds it on boot, and
+   * a world that came back believing it was at tick zero would re-run every
+   * timed thing in it -- and hand out entity ids that are already taken.
+   */
+  restoreClock(tick: number, nextId: number): void {
+    this.tick = tick;
+    this.nextId = nextId;
+  }
+
   /** Exposed for headless tests: the sky at any seed and tick, asked directly. */
   skyAtForTest(seed: number, tick: number): string {
     return skyAt(seed, tick).sky;

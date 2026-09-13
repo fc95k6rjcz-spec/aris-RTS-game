@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "//": "Only what a server needs: the simulation and its data. Everything under render/, ui/ and game/ is browser code and must never be reachable from here -- if it ever is, that is a design mistake worth a compile error.",
+  "include": ["../server/**/*", "../src/sim/**/*", "../src/data/**/*"]
+}

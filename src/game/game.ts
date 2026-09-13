@@ -1,6 +1,7 @@
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
 import { Camera } from "../render/camera";
+import { spriteImage } from "../render/sprites";
 import { Renderer, type Ghost } from "../render/renderer";
 import type { Command } from "../sim/commands";
 import type { Building, Unit } from "../sim/entities";
@@ -25,11 +26,18 @@ import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
+import crowning0 from "../assets/anim/crowning_0.png";
+import crowning1 from "../assets/anim/crowning_1.png";
+import crowning2 from "../assets/anim/crowning_2.png";
+import crowning3 from "../assets/anim/crowning_3.png";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+/** How long the crowning plays for, in milliseconds. */
+const CROWNING_MS = 2600;
+
 const EDGE = 14;
 const EDGE_SPEED = 14;
 
@@ -87,6 +95,15 @@ export class Game {
   private running = true;
   /** Last menu state pushed to the chrome, so the class is only toggled on change. */
   private shownMenu = true;
+  /**
+   * The crowning, while it is playing.
+   *
+   * Four painted frames -- reach, grasp, pull, raise -- shown where it actually
+   * happened. The whole opening is a walk towards this moment, and it used to
+   * be a line of text in the corner of the screen. It plays once, at the
+   * relic's own position, and then the game carries on.
+   */
+  private crowningAt: { x: number; y: number; at: number } | null = null;
   /** Whether this player's king has already been proclaimed, so it happens once. */
   private crowned = false;
   /** Test hook: number of ticks simulated. */
@@ -386,7 +403,10 @@ export class Game {
       for (const e of this.world.fx) {
         if (e.kind === "crowned" && e.owner === this.player) {
           this.crowned = true;
-          this.proclaim("A KING IS BORN", "Raise your hall. The valley is yours to take.", 6000);
+          this.crowningAt = { x: e.x, y: e.y, at: performance.now() };
+          // The banner waits for the pull: shouting "a King is born" over a man
+          // still bending down gives the moment away before it happens.
+          window.setTimeout(() => this.proclaim("A KING IS BORN", "Raise your hall. The valley is yours to take.", 6000), CROWNING_MS * 0.72);
           break;
         }
       }
@@ -1170,7 +1190,45 @@ export class Game {
       this.surrenderRect = null;
     }
 
+    this.drawCrowning(ctx);
     this.updateShell(selUnits, selBuildings);
+  }
+
+  /**
+   * The moment the weapon comes out of the ground.
+   *
+   * Drawn over the world at the spot it happened, at a size that reads as a
+   * scene rather than as a unit -- this is the one instant in a match that is
+   * allowed to be bigger than the game. It fades in and out at the edges so it
+   * arrives and leaves rather than blinking.
+   */
+  private drawCrowning(ctx: CanvasRenderingContext2D): void {
+    const c = this.crowningAt;
+    if (!c) return;
+    const t = performance.now() - c.at;
+    if (t > CROWNING_MS) {
+      this.crowningAt = null;
+      return;
+    }
+    const frames = [crowning0, crowning1, crowning2, crowning3];
+    const i = Math.min(frames.length - 1, Math.floor((t / CROWNING_MS) * frames.length));
+    const img = spriteImage(frames[i]!);
+    if (!img) return;
+    const p = this.cam.toScreen(c.x, c.y);
+    const s = this.cam.zoom;
+    const h = s * 4.2;
+    const w = (img.naturalWidth / img.naturalHeight) * h;
+    const fade = Math.min(1, t / 220) * Math.min(1, (CROWNING_MS - t) / 420);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    // A wash of gold under it, so it lifts off whatever ground it happens on.
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, h * 0.75);
+    glow.addColorStop(0, "rgba(255,228,150,0.45)");
+    glow.addColorStop(1, "rgba(255,228,150,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(p.x - h, p.y - h, h * 2, h * 2);
+    ctx.drawImage(img, p.x - w / 2, p.y - h * 0.86, w, h);
+    ctx.restore();
   }
 
   /**
