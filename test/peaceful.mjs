@@ -14,11 +14,35 @@ async function run(difficulty) {
     // The forest wall is a different feature, tested in stockade.mjs; it would
     // only get in the way of what this one is measuring.
     g.settingsForTest.stockade = false;
+    // And so would the crowning opening, which is the default.
+    //
+    // Under it we begin as one peasant with no buildings, and nobody is playing
+    // us in this test -- so that peasant stands where he was put for the whole
+    // run. There is nothing for a normal opponent to march on and nothing of
+    // ours for it to hit, so the control ("a normal opponent DOES attack, so
+    // the peaceful result means something") measured only that the map had no
+    // targets on it. A plain skirmish start gives both sides a hall and a
+    // worker line, which is the situation this file is actually about.
+    g.settingsForTest.crowning = false;
+    g.settingsForTest.nomad = false;
+    // A fixed map, so the control is a control.
+    //
+    // The default is a random map per match, and the opponent does not develop
+    // equally well on all of them -- on Still Water it cannot reach timber and
+    // sits on a thousand gold with one building, which has nothing to do with
+    // whether it is peaceful. Measured over three runs on random maps the
+    // control landed 0, 21 and 42 blows, so one run in three failed the suite
+    // for the map it drew. Open Steppe is a map the opponent reliably plays.
+    g.settingsForTest.mapId = "plains-7925";
     g.start(difficulty);
     const w = g.world;
+    // No dragons. This file is about whether an opponent chooses to attack us,
+    // and a dragon burning the warband on its way over is noise that shows up
+    // as "the opponent never attacked".
+    w.scheduleDragon(1e9);
     let hitsOnUs = 0;
     const mine = new Set();
-    for (let t = 0; t < 9000 && w.winner === null; t++) {
+    for (let t = 0; t < 16000 && w.winner === null; t++) {
       g.tick();
       for (const e of w.entities.values()) if (e.owner === 1) mine.add(e.id);
       for (const e of w.fx) if (e.kind === "hit" && mine.has(e.id)) hitsOnUs++;

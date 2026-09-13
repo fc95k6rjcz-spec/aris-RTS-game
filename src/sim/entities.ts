@@ -6,8 +6,15 @@ export type UnitTask =
   | { kind: "build"; building: EntityId }
   | { kind: "gather"; tx: number; ty: number; resource: "gold" | "lumber"; phase: "toNode" | "harvest" | "toDrop" | "deposit"; timer: number }
   | { kind: "repair"; building: EntityId }
-  /** Ordered onto a specific target; chases it until it dies. */
-  | { kind: "attack"; target: EntityId }
+  /**
+   * Ordered onto a specific target; chases it until it dies.
+   *
+   * `guard` marks a chase the unit started by itself, having spotted something
+   * from where it was standing rather than being told to. Those are leashed to
+   * `post` so that a picket does not follow one scout across the map; an
+   * ordered attack has no leash, because the player meant it.
+   */
+  | { kind: "attack"; target: EntityId; guard?: boolean }
   /** Move to a point, engaging anything hostile met on the way. */
   | { kind: "attackMove"; target: Vec };
 
@@ -32,6 +39,11 @@ export interface Unit {
   engaging: EntityId | null;
   /** Consecutive ticks spent with nothing to do. Reset by any order. */
   idleFor: number;
+  /**
+   * The ground this unit came to rest on, and the anchor its self-started
+   * chases are leashed to. Null whenever it is busy with something else.
+   */
+  post: Vec | null;
   /**
    * Lying down for the night. Purely how the unit is drawn: a sleeper fights,
    * sees and takes damage exactly as a man on his feet does, and is on his feet

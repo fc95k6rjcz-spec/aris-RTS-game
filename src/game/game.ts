@@ -301,18 +301,24 @@ export class Game {
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
     // War camps, scaled to the board like everything else out here.
     //
-    // One per sixty-four tiles square, which is six on the big map. Two per was
-    // tried first and it is far too much: thirteen camps each sending a warband
-    // at whoever is nearest works out at a raid somewhere every forty seconds,
-    // and neither player is playing the other any more. Six holds the middle of
-    // the country without owning it.
+    // One per a hundred and twenty tiles square, which is three on the big map.
+    //
+    // This has been walked down twice, both times because of what the camps do
+    // to the SKIRMISH AI rather than to the player. Measured on fixed maps, the
+    // AI trains exactly the army it always did -- fourteen footmen on Open
+    // Steppe by the sixteen minute mark -- and with camps on the board it has
+    // one of them left. A human picks a route and picks a moment; the AI walks
+    // its waves across the country and feeds them in. Thirteen camps was a raid
+    // somewhere every forty seconds; six still cost the AI most of its army.
+    // Three leaves the middle of the map worth clearing without deciding the
+    // match between two players who never touched each other.
     //
     // BEFORE the fires, and the order matters. Camp placement only asks whether
     // the ground is free, so laying the fires first meant a stronghold could be
     // dropped straight on top of one -- a hearth burning inside a hut, on a tile
     // nothing can walk to. Fire placement checks walkability, so putting the
     // buildings down first makes the fires route around them for free.
-    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (64 * 64))));
+    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (120 * 120))));
     // Somebody's camp, every so often, and one at each seat. Scaled the same
     // way, and laid whatever the wildlife setting says -- an empty country
     // still had people through it once.

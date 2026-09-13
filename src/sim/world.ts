@@ -132,7 +132,7 @@ const CAMP_RANGE = 8;
  */
 const RAID_SIZE = 5;
 const RAID_FIRST = 20 * 60 * 8;
-const RAID_EVERY = 20 * 60 * 7;
+const RAID_EVERY = 20 * 60 * 10;
 
 /**
  * How many warriors a camp will not send away under any circumstances.
@@ -159,6 +159,20 @@ const FARM_FOOD_EVERY = 20 * 6;
 
 /** How close a person may come before a skittish animal bolts, in tiles. */
 const SPOOK = 7;
+
+/**
+ * How far a unit will chase something it spotted for itself, in tiles.
+ *
+ * Measured from the ground it was standing on when it started, not from where
+ * it is now, so a running fight cannot walk a picket off the map one leash at a
+ * time. Six tiles is a couple of seconds of pursuit: enough to punish a worker
+ * who strayed, not enough to pull a garrison out of position because a scout
+ * rode past.
+ *
+ * An ordered attack is not leashed at all. If the player says chase that, the
+ * unit chases it.
+ */
+const GUARD_LEASH = 6;
 
 /**
  * How long a man must stand about at night before he lies down, in ticks.
@@ -938,7 +952,7 @@ export class World {
       // Well clear of a seat. A camp on your doorstep at tick zero is not
       // something to plan around, it is a map you lost before you looked at it.
       let bad = false;
-      for (const seat of this.map.starts) if (Math.hypot(tx - seat.x, ty - seat.y) < 26) bad = true;
+      for (const seat of this.map.starts) if (Math.hypot(tx - seat.x, ty - seat.y) < 34) bad = true;
       for (const c of sited) if (Math.hypot(tx - c.x, ty - c.y) < 24) bad = true;
       if (bad) continue;
       if (!this.map.canPlace(tx, ty, 4)) continue;
@@ -1492,6 +1506,7 @@ export class World {
       engaging: null,
       idleFor: 0,
       asleep: false,
+      post: null,
     };
     this.entities.set(u.id, u);
     return u;
@@ -2464,6 +2479,11 @@ export class World {
   }
 
   private stepUnit(u: Unit): void {
+    // The post is the ground a standing unit holds. Any other business -- an
+    // order, a job, a chase somebody told it to make -- gives it up, so that
+    // when it next comes to rest it holds wherever it ended up rather than
+    // being leashed to somewhere it left minutes ago.
+    if (u.task.kind !== "idle" && !(u.task.kind === "attack" && u.task.guard)) u.post = null;
     if (u.cooldown > 0) u.cooldown--;
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) {
@@ -2479,9 +2499,41 @@ export class World {
     const t = u.task;
     switch (t.kind) {
       case "idle": {
-        // Standing units defend themselves and anything beside them.
+        /**
+         * Standing units hold their ground and fight what comes near it.
+         *
+         * This used to acquire a target and then, if it was not already within
+         * arm's reach, do nothing whatsoever -- it set `engaging` and stood
+         * there. Since `autoAcquire` watches two and a half tiles further than
+         * any hand weapon can reach, that meant the entire watch radius was
+         * dead for infantry: a footman only ever swung at something already
+         * standing on top of him. Eight of them would sit in a neat line a
+         * tile and a half from an enemy King, all of them with him acquired,
+         * none of them moving. It reads exactly like an opponent that is not
+         * playing, and it applied to the player's own army just as much.
+         *
+         * They close the gap now, leashed to the ground they were holding.
+         */
         const foe = this.autoAcquire(u);
-        if (foe) this.tryAttack(u, foe);
+        if (!foe) {
+          // Nothing about. Wherever it has come to rest is the ground it holds,
+          // and the leash below is measured from here. Written in place rather
+          // than replaced: this runs every tick for every unit with nothing to
+          // do, which on a full board is a few thousand throwaway objects a
+          // second for a pair of numbers that mostly do not change.
+          if (u.post) {
+            u.post.x = u.pos.x;
+            u.post.y = u.pos.y;
+          } else {
+            u.post = { x: u.pos.x, y: u.pos.y };
+          }
+          return;
+        }
+        if (this.tryAttack(u, foe)) return;
+        if (UNITS[u.def]!.damage <= 0) return;
+        if (!u.post) u.post = { x: u.pos.x, y: u.pos.y };
+        if (Math.hypot(u.pos.x - u.post.x, u.pos.y - u.post.y) > GUARD_LEASH * SUB) return;
+        u.task = { kind: "attack", target: foe.id, guard: true };
         return;
       }
       case "move": {
@@ -2500,6 +2552,14 @@ export class World {
         return;
       }
       case "attack": {
+        // A chase it started itself only runs so far from where it began. An
+        // ordered one runs as far as the player likes.
+        if (t.guard && u.post && Math.hypot(u.pos.x - u.post.x, u.pos.y - u.post.y) > GUARD_LEASH * SUB) {
+          u.task = { kind: "idle" };
+          u.path = [];
+          u.engaging = null;
+          return;
+        }
         const target = this.entities.get(t.target);
         if (!target || !this.hostile(u, target)) {
           // Target gone: hold position and look for another rather than idling.
