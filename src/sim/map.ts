@@ -560,6 +560,17 @@ export class GameMap {
     const iceCover = ICE_COVER[kind] ?? 0;
     if (iceCover > 0) {
       const fx = 0.06 + rng.next() * 0.03;
+      // Decided in full, then written.
+      //
+      // This used to write each floe into the very grid it was then testing the
+      // next tile against -- and since a tile only qualifies if all eight of its
+      // neighbours are open water, the moment one tile froze its neighbours
+      // could never freeze. Pack ice could only ever land on alternating tiles,
+      // so a "sheet" came out as a perfect chequerboard of single floes with
+      // water between every one of them: the exact even sprinkle the comment
+      // above says it is avoiding. Collecting first and applying afterwards
+      // means every tile is judged against the sea as it was found.
+      const floes: number[] = [];
       for (let y = 0; y < height; y++)
         for (let x = 0; x < width; x++) {
           if (m.get(x, y) !== Tile.Water) continue;
@@ -580,8 +591,9 @@ export class GameMap {
             Math.sin((x + y) * fx * 0.6) * 0.7 +
             Math.sin(x * fx * 2.1 + y * fx * 0.4) * 0.4;
           if ((n + 2.1) / 4.2 < 1 - iceCover) continue;
-          m.set(x, y, Tile.Ice);
+          floes.push(m.idx(x, y));
         }
+      for (const i of floes) m.set(i % width, (i / width) | 0, Tile.Ice);
     }
 
     // A wall of forest around every seat.
