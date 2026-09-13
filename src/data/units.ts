@@ -313,7 +313,10 @@ export const UNITS: Record<string, UnitDef> = {
     // Not trainable -- there is exactly one, and he arrives with you.
     cost: { gold: 0, lumber: 0 },
     hp: 520,
-    speed: 8,
+    // A King outpaces everything else on foot. He is one man crossing a
+    // continent alone for the first part of the game, and the whole opening is
+    // watching him do it.
+    speed: 11,
     trainTime: 0,
     supply: 0,
     domain: "land",

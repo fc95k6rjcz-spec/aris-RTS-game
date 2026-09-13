@@ -29,10 +29,18 @@ export const START_PURSE = { gold: 450, lumber: 300, oil: 0, food: 400 };
  *
  * Kept as one number rather than halving every unit's `speed` in the data,
  * because the data is the design ("a Knight is half again as quick as a
- * Footman") and this is the tuning ("the whole game is too fast"). Changing the
+ * Footman") and this is the tuning ("the whole game is too fast").
+ *
+ * It was a half, and a half was too far. Halving movement and doubling every
+ * duration are two different decisions that got made together, and only one of
+ * them was right: a long game wants long BUILD times, which is what makes an
+ * expansion a commitment -- it does not want a man taking a minute and a half
+ * to walk somewhere you are watching him walk. The crowning opening is the
+ * proof, because it is nothing but a walk, and at a half it was a chore. Build,
+ * train and research times are untouched; only the feet are quicker. Changing the
  * design to express a tuning decision loses the reason for both.
  */
-const MOVE_SCALE = 0.5;
+const MOVE_SCALE = 0.72;
 
 /** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
  * track gives, so a rained-on road is a real setback and not a rounding error. */
