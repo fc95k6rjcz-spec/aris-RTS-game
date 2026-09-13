@@ -26,6 +26,11 @@ export const WEAPON_OF: Record<Faction, { name: string; taken: string }> = {
   [Faction.Barbarian]: { name: "spiked pick", taken: "The pick is hefted. A King is born." },
   [Faction.Elf]: { name: "bow", taken: "The bow is strung. A King is born." },
   [Faction.Ashen]: { name: "brand", taken: "The brand is lit. A King is born." },
+  // The orcs are not a clan anybody plays, so no weapon waits in the ground for
+  // them. The entry exists because the map is exhaustive over factions, and an
+  // exhaustive map is the thing that will remind whoever makes them playable
+  // that this is one of the places to look.
+  [Faction.Orc]: { name: "cleaver", taken: "The cleaver is taken up. A warchief is made." },
 };
 
 /** One weapon, waiting in the ground for the man it belongs to. */

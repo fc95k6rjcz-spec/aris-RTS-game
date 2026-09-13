@@ -355,6 +355,175 @@ const shipyard: Drawer = (a) => {
 };
 
 /** Legacy single-style drawers, kept for reference. */
+// ───────────────────────────── the Blackrock ─────────────────────────────
+
+/**
+ * Orc structures: hide over bone over sharpened timber.
+ *
+ * Human buildings in this game are rectangles with pitched roofs and neat
+ * gables, so orc ones are deliberately none of those things -- round, sagging,
+ * asymmetric, and bristling. Nothing here is a straight line if it can help it,
+ * because the whole job is that a player who has scouted into a camp knows in
+ * one glance that nobody friendly built this.
+ */
+const ORC_HIDE_LIT = "#8a7355";
+const ORC_HIDE_DIM = "#5e4c37";
+const ORC_TIMBER = "#4a3928";
+const ORC_BONE = "#d8cdb2";
+
+/** A ring of sharpened stakes leaning outward, drawn behind whatever it rings. */
+function stakes(a: ArtCtx, cx: number, cy: number, r: number, n: number): void {
+  const c = a.ctx;
+  c.strokeStyle = ORC_TIMBER;
+  c.lineWidth = Math.max(1, a.w * 0.022);
+  c.lineCap = "round";
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * Math.PI * 2 + 0.3;
+    const bx = a.x + (cx + Math.cos(ang) * r) * a.w;
+    const by = a.y + (cy + Math.sin(ang) * r * 0.58) * a.w;
+    c.beginPath();
+    c.moveTo(bx, by);
+    c.lineTo(bx + Math.cos(ang) * a.w * 0.06, by + Math.sin(ang) * a.w * 0.035 - a.w * 0.11);
+    c.stroke();
+  }
+}
+
+/** A skull on a pole. There is always a skull on a pole. */
+function totem(a: ArtCtx, fx: number, fy: number, h: number): void {
+  const c = a.ctx;
+  const px = a.x + fx * a.w;
+  const py = a.y + fy * a.w;
+  c.strokeStyle = ORC_TIMBER;
+  c.lineWidth = Math.max(1, a.w * 0.018);
+  c.beginPath();
+  c.moveTo(px, py);
+  c.lineTo(px, py - h * a.w);
+  c.stroke();
+  c.fillStyle = ORC_BONE;
+  c.beginPath();
+  c.ellipse(px, py - h * a.w - a.w * 0.02, a.w * 0.035, a.w * 0.028, 0, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = "rgba(30,24,18,0.8)";
+  for (const dx of [-0.014, 0.014]) {
+    c.beginPath();
+    c.arc(px + dx * a.w, py - h * a.w - a.w * 0.026, a.w * 0.008, 0, Math.PI * 2);
+    c.fill();
+  }
+}
+
+const stronghold: Drawer = (a) => {
+  const c = a.ctx;
+  // Shadow.
+  c.fillStyle = "rgba(0,0,0,0.28)";
+  c.beginPath();
+  c.ellipse(a.x + a.w * 0.52, a.y + a.w * 0.74, a.w * 0.42, a.w * 0.18, 0, 0, Math.PI * 2);
+  c.fill();
+
+  stakes(a, 0.5, 0.72, 0.46, 14);
+
+  // A great sagging hide dome, wider than it is tall and off-centre.
+  const g = a.ctx.createLinearGradient(0, a.y + a.w * 0.12, 0, a.y + a.w * 0.78);
+  g.addColorStop(0, ORC_HIDE_LIT);
+  g.addColorStop(1, ORC_HIDE_DIM);
+  c.fillStyle = g;
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.1, a.y + a.w * 0.74);
+  c.bezierCurveTo(a.x + a.w * 0.04, a.y + a.w * 0.3, a.x + a.w * 0.34, a.y + a.w * 0.1, a.x + a.w * 0.54, a.y + a.w * 0.14);
+  c.bezierCurveTo(a.x + a.w * 0.82, a.y + a.w * 0.18, a.x + a.w * 0.94, a.y + a.w * 0.44, a.x + a.w * 0.9, a.y + a.w * 0.74);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "rgba(24,18,12,0.55)";
+  c.lineWidth = Math.max(1, a.w * 0.014);
+  c.stroke();
+
+  // Rib poles over the hide, which is what stops it being a boulder.
+  c.strokeStyle = "rgba(38,28,18,0.5)";
+  c.lineWidth = Math.max(0.8, a.w * 0.012);
+  for (const k of [0.28, 0.44, 0.6, 0.76]) {
+    c.beginPath();
+    c.moveTo(a.x + a.w * k, a.y + a.w * 0.74);
+    c.quadraticCurveTo(a.x + a.w * (k * 0.7 + 0.16), a.y + a.w * 0.26, a.x + a.w * 0.52, a.y + a.w * 0.15);
+    c.stroke();
+  }
+
+  // A black hole of a doorway under a bone lintel.
+  c.fillStyle = "#1d160f";
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.4, a.y + a.w * 0.74);
+  c.lineTo(a.x + a.w * 0.4, a.y + a.w * 0.53);
+  c.quadraticCurveTo(a.x + a.w * 0.5, a.y + a.w * 0.45, a.x + a.w * 0.6, a.y + a.w * 0.53);
+  c.lineTo(a.x + a.w * 0.6, a.y + a.w * 0.74);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = ORC_BONE;
+  c.lineWidth = Math.max(1, a.w * 0.02);
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.37, a.y + a.w * 0.52);
+  c.quadraticCurveTo(a.x + a.w * 0.5, a.y + a.w * 0.42, a.x + a.w * 0.63, a.y + a.w * 0.52);
+  c.stroke();
+
+  totem(a, 0.18, 0.72, 0.42);
+  totem(a, 0.84, 0.7, 0.34);
+
+  // A banner in the owning clan's colour, so the camp reads as a side.
+  c.fillStyle = a.color;
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.52, a.y + a.w * 0.14);
+  c.lineTo(a.x + a.w * 0.52, a.y - a.w * 0.16);
+  c.lineTo(a.x + a.w * 0.76, a.y - a.w * 0.06);
+  c.lineTo(a.x + a.w * 0.52, a.y + a.w * 0.02);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = ORC_TIMBER;
+  c.lineWidth = Math.max(1, a.w * 0.016);
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.52, a.y + a.w * 0.2);
+  c.lineTo(a.x + a.w * 0.52, a.y - a.w * 0.18);
+  c.stroke();
+
+  // Smoke out of the top, on the same clock the human chimneys use.
+  const puff = (a.tick * 0.01) % 1;
+  c.fillStyle = `rgba(60,56,50,${0.3 * (1 - puff)})`;
+  c.beginPath();
+  c.arc(a.x + a.w * 0.44, a.y + a.w * (0.1 - puff * 0.3), a.w * (0.05 + puff * 0.09), 0, Math.PI * 2);
+  c.fill();
+};
+
+const warhut: Drawer = (a) => {
+  const c = a.ctx;
+  c.fillStyle = "rgba(0,0,0,0.26)";
+  c.beginPath();
+  c.ellipse(a.x + a.w * 0.54, a.y + a.w * 0.78, a.w * 0.38, a.w * 0.15, 0, 0, Math.PI * 2);
+  c.fill();
+
+  stakes(a, 0.5, 0.76, 0.4, 9);
+
+  const g = a.ctx.createLinearGradient(0, a.y + a.w * 0.2, 0, a.y + a.w * 0.8);
+  g.addColorStop(0, ORC_HIDE_LIT);
+  g.addColorStop(1, ORC_HIDE_DIM);
+  c.fillStyle = g;
+  c.beginPath();
+  c.moveTo(a.x + a.w * 0.16, a.y + a.w * 0.78);
+  c.bezierCurveTo(a.x + a.w * 0.12, a.y + a.w * 0.4, a.x + a.w * 0.4, a.y + a.w * 0.2, a.x + a.w * 0.56, a.y + a.w * 0.24);
+  c.bezierCurveTo(a.x + a.w * 0.8, a.y + a.w * 0.3, a.x + a.w * 0.88, a.y + a.w * 0.52, a.x + a.w * 0.84, a.y + a.w * 0.78);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "rgba(24,18,12,0.5)";
+  c.lineWidth = Math.max(0.8, a.w * 0.016);
+  c.stroke();
+
+  c.fillStyle = "#1d160f";
+  c.beginPath();
+  c.ellipse(a.x + a.w * 0.5, a.y + a.w * 0.72, a.w * 0.11, a.w * 0.13, 0, Math.PI, 0);
+  c.fill();
+
+  totem(a, 0.86, 0.76, 0.3);
+  c.fillStyle = a.color;
+  c.fillRect(a.x + a.w * 0.22, a.y + a.w * 0.3, a.w * 0.1, a.w * 0.16);
+};
+
+const ORC_BUILDING_ART: Record<string, Drawer> = { stronghold, warhut };
+
 export const CLASSIC_ART: Record<string, Drawer> = { townhall, lumbermill, barracks, shipyard };
 
 /** Live art: each building uses the style chosen in data/styleChoice.ts. */
@@ -367,10 +536,20 @@ const HUMAN_ART: Record<string, Drawer> = Object.fromEntries(Object.keys(CLASSIC
 /** Art sets per faction. A faction with no set of its own falls back to the Human one. */
 export const FACTION_ART: Record<string, Record<string, Drawer>> = {
   human: HUMAN_ART,
+  orc: ORC_BUILDING_ART,
 };
 
+/**
+ * The drawer for one building of one faction.
+ *
+ * Falls back per DEFINITION, not per faction. `FACTION_ART[faction] ?? HUMAN_ART`
+ * reads naturally and is a trap the moment a second faction exists: it picks the
+ * orc table, finds no `farm` in it, and returns undefined -- so a building a
+ * faction has no special art for is drawn as nothing at all rather than as the
+ * default. A faction's table should only need to hold what is different.
+ */
 export function artFor(faction: string, def: string): Drawer | undefined {
-  return (FACTION_ART[faction] ?? HUMAN_ART)[def];
+  return FACTION_ART[faction]?.[def] ?? HUMAN_ART[def];
 }
 
 /**

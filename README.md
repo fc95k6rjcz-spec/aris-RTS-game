@@ -47,7 +47,8 @@ src/
   game/       Client orchestration: input → commands → fixed 20 Hz tick → render
 tools/        Sprite extraction from the painted progression sheets
 test/         Playwright headless playtest and screenshot gallery.
-              night.mjs covers sleeping men, camp fires and the wildlife.
+              night.mjs covers sleeping men, camp fires and the wildlife;
+              dragon.mjs the arrive-burn-leave cycle; orcs.mjs the war camps.
 ```
 
 Key rule: **nothing outside `sim/` mutates sim state except by issuing a `Command`**.
@@ -94,6 +95,23 @@ identical state on every machine.
    Farm is the slow one. Every animal calls, through the same deterministic
    event stream a sword stroke uses, so both players in a network game hear the
    same wolf.
+
+   **The Blackrock** — orcs, as a race you meet rather than one you play
+   (`Faction.Orc`). War camps hold the middle of the country: a hide stronghold,
+   two or three war huts and a garrison of grunts, axe throwers, warg riders and
+   sometimes an ogre. A camp holds its ground and kills what walks in, replaces
+   what it loses, and — if left alone past the eight-minute mark — sends a
+   warband of five at the nearest thing anybody built. They gather nothing and
+   expand nowhere, and they are excluded from the victory check: they are a
+   hazard with a banner, not a third player. Killing them pays in plunder.
+
+   **Dragons** — from ten minutes in, roughly every seven minutes, one comes
+   over the map edge, burns whatever it happens to see for ninety seconds, and
+   leaves. It picks its victims at random and does not care whose they are, it
+   stands off at its own reach so a ring of swordsmen is no answer, and it can
+   be brought down by a real body of archers for four hundred gold. Only ever
+   one at a time, and it always leaves — a dragon that had to be killed to be
+   got rid of would be a boss fight, and one that stayed would decide the match.
 
    **Night** — the day runs on a four-minute clock (`sim/weather.ts`). Camp
    fires are laid across the map at world generation and beside every Town Hall

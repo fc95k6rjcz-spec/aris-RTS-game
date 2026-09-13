@@ -48,7 +48,12 @@ export interface Settings {
    * him. Implies the nomad start, because there is nobody to build a hall.
    */
   crowning: boolean;
-  /** Bears in the country between you and everywhere else. */
+  /**
+   * Whether anybody else is out there: the wildlife AND the orc war camps.
+   *
+   * One switch rather than two because they are one idea -- the country between
+   * the two seats is a place with things in it, or it is an empty board.
+   */
   wildlife: boolean;
   /**
    * How long everything takes. 1 is brisk; 6 turns a twenty-minute skirmish

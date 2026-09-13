@@ -240,6 +240,45 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     coastal: false,
     description: "Watches the ground around it. Higher tiers see further.",
   },
+  // ───────────────────────────── the Blackrock ─────────────────────────────
+  //
+  // Deliberately absent from BUILD_BASIC and BUILD_ADVANCED below, which is the
+  // whole of what stops a player raising one: the build menu is an explicit
+  // list, not a filter over this table.
+
+  stronghold: {
+    id: "stronghold",
+    name: "Stronghold",
+    hotkey: "",
+    size: 4,
+    // Not for sale. A camp arrives with the map.
+    cost: { gold: 0, lumber: 0 },
+    hp: 1500,
+    buildTime: 20 * 60,
+    // A camp replaces what it loses, slowly, which is why clearing one is a
+    // job you finish rather than a job you start.
+    trains: ["grunt", "axethrower", "wargrider", "ogre"],
+    requires: [],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "The heart of a Blackrock war camp. Pull it down and the camp stops coming back.",
+  },
+  warhut: {
+    id: "warhut",
+    name: "War Hut",
+    hotkey: "",
+    size: 2,
+    cost: { gold: 0, lumber: 0 },
+    hp: 450,
+    buildTime: 20 * 30,
+    trains: ["grunt"],
+    requires: [],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Hide, bone and sharpened timber. Turns out grunts for as long as it stands.",
+  },
 };
 
 /** Display name for a building in a given faction's language. */

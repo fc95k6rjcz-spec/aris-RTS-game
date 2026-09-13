@@ -961,8 +961,525 @@ const wolf = quadruped({
   },
 });
 
+/**
+ * The dragon: a plan view, like the aircraft, because that is what it is.
+ *
+ * Drawn from above and rotated to its heading rather than given eight painted
+ * facings, for the same reason the aeroplanes are -- a thing that banks and
+ * turns reads far better as one shape spun round than as a set of stills.
+ *
+ * The first version of this was a moth. Two smooth ellipses for wings, a stick
+ * for a body, and at the zoom anybody plays at it read as a dragonfly sitting
+ * on the town hall. What fixed it was not detail, it was structure: a dragon's
+ * wing is a HAND, and the silhouette that says so is the scalloped trailing
+ * edge between its fingers. Everything else here -- the barrel chest, the
+ * wedge skull, the trailing hind legs -- is in service of that one read, and
+ * the scallops are the part that must survive being shrunk.
+ */
+const dragon: UnitDrawer = (a) => {
+  const c = a.ctx;
+  const u = a.h * 2.2;
+  const beat = Math.sin(a.phase * Math.PI * 2);
+
+  // The shadow, well out and quite hard: it is not that high up.
+  c.fillStyle = "rgba(0,0,0,0.32)";
+  c.beginPath();
+  c.ellipse(a.x + u * 0.15, a.y + u * 0.36, u * 0.3, u * 0.1, 0, 0, Math.PI * 2);
+  c.fill();
+
+  c.save();
+  c.translate(a.x, a.y - u * 0.3 + beat * u * 0.025);
+  c.rotate((a.facing / 8) * Math.PI * 2 + Math.PI);
+  c.lineJoin = "round";
+  c.lineCap = "round";
+
+  const scale = "#7a2f26";
+  const scaleDark = "#4a1a16";
+  const belly = "#b87a44";
+  const bone = "#c9ab86";
+
+  // ── wings ──
+  //
+  // The stroke is a vertical squash on a plan view, which is what a wing beat
+  // actually looks like from above. It never fully closes: a dragon at full
+  // fold reads as a dead one.
+  const span = u * 0.66 * (0.62 + Math.abs(beat) * 0.38);
+  for (const side of [-1, 1]) {
+    const y = (k: number): number => side * span * k;
+    // Finger tips, from the wingtip back to the hip. The trailing edge is a
+    // scallop between each pair.
+    const fingers: Array<[number, number]> = [
+      [u * 0.1, y(1.0)],
+      [-u * 0.04, y(0.9)],
+      [-u * 0.16, y(0.7)],
+      [-u * 0.24, y(0.42)],
+    ];
+    c.beginPath();
+    // Leading edge: shoulder, out over the wrist, to the tip.
+    c.moveTo(u * 0.08, side * u * 0.05);
+    c.quadraticCurveTo(u * 0.26, y(0.5), fingers[0]![0], fingers[0]![1]);
+    // Trailing edge: bow each span back TOWARDS the shoulder to cut a scallop.
+    for (let i = 0; i < fingers.length - 1; i++) {
+      const [x0, y0] = fingers[i]!;
+      const [x1, y1] = fingers[i + 1]!;
+      c.quadraticCurveTo((x0 + x1) / 2 + u * 0.11, (y0 + y1) / 2 - side * span * 0.13, x1, y1);
+    }
+    // And home to the hip.
+    c.quadraticCurveTo(-u * 0.16, side * u * 0.12, -u * 0.08, side * u * 0.05);
+    c.closePath();
+    const g = c.createLinearGradient(0, side * span, 0, 0);
+    g.addColorStop(0, "#7d3b31");
+    g.addColorStop(1, "#9c4c3c");
+    c.fillStyle = g;
+    c.fill();
+    c.strokeStyle = "rgba(34,12,10,0.6)";
+    c.lineWidth = Math.max(0.7, u * 0.011);
+    c.stroke();
+    // The bones themselves, radiating from the shoulder to each fingertip.
+    c.strokeStyle = "rgba(48,20,16,0.5)";
+    c.lineWidth = Math.max(0.6, u * 0.009);
+    for (const [fx, fy] of fingers) {
+      c.beginPath();
+      c.moveTo(u * 0.07, side * u * 0.05);
+      c.quadraticCurveTo(u * 0.16, (fy + side * u * 0.05) / 2, fx, fy);
+      c.stroke();
+    }
+    // A claw on the wrist, which is the other thing only a dragon has.
+    c.strokeStyle = bone;
+    c.lineWidth = Math.max(0.7, u * 0.012);
+    c.beginPath();
+    c.moveTo(u * 0.21, y(0.52));
+    c.lineTo(u * 0.28, y(0.58));
+    c.stroke();
+  }
+
+  // ── tail ──
+  c.strokeStyle = scale;
+  c.lineWidth = u * 0.085;
+  c.beginPath();
+  c.moveTo(-u * 0.12, 0);
+  c.quadraticCurveTo(-u * 0.36, beat * u * 0.07, -u * 0.56, beat * u * 0.16);
+  c.stroke();
+  c.strokeStyle = scaleDark;
+  c.lineWidth = u * 0.04;
+  c.beginPath();
+  c.moveTo(-u * 0.4, beat * u * 0.085);
+  c.quadraticCurveTo(-u * 0.52, beat * u * 0.14, -u * 0.62, beat * u * 0.18);
+  c.stroke();
+  // A spade on the end.
+  c.fillStyle = scaleDark;
+  c.beginPath();
+  c.moveTo(-u * 0.58, beat * u * 0.17);
+  c.lineTo(-u * 0.72, beat * u * 0.22 - u * 0.055);
+  c.lineTo(-u * 0.69, beat * u * 0.22 + u * 0.055);
+  c.closePath();
+  c.fill();
+
+  // ── hind legs, trailing back under the wings ──
+  for (const side of [-1, 1]) {
+    c.strokeStyle = scaleDark;
+    c.lineWidth = u * 0.035;
+    c.beginPath();
+    c.moveTo(-u * 0.08, side * u * 0.07);
+    c.quadraticCurveTo(-u * 0.2, side * u * 0.16, -u * 0.3, side * u * 0.14);
+    c.stroke();
+    c.strokeStyle = bone;
+    c.lineWidth = Math.max(0.6, u * 0.01);
+    for (const k of [-0.03, 0, 0.03]) {
+      c.beginPath();
+      c.moveTo(-u * 0.3, side * u * 0.14);
+      c.lineTo(-u * 0.37, side * u * 0.14 + u * k);
+      c.stroke();
+    }
+  }
+
+  // ── body ──
+  c.fillStyle = scale;
+  c.beginPath();
+  c.moveTo(-u * 0.16, 0);
+  c.quadraticCurveTo(-u * 0.14, -u * 0.11, u * 0.04, -u * 0.115);
+  c.quadraticCurveTo(u * 0.2, -u * 0.1, u * 0.24, 0);
+  c.quadraticCurveTo(u * 0.2, u * 0.1, u * 0.04, u * 0.115);
+  c.quadraticCurveTo(-u * 0.14, u * 0.11, -u * 0.16, 0);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "rgba(30,10,8,0.5)";
+  c.lineWidth = Math.max(0.7, u * 0.011);
+  c.stroke();
+  // Plated belly down the middle.
+  c.fillStyle = belly;
+  c.beginPath();
+  c.ellipse(u * 0.04, 0, u * 0.15, u * 0.055, 0, 0, Math.PI * 2);
+  c.fill();
+  // Spines down the spine.
+  c.fillStyle = scaleDark;
+  for (const sx of [-0.1, -0.02, 0.06, 0.14]) {
+    c.beginPath();
+    c.moveTo(u * sx, -u * 0.02);
+    c.lineTo(u * (sx + 0.025), -u * 0.085);
+    c.lineTo(u * (sx + 0.05), -u * 0.015);
+    c.closePath();
+    c.fill();
+  }
+
+  // ── neck and head ──
+  c.strokeStyle = scale;
+  c.lineWidth = u * 0.075;
+  c.beginPath();
+  c.moveTo(u * 0.2, 0);
+  c.quadraticCurveTo(u * 0.3, 0, u * 0.36, 0);
+  c.stroke();
+  // A wedge skull, not a bean: wide at the jaw hinge, narrow at the snout.
+  c.fillStyle = scale;
+  c.beginPath();
+  c.moveTo(u * 0.33, -u * 0.075);
+  c.lineTo(u * 0.48, -u * 0.032);
+  c.lineTo(u * 0.5, 0);
+  c.lineTo(u * 0.48, u * 0.032);
+  c.lineTo(u * 0.33, u * 0.075);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "rgba(30,10,8,0.55)";
+  c.lineWidth = Math.max(0.7, u * 0.011);
+  c.stroke();
+  // Jaw line, and teeth at the front of it.
+  c.strokeStyle = "rgba(30,10,8,0.45)";
+  c.beginPath();
+  c.moveTo(u * 0.35, 0);
+  c.lineTo(u * 0.49, 0);
+  c.stroke();
+  c.fillStyle = bone;
+  for (const k of [0.4, 0.55, 0.7]) {
+    const hx = u * (0.35 + k * 0.14);
+    c.beginPath();
+    c.moveTo(hx, -u * 0.004);
+    c.lineTo(hx + u * 0.012, u * 0.022);
+    c.lineTo(hx + u * 0.024, -u * 0.004);
+    c.closePath();
+    c.fill();
+  }
+  // Horns swept back off the skull.
+  c.strokeStyle = bone;
+  c.lineWidth = Math.max(0.8, u * 0.015);
+  for (const side of [-1, 1]) {
+    c.beginPath();
+    c.moveTo(u * 0.35, side * u * 0.05);
+    c.quadraticCurveTo(u * 0.28, side * u * 0.1, u * 0.24, side * u * 0.085);
+    c.stroke();
+  }
+  // Two coals for eyes. At any zoom worth playing at this is the one detail
+  // that reads, and it is the one worth having.
+  c.fillStyle = "#ffd166";
+  for (const side of [-1, 1]) {
+    c.beginPath();
+    c.ellipse(u * 0.4, side * u * 0.035, u * 0.018, u * 0.012, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.restore();
+};
+
+// ───────────────────────────── the Blackrock ─────────────────────────────
+
+/**
+ * Orcs, drawn rather than painted, and drawn to be told apart from men at the
+ * distance you first see them.
+ *
+ * That last part is the whole brief. A player who has just walked a scout into
+ * a camp needs to know in one frame that these are not somebody's footmen, and
+ * at thirty pixels a tile you do not read a face. So the difference is carried
+ * by silhouette and colour: green against every human palette, shoulders half
+ * again as wide as a man's, a head carried forward of them instead of on top,
+ * and a weapon held out where a footman holds his in.
+ *
+ * Built on the same skeleton as the footman above -- `legs` and `ellipse` with
+ * the chest at the origin, the feet at +0.4u and the head at -0.3u. The first
+ * version invented its own frame with the feet at zero, which put every orc
+ * about a third of a body-height above the ground it was standing on: next to a
+ * painted footman they hovered. When there is a working convention in the file,
+ * use it.
+ */
+const ORC_SKIN = "#7d9e4e";
+const ORC_SKIN_DARK = "#4a6430";
+/**
+ * The torso is HIDE, not skin, and that is a drawing decision rather than a
+ * costume one: a green head on a green chest is one green blob at any zoom
+ * anybody plays at, exactly as the footman would be one grey blob if his face
+ * were painted the colour of his breastplate. The dark harness is what the head
+ * is read against.
+ */
+const ORC_HARNESS = "#4a3d2c";
+const ORC_HIDE = "#38301f";
+const ORC_IRON = "#8b9198";
+const ORC_EDGE = "#20290f";
+
+/**
+ * The shared body. Everything Blackrock is this with a different weapon.
+ *
+ * @param bulk 1 is a grunt; the ogre is half again as wide
+ * @param arm  the weapon, drawn last, in the sprite's own frame
+ */
+function orcBody(
+  a: UnitArtCtx,
+  bulk: number,
+  arm: (c: CanvasRenderingContext2D, u: number) => void,
+  mount?: (c: CanvasRenderingContext2D, u: number) => void,
+): void {
+  shadow(a);
+  withSprite(a, (c, base) => {
+    // A head taller than a man. At the base height they came out smaller than
+    // the painted footman they are supposed to frighten.
+    const u = base * 1.18;
+    const line = Math.max(0.8, u * 0.022);
+    // Sitting on something: the whole body rides higher and the legs are gone.
+    const lift = mount ? -u * 0.2 : 0;
+
+    if (mount) mount(c, u);
+    else legs(c, u, a.phase, a.moving, ORC_SKIN_DARK, Math.max(2, u * 0.105 * bulk), u * 0.15, u * 0.4);
+
+    // A hide kilt over the hips, which is what stops the legs reading as two
+    // sticks under a barrel.
+    c.fillStyle = ORC_HIDE;
+    c.beginPath();
+    c.moveTo(-u * 0.18 * bulk, lift + u * 0.22);
+    c.lineTo(u * 0.17 * bulk, lift + u * 0.22);
+    c.lineTo(u * 0.14 * bulk, lift + u * 0.06);
+    c.lineTo(-u * 0.14 * bulk, lift + u * 0.06);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = ORC_EDGE;
+    c.lineWidth = line;
+    c.stroke();
+
+    // Chest: wide, and leaning forward off the hips.
+    ellipse(c, u * 0.02, lift - u * 0.05, u * 0.21 * bulk, u * 0.21, ORC_HARNESS, ORC_EDGE, line);
+    // A green shoulder and upper arm showing above the harness, so the arm that
+    // holds the weapon belongs to the same creature as the head.
+    ellipse(c, u * 0.13 * bulk, lift - u * 0.11, u * 0.1 * bulk, u * 0.09, ORC_SKIN, ORC_EDGE, line);
+    // Player colour as a sash rather than a tabard. Blackrock green is the read;
+    // a full surcoat in somebody's heraldry would fight it.
+    c.fillStyle = a.color;
+    c.fillRect(-u * 0.16 * bulk, lift - u * 0.1, u * 0.09 * bulk, u * 0.2);
+    // The near pauldron: a slab of iron, and most of the silhouette.
+    ellipse(c, u * 0.17 * bulk, lift - u * 0.14, u * 0.11 * bulk, u * 0.085, ORC_IRON, ORC_EDGE, line);
+
+    // Head, forward of the shoulders rather than above them, with a jaw.
+    const hx = u * 0.1 * bulk;
+    const hy = lift - u * 0.34;
+    // A thick neck bridging harness and skull. Without it the head is a ball
+    // balanced on a barrel.
+    c.strokeStyle = ORC_SKIN;
+    c.lineWidth = u * 0.1 * bulk;
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(u * 0.04 * bulk, lift - u * 0.16);
+    c.lineTo(hx, hy + u * 0.04);
+    c.stroke();
+    ellipse(c, hx, hy, u * 0.115 * bulk, u * 0.105, ORC_SKIN, ORC_EDGE, line);
+    // Heavy lower jaw, and the two tusks coming up out of it.
+    ellipse(c, hx + u * 0.05 * bulk, hy + u * 0.05, u * 0.075 * bulk, u * 0.055, ORC_SKIN_DARK);
+    c.fillStyle = "#efe6cd";
+    for (const k of [0.015, 0.075]) {
+      c.beginPath();
+      c.moveTo(hx + u * k * bulk, hy + u * 0.085);
+      c.lineTo(hx + u * (k + 0.014) * bulk, hy + u * 0.005);
+      c.lineTo(hx + u * (k + 0.036) * bulk, hy + u * 0.085);
+      c.closePath();
+      c.fill();
+    }
+    // A swept-back ear, the other half of "not a man".
+    c.fillStyle = ORC_SKIN;
+    c.beginPath();
+    c.moveTo(hx - u * 0.07 * bulk, hy - u * 0.02);
+    c.lineTo(hx - u * 0.19 * bulk, hy - u * 0.11);
+    c.lineTo(hx - u * 0.06 * bulk, hy - u * 0.07);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = ORC_EDGE;
+    c.lineWidth = Math.max(0.6, u * 0.014);
+    c.stroke();
+    // One yellow eye. At this size it is the whole face.
+    c.fillStyle = "#f0c04a";
+    c.beginPath();
+    c.arc(hx + u * 0.05 * bulk, hy - u * 0.03, Math.max(0.8, u * 0.022 * bulk), 0, Math.PI * 2);
+    c.fill();
+
+    c.save();
+    c.translate(0, lift);
+    arm(c, u * bulk);
+    c.restore();
+  });
+}
+
+/** A grunt: a broad-bladed cleaver held out at arm's length. */
+const grunt: UnitDrawer = (a) =>
+  orcBody(a, 1, (c, u) => {
+    c.strokeStyle = ORC_SKIN;
+    c.lineWidth = u * 0.08;
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(u * 0.14, -u * 0.04);
+    c.lineTo(u * 0.3, u * 0.02);
+    c.stroke();
+    // A heavy trapezoid, not a line: a thin blade reads as a stick.
+    c.fillStyle = "#6f757c";
+    c.beginPath();
+    c.moveTo(u * 0.28, u * 0.06);
+    c.lineTo(u * 0.32, -u * 0.24);
+    c.lineTo(u * 0.5, -u * 0.18);
+    c.lineTo(u * 0.42, u * 0.08);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = ORC_EDGE;
+    c.lineWidth = Math.max(0.7, u * 0.016);
+    c.stroke();
+  });
+
+/** An axe thrower: a hatchet cocked back over the shoulder, mid-throw. */
+const axethrower: UnitDrawer = (a) =>
+  orcBody(a, 0.9, (c, u) => {
+    c.strokeStyle = ORC_SKIN;
+    c.lineWidth = u * 0.07;
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(u * 0.12, -u * 0.06);
+    c.quadraticCurveTo(u * 0.3, -u * 0.16, u * 0.26, -u * 0.34);
+    c.stroke();
+    c.strokeStyle = "#6b4a2c";
+    c.lineWidth = u * 0.035;
+    c.beginPath();
+    c.moveTo(u * 0.26, -u * 0.3);
+    c.lineTo(u * 0.24, -u * 0.52);
+    c.stroke();
+    c.fillStyle = ORC_IRON;
+    c.beginPath();
+    c.moveTo(u * 0.24, -u * 0.46);
+    c.lineTo(u * 0.42, -u * 0.54);
+    c.lineTo(u * 0.27, -u * 0.62);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = ORC_EDGE;
+    c.lineWidth = Math.max(0.7, u * 0.016);
+    c.stroke();
+  });
+
+/**
+ * A warg rider.
+ *
+ * The warg carries the read, not the rider: a long low grey wolf with its head
+ * down, which is the same silhouette the wildlife wolf uses on purpose -- the
+ * thing you are meant to recognise from across the map is "that is moving much
+ * faster than infantry should".
+ */
+const wargrider: UnitDrawer = (a) =>
+  orcBody(
+    a,
+    0.85,
+    (c, u) => {
+      c.strokeStyle = ORC_SKIN;
+      c.lineWidth = u * 0.065;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(u * 0.12, -u * 0.06);
+      c.lineTo(u * 0.28, -u * 0.14);
+      c.stroke();
+      // A spear, carried level and well forward.
+      c.strokeStyle = "#6b4a2c";
+      c.lineWidth = u * 0.032;
+      c.beginPath();
+      c.moveTo(u * 0.02, -u * 0.02);
+      c.lineTo(u * 0.58, -u * 0.22);
+      c.stroke();
+      c.fillStyle = ORC_IRON;
+      c.beginPath();
+      c.moveTo(u * 0.54, -u * 0.16);
+      c.lineTo(u * 0.72, -u * 0.28);
+      c.lineTo(u * 0.53, -u * 0.28);
+      c.closePath();
+      c.fill();
+    },
+    (c, u) => {
+      const coat = "#6d6e74";
+      const dark = "#42434a";
+      const sw = a.moving ? Math.sin(a.phase * Math.PI * 2) * u * 0.1 : 0;
+      const belly = u * 0.16;
+      const spine = u * 0.02;
+      // Far legs, body, near legs: the same trick the wildlife uses.
+      for (const [lx, dir, col] of [
+        [-0.16, -1, dark],
+        [0.2, 1, dark],
+        [-0.26, 1, coat],
+        [0.12, -1, coat],
+      ] as const) {
+        c.strokeStyle = col;
+        c.lineWidth = u * 0.055;
+        c.lineCap = "round";
+        c.beginPath();
+        c.moveTo(u * lx, belly);
+        c.lineTo(u * lx + sw * dir, u * 0.4);
+        c.stroke();
+      }
+      ellipse(c, 0, spine + u * 0.06, u * 0.32, u * 0.12, coat, ORC_EDGE, Math.max(0.7, u * 0.016));
+      // Head down and forward.
+      c.strokeStyle = coat;
+      c.lineWidth = u * 0.09;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(u * 0.26, spine + u * 0.06);
+      c.lineTo(u * 0.4, spine + u * 0.12);
+      c.stroke();
+      ellipse(c, u * 0.46, spine + u * 0.13, u * 0.08, u * 0.055, dark, ORC_EDGE, Math.max(0.6, u * 0.014));
+      c.fillStyle = "#f0c04a";
+      c.beginPath();
+      c.arc(u * 0.46, spine + u * 0.11, Math.max(0.6, u * 0.016), 0, Math.PI * 2);
+      c.fill();
+      // Brush of a tail.
+      c.strokeStyle = coat;
+      c.lineWidth = u * 0.06;
+      c.beginPath();
+      c.moveTo(-u * 0.3, spine + u * 0.06);
+      c.quadraticCurveTo(-u * 0.48, spine + u * 0.02, -u * 0.52, belly + u * 0.06);
+      c.stroke();
+    },
+  );
+
+/** An ogre: the same body, half again as big, swinging a tree with nails in it. */
+const ogre: UnitDrawer = (a) =>
+  orcBody(a, 1.5, (c, u) => {
+    c.strokeStyle = "#7d9450";
+    c.lineWidth = u * 0.09;
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(u * 0.14, -u * 0.04);
+    c.lineTo(u * 0.3, u * 0.04);
+    c.stroke();
+    c.strokeStyle = "#6b4a2c";
+    c.lineWidth = u * 0.08;
+    c.beginPath();
+    c.moveTo(u * 0.28, u * 0.06);
+    c.lineTo(u * 0.48, -u * 0.28);
+    c.stroke();
+    c.fillStyle = "#7b5734";
+    c.beginPath();
+    c.ellipse(u * 0.5, -u * 0.32, u * 0.12, u * 0.09, -0.6, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = ORC_EDGE;
+    c.lineWidth = Math.max(0.7, u * 0.016);
+    c.stroke();
+    c.strokeStyle = "#c8ccd2";
+    c.lineWidth = Math.max(0.7, u * 0.016);
+    for (const k of [-0.05, 0.01, 0.07]) {
+      c.beginPath();
+      c.moveTo(u * (0.46 + k), -u * (0.36 + k * 0.3));
+      c.lineTo(u * (0.52 + k), -u * (0.42 + k * 0.3));
+      c.stroke();
+    }
+  });
+
+const ORC_UNITS: Record<string, UnitDrawer> = { grunt, axethrower, wargrider, ogre };
+
 const HUMAN_UNITS: Record<string, UnitDrawer> = {
   bear,
+  dragon,
   wolf,
   deer,
   cow,
@@ -985,8 +1502,21 @@ const HUMAN_UNITS: Record<string, UnitDrawer> = {
 
 export const FACTION_UNIT_ART: Record<string, Record<string, UnitDrawer>> = {
   human: HUMAN_UNITS,
+  // Orcs have art for their own roster and nothing else. Everything they can
+  // ever share with a man -- the wildlife on their doorstep, a dragon over
+  // their camp -- comes out of the Human set by the fallback below.
+  orc: ORC_UNITS,
 };
 
+/**
+ * A drawer for one unit of one faction.
+ *
+ * Falls back per DEFINITION rather than per faction, which matters the moment a
+ * second faction exists: `FACTION_UNIT_ART[faction] ?? HUMAN_UNITS` picks the
+ * orc table and then finds no bear in it, so a bear standing in an orc camp is
+ * drawn as nothing at all. Asking the faction first and the Humans second means
+ * a faction's table only has to hold what is actually different about it.
+ */
 export function unitArtFor(faction: string, def: string): UnitDrawer | undefined {
-  return (FACTION_UNIT_ART[faction] ?? HUMAN_UNITS)[def];
+  return FACTION_UNIT_ART[faction]?.[def] ?? HUMAN_UNITS[def];
 }

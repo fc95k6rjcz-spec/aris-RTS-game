@@ -23,6 +23,12 @@ const r = await page.evaluate(() => {
   g.settingsForTest.stockade = false;
   g.start("none");
   const w = g.world, SUB = 64;
+  // Clear the Blackrock off the board first. This file is about bears, and a
+  // bear that happens to have been placed within reach of a war camp turns the
+  // duel below into a three-way -- the footmen get intercepted on the way and
+  // the test reports that four men cannot kill a bear, which is not what
+  // happened. Isolate the subject.
+  for (const e of [...w.entities.values()]) if (e.owner === 8) w.removeEntity(e.id);
   const bears = () => w.units().filter((u) => u.def === "bear");
   const born = bears().length;
   const seats = w.map.starts;

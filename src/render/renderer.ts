@@ -1025,6 +1025,25 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(s.x, s.y, 2 * scale, 0, Math.PI * 2);
         ctx.fill();
+      } else if (p.kind === "fire") {
+        // A gout, not a pellet: a lick of flame that grows as it crosses the
+        // gap and trails smoke off the back. Drawn additively so several in
+        // flight over one target brighten into a wall of it.
+        const grow = 0.6 + p.t * 0.9;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        const ang = Math.atan2(p.to.y - p.from.y, p.to.x - p.from.x);
+        for (const [back, r, col] of [
+          [0, 7, "rgba(255,238,170,0.85)"],
+          [8, 10, "rgba(255,150,40,0.6)"],
+          [18, 11, "rgba(220,70,20,0.35)"],
+        ] as const) {
+          ctx.fillStyle = col;
+          ctx.beginPath();
+          ctx.arc(s.x - Math.cos(ang) * back * scale, s.y - Math.sin(ang) * back * scale, r * scale * grow, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       } else if (p.kind === "shell") {
         ctx.fillStyle = "#2b2b2b";
         ctx.beginPath();

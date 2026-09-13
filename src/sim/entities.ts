@@ -47,7 +47,7 @@ export interface Projectile {
   /** 0..1 progress along the arc. */
   t: number;
   speed: number;
-  kind: "arrow" | "bolt" | "shell";
+  kind: "arrow" | "bolt" | "shell" | "fire";
 }
 
 export interface TrainJob {

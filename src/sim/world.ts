@@ -103,6 +103,50 @@ const ROYAL_LICENCE = new Set(["tower"]);
 /** The owner every wild animal belongs to. Hostile to all, wins nothing. */
 export const WILD: PlayerId = 9;
 
+/**
+ * The Blackrock. Holds the war camps, hostile to everyone, and wins nothing.
+ *
+ * A separate seat from WILD rather than a reuse of it, because the two want
+ * opposite things from every system that touches them: wildlife wanders a patch
+ * and never leaves it, orcs garrison a building and march on your town. Sharing
+ * a player id would mean every one of those rules needing to ask which kind of
+ * thing it was looking at.
+ */
+export const MARAUDER: PlayerId = 8;
+
+/** How many warriors a camp keeps at home before it starts thinking about you. */
+const CAMP_GARRISON = 7;
+
+/** How far a camp's garrison will drift from its stronghold, in tiles. */
+const CAMP_RANGE = 8;
+
+/**
+ * How many spare warriors a camp gathers before it sends them, and how long it
+ * waits between raids.
+ *
+ * Five is enough to kill a careless worker line and not enough to take a
+ * defended base, which is the intent: a raid is a bill for ignoring them, not
+ * a loss condition. The first one cannot come before the eight-minute mark --
+ * a warband arriving while a player still has four peasants is not a
+ * difficulty setting, it is a coin toss.
+ */
+const RAID_SIZE = 5;
+const RAID_FIRST = 20 * 60 * 8;
+const RAID_EVERY = 20 * 60 * 7;
+
+/**
+ * How many warriors a camp will not send away under any circumstances.
+ *
+ * The first cut required a full garrison of seven before it would raid at all,
+ * which sounds prudent and means a camp that has been bled by wildlife or by a
+ * probing attack simply never raids again -- it sits one man under the bar
+ * forever. A camp now sends whatever it has above this floor, up to a full
+ * warband, so a healthy camp sends five and a mauled one sends three. Smaller
+ * raids out of weakened camps is the behaviour you would want anyway: hurting
+ * a camp should show up in what it can do to you.
+ */
+const CAMP_KEEP = 3;
+
 /** How close something has to come before a bear takes an interest, in tiles. */
 const BEAST_AGGRO = 6;
 
@@ -145,6 +189,34 @@ const WAKE_CHECK = 10;
  * Staggered per animal by its id so a herd does not speak in chorus.
  */
 const CALL_EVERY = 20 * 4;
+
+/**
+ * How long a match runs before the first dragon, and the gap between them.
+ *
+ * Ten minutes, then roughly every seven. Late enough that the opening -- which
+ * is one man walking across a continent -- is never interrupted by something
+ * nobody could survive, and often enough afterwards that "there will be
+ * another one" is a thing a player plans around rather than a surprise that
+ * happens once.
+ */
+const DRAGON_FIRST = 20 * 60 * 10;
+const DRAGON_EVERY = 20 * 60 * 7;
+
+/** How long a dragon stays before it has had enough and goes. */
+const DRAGON_STAY = 20 * 90;
+
+/** How often it loses interest in what it is burning and looks for something else. */
+const DRAGON_FICKLE = 20 * 12;
+
+/**
+ * How close anything hostile may get before a dragon takes some air, in tiles.
+ *
+ * Comfortably outside a swordsman's reach. Without this a dragon is killed by
+ * eight footmen walking up and standing on it, which makes a nonsense of the
+ * three-and-a-bit tiles of reach that are supposed to be its whole advantage --
+ * and of the idea that you need bows to answer one.
+ */
+const DRAGON_BACK_OFF = 2.8;
 /** Chance a blow lands as a critical hit. */
 const CRIT_CHANCE = 0.08;
 /** What a critical hit multiplies the rolled damage by. */
@@ -483,6 +555,28 @@ export class World {
   readonly campfires: Campfire[] = [];
   /** Buildings that have already had a hearth laid beside them. */
   private readonly hearths = new Set<EntityId>();
+  /**
+   * When the next dragon comes over the hills. Negative until the first tick
+   * sets it, so that "not scheduled yet" and "scheduled for tick zero" are
+   * different things -- with 0 as the sentinel there is no way to ask for one
+   * now, which makes the whole feature untestable without waiting out twenty
+   * minutes of simulation.
+   */
+  private nextDragon = -1;
+  /** Dragons on the wing: when each has had enough, and what it is burning. */
+  private readonly dragons = new Map<EntityId, { leaves: number; bored: number }>();
+  /** Whether dragons happen at all in this match. */
+  dragonsEnabled = true;
+  /**
+   * The war camps, by the id of the stronghold at the middle of each.
+   *
+   * `home` is kept separately rather than read off the building because the
+   * garrison has to keep standing somewhere once the stronghold is rubble --
+   * pulling down the hall must not teleport the survivors.
+   */
+  private readonly camps = new Map<EntityId, { x: number; y: number; nextRaid: number }>();
+  /** Which camp each orc belongs to, so a garrison knows where home is. */
+  private readonly warband = new Map<EntityId, EntityId>();
 
   /**
    * Begin as one peasant with no king and no hall.
@@ -745,7 +839,9 @@ export class World {
    */
   private lightHearth(b: Building): void {
     if (this.hearths.has(b.id)) return;
-    if (b.def !== "townhall" && b.def !== "barracks") return;
+    // The two buildings men live in, and the orc stronghold, which is nothing
+    // but a place orcs live in.
+    if (b.def !== "townhall" && b.def !== "barracks" && b.def !== "stronghold") return;
     this.hearths.add(b.id);
     // Just off the near corner of the footprint, where a fire would not be in
     // the doorway.
@@ -823,6 +919,439 @@ export class World {
   }
 
   /**
+   * Put Blackrock war camps on the map.
+   *
+   * A camp is a stronghold, two or three huts and a garrison, set down well
+   * away from anybody's seat and away from each other. What it is FOR is the
+   * middle of the match: the good ground is never where you started, and now
+   * some of it is held. The country stops being an empty board with an opponent
+   * at the far end of it and becomes a place with a middle worth taking.
+   *
+   * Placed from the map's own generator like the wildlife and the fires, so
+   * every machine raises the same camps in the same order.
+   */
+  spawnOrcCamps(count: number): void {
+    const sited: Array<{ x: number; y: number }> = [];
+    for (let attempt = 0; attempt < count * 60 && sited.length < count; attempt++) {
+      const tx = 6 + this.rng.int(Math.max(1, this.map.width - 14));
+      const ty = 6 + this.rng.int(Math.max(1, this.map.height - 14));
+      // Well clear of a seat. A camp on your doorstep at tick zero is not
+      // something to plan around, it is a map you lost before you looked at it.
+      let bad = false;
+      for (const seat of this.map.starts) if (Math.hypot(tx - seat.x, ty - seat.y) < 26) bad = true;
+      for (const c of sited) if (Math.hypot(tx - c.x, ty - c.y) < 24) bad = true;
+      if (bad) continue;
+      if (!this.map.canPlace(tx, ty, 4)) continue;
+
+      const hall = this.placeBuilding(MARAUDER, "stronghold", tx, ty, true);
+      if (!hall) continue;
+      sited.push({ x: tx, y: ty });
+      // Staggered, but not by a whole raid interval: at full jitter the first
+      // warband out of a given camp could be half an hour away, which is longer
+      // than most matches and made the whole behaviour something players would
+      // never see.
+      const camp = {
+        x: (tx + 2) * SUB,
+        y: (ty + 2) * SUB,
+        nextRaid: this.paced(RAID_FIRST) + this.rng.int(Math.floor(this.paced(RAID_EVERY) / 2)),
+      };
+      this.camps.set(hall.id, camp);
+
+      // Huts around it, wherever they will go.
+      let huts = 0;
+      const want = 2 + this.rng.int(2);
+      for (let ring = 0; ring < 10 && huts < want; ring++) {
+        const a = this.rng.next() * Math.PI * 2;
+        const hx = tx + Math.round(Math.cos(a) * (4 + this.rng.int(3)));
+        const hy = ty + Math.round(Math.sin(a) * (4 + this.rng.int(3)));
+        if (!this.map.canPlace(hx, hy, 2)) continue;
+        const hut = this.placeBuilding(MARAUDER, "warhut", hx, hy, true);
+        if (hut) huts++;
+      }
+
+      // And whoever is at home. An ogre in roughly half of them, so meeting one
+      // is a thing that happens rather than a thing that always happens.
+      const roster: string[] = [];
+      for (let i = 0; i < 4; i++) roster.push("grunt");
+      roster.push("axethrower", "axethrower");
+      if (this.rng.next() < 0.55) roster.push("wargrider");
+      if (this.rng.next() < 0.45) roster.push("ogre");
+      for (const def of roster) {
+        const spot = this.findSpawnTile(hall, "land");
+        if (!spot) continue;
+        const orc = this.spawnUnit(MARAUDER, def, { x: spot[0] * SUB + SUB / 2, y: spot[1] * SUB + SUB / 2 });
+        this.warband.set(orc.id, hall.id);
+      }
+    }
+  }
+
+  /**
+   * The camps' turn: hold the ground, and every so often come and find you.
+   *
+   * Two behaviours and no more. A garrison drifts around its own stronghold and
+   * kills what walks in -- that is the encounter, and it is the one most players
+   * will ever see. When a camp has more warriors than it needs at home it sends
+   * the surplus at the nearest thing somebody built, which is the bill for
+   * having left it alone. They do not gather, expand, tech or retreat; the
+   * moment they did any of that they would be a third player, and a third
+   * player in a two-player skirmish is a different game.
+   */
+  private stepOrcs(): void {
+    if (this.tick % 20 !== 0) return;
+    if (this.camps.size === 0 && this.warband.size === 0) return;
+
+    // Who is still standing, and whose camp they belong to.
+    const atHome = new Map<EntityId, Unit[]>();
+    const loose: Unit[] = [];
+    for (const u of this.units()) {
+      if (u.owner !== MARAUDER) continue;
+      const campId = this.warband.get(u.id);
+      const camp = campId === undefined ? undefined : this.camps.get(campId);
+      if (!camp) {
+        loose.push(u);
+        continue;
+      }
+      const list = atHome.get(campId!);
+      if (list) list.push(u);
+      else atHome.set(campId!, [u]);
+    }
+
+    for (const [id, camp] of [...this.camps]) {
+      const hall = this.entities.get(id);
+      // The stronghold is down. The camp stops making anything and stops
+      // raiding; whoever is left fights where they stand until somebody
+      // finishes the job.
+      if (!hall) {
+        this.camps.delete(id);
+        continue;
+      }
+      const garrison = atHome.get(id) ?? [];
+
+      // Replace losses, one at a time, out of nothing. They have no economy and
+      // are not meant to: a camp is a slow tap, not an opponent.
+      if (hall.kind === "building" && hall.queue.length === 0 && garrison.length < CAMP_GARRISON) {
+        const def = this.rng.next() < 0.25 ? "axethrower" : this.rng.next() < 0.15 ? "wargrider" : "grunt";
+        const d = UNITS[def]!;
+        hall.queue.push({ unit: def, remaining: this.paced(d.trainTime), total: this.paced(d.trainTime) });
+      }
+
+      // A raid: the surplus over the floor, sent at the nearest thing anybody
+      // built. The ogre never goes -- it is what the camp is holding, and at
+      // five speed it would arrive a minute after everybody else was dead.
+      const sendable = garrison.filter((u) => u.def !== "ogre");
+      const spare = Math.min(RAID_SIZE, sendable.length - CAMP_KEEP);
+      if (this.tick >= camp.nextRaid && spare >= 3) {
+        const target = this.nearestSettlement(camp);
+        if (target) {
+          camp.nextRaid = this.tick + this.paced(RAID_EVERY);
+          const party = sendable.slice(0, spare);
+          for (const u of party) {
+            this.warband.delete(u.id);
+            u.task = { kind: "attackMove", target };
+            u.path = [];
+          }
+          for (const p of this.players.keys()) {
+            if (p !== WILD && p !== MARAUDER) this.emit(p, "Blackrock warriors have left their camp.", "error");
+          }
+        } else {
+          camp.nextRaid = this.tick + this.paced(RAID_EVERY);
+        }
+      }
+
+      // Everybody else drifts about at home and defends it.
+      for (const u of garrison) {
+        if (u.task.kind !== "idle") continue;
+        if (this.rng.next() > 0.25) continue;
+        const a = this.rng.next() * Math.PI * 2;
+        const d = this.rng.next() * CAMP_RANGE;
+        const tx = Math.floor(camp.x / SUB + Math.cos(a) * d);
+        const ty = Math.floor(camp.y / SUB + Math.sin(a) * d);
+        if (!this.map.isWalkable(tx, ty, "land")) continue;
+        this.pathTo(u, tx, ty, true);
+        u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+      }
+    }
+
+    // Raiders, and the survivors of a camp that no longer exists. Once a
+    // warband is out it stays out -- there is nothing to go home to and a
+    // raid that turned round at the gate would be a very strange thing to
+    // watch.
+    for (const u of loose) {
+      if (u.task.kind !== "idle") continue;
+      const target = this.nearestSettlement(u.pos);
+      if (target) {
+        u.task = { kind: "attackMove", target };
+        u.path = [];
+      }
+    }
+  }
+
+  /** The nearest thing anybody has built, for a warband looking for a war. */
+  private nearestSettlement(from: { x: number; y: number }): Vec | null {
+    let best: Vec | null = null;
+    let bestD = Infinity;
+    for (const b of this.buildings()) {
+      if (b.owner === MARAUDER || b.owner === WILD) continue;
+      const c = centerOf(b);
+      const d = (c.x - from.x) ** 2 + (c.y - from.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Dragons: arrival, rampage, departure.
+   *
+   * The thing that makes this a weather event rather than a third army is that
+   * it is on a clock at both ends. One arrives on a schedule, burns what it
+   * finds for ninety seconds, and then leaves whether or not anybody fought
+   * it. A dragon that stayed would simply decide the match -- nine hundred hit
+   * points loose in somebody's base for twenty minutes is not a hazard, it is a
+   * winner -- and a dragon that had to be killed to be got rid of would be a
+   * boss fight, which is a different game.
+   *
+   * Only ever one at a time. Two is not twice as dramatic, it is a rout.
+   */
+  private stepDragons(): void {
+    if (!this.dragonsEnabled || this.tick % 10 !== 0) return;
+    if (this.nextDragon < 0) this.nextDragon = this.paced(DRAGON_FIRST);
+
+    if (this.dragons.size === 0 && this.tick >= this.nextDragon) {
+      this.nextDragon = this.tick + this.paced(DRAGON_EVERY);
+      this.summonDragon();
+    }
+
+    // Adopt any dragon this function did not itself summon -- one placed by a
+    // test, a tool or a future map script. Without this such a dragon has no
+    // orders at all and no clock: it hangs where it was put, inert and immortal,
+    // which is the worst of both halves of the design.
+    for (const u of this.units()) {
+      if (u.def === "dragon" && !this.dragons.has(u.id)) {
+        this.dragons.set(u.id, { leaves: this.tick + this.paced(DRAGON_STAY), bored: 0 });
+      }
+    }
+
+    for (const [id, state] of [...this.dragons]) {
+      const d = this.entities.get(id);
+      if (!d || d.kind !== "unit") {
+        this.dragons.delete(id);
+        continue;
+      }
+      // Off the edge of the world, and gone.
+      //
+      // It has to be walked out rather than teleported: everything in this
+      // simulation moves along a path, and a path is a list of TILES. The first
+      // cut aimed the dragon at a point just outside the map, which no path can
+      // reach, so `followPath` reported "arrived" on the spot, `stepUnit` set it
+      // idle, and the dragon hung over the valley forever -- immortal, since
+      // nothing on the ground could reach it either.
+      if (this.tick > state.leaves) {
+        const gate = this.nearestEdge(d.pos);
+        if (this.atEdge(d.pos)) {
+          this.dragons.delete(id);
+          this.entities.delete(id);
+          for (const p of this.players.keys()) {
+            if (p !== WILD) this.emit(p, "The dragon has gone back over the hills.", "info");
+          }
+          continue;
+        }
+        // Only re-issued once it has run out of path, or the ten-tick cadence
+        // of this function would wipe the route it is halfway along.
+        if (d.task.kind !== "move" || d.path.length === 0) {
+          this.pathTo(d, gate.x, gate.y, true);
+          d.task = { kind: "move", target: { x: (gate.x + 0.5) * SUB, y: (gate.y + 0.5) * SUB } };
+        }
+        continue;
+      }
+    }
+  }
+
+  /**
+   * One dragon's turn: keep your distance, and pick something else to burn.
+   *
+   * Runs per unit rather than off the schedule, so a dragon behaves the same
+   * however it got onto the map. `stepDragons` owns only the diary -- when one
+   * arrives and when it has had enough -- and hands back the wheel here.
+   */
+  private stepDragon(u: Unit): void {
+    if ((this.tick + u.id) % 5 !== 0) return;
+    const state = this.dragons.get(u.id);
+    // On its way out: stepDragons is flying it, and a victim picked now would
+    // turn it round in the doorway.
+    if (state && this.tick > state.leaves) return;
+
+    // Anything with a blade that has got close: take some air. A dragon is
+    // quicker than everything on foot, so this is not a fair chase and is not
+    // meant to be -- the answer to a dragon is a bow, not a crowd.
+    const away = this.crowdedAt(u);
+    if (away) {
+      // Already running, and still has somewhere to run to: leave it alone.
+      //
+      // Without this it re-picks a direction every five ticks, and with a ring
+      // of men around it "away from the nearest" swings wildly from one tick to
+      // the next -- so the dragon jitters on the spot, travels nowhere, and is
+      // cut down by the crowd it is theoretically outrunning. It lost four
+      // hundred hit points to eight footmen this way.
+      if (u.task.kind === "move" && u.path.length > 0) return;
+      const dir = Math.atan2(away.y, away.x);
+      for (const turn of [0, 0.6, -0.6, 1.3, -1.3, 2.2, -2.2]) {
+        const tx = Math.floor(u.pos.x / SUB + Math.cos(dir + turn) * 8);
+        const ty = Math.floor(u.pos.y / SUB + Math.sin(dir + turn) * 8);
+        if (!this.map.inBounds(tx, ty)) continue;
+        this.pathTo(u, tx, ty, true);
+        if (u.path.length === 0) continue;
+        u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+        // It keeps breathing on the way out; a "move" task shoots what it passes.
+        return;
+      }
+    }
+
+    // Something new to burn, every so often and whenever the last thing died.
+    const busy = u.task.kind === "attack" && this.entities.has(u.task.target);
+    if (busy && state && this.tick < state.bored) return;
+    if (busy && !state) return;
+    const victim = this.pickVictim(u);
+    if (!victim) return;
+    if (state) state.bored = this.tick + this.paced(DRAGON_FICKLE);
+    u.task = { kind: "attack", target: victim.id };
+    u.path = [];
+  }
+
+  /**
+   * Move the next dragon in the diary. Used by the tests, and by any tool that
+   * wants to look at one without playing twenty minutes first.
+   */
+  scheduleDragon(atTick: number): void {
+    this.nextDragon = atTick;
+  }
+
+  /** Dragons on the wing right now, for the HUD and the tests. */
+  get dragonCount(): number {
+    return this.dragons.size;
+  }
+
+  /**
+   * Which way is "off me", summed over everything nearby that could hurt it.
+   *
+   * The sum, not the nearest. Away-from-the-nearest is the obvious version and
+   * it walks a cornered animal straight into the man behind it; adding up a
+   * unit vector per threat gives the direction with the fewest blades in it,
+   * which is the one it actually wants.
+   *
+   * Units only. A building cannot follow it, so backing away from one would
+   * just stop it ever burning anything that has walls.
+   */
+  private crowdedAt(u: Unit): { x: number; y: number } | null {
+    const r = DRAGON_BACK_OFF * SUB;
+    let x = 0;
+    let y = 0;
+    let n = 0;
+    for (const e of this.entities.values()) {
+      if (e.kind !== "unit" || !this.hostile(u, e)) continue;
+      if (UNITS[e.def]!.damage <= 0) continue;
+      const d = Math.hypot(e.pos.x - u.pos.x, e.pos.y - u.pos.y);
+      if (d > r) continue;
+      // Standing exactly on it: shove out along a fixed axis rather than
+      // dividing by zero and producing a NaN heading.
+      if (d < 1) {
+        x += 1;
+        n++;
+        continue;
+      }
+      x += (u.pos.x - e.pos.x) / d;
+      y += (u.pos.y - e.pos.y) / d;
+      n++;
+    }
+    if (n === 0) return null;
+    // Perfectly surrounded: the vectors cancel. Any direction beats standing.
+    if (Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6) return { x: 1, y: 0 };
+    return { x, y };
+  }
+
+  /** A dragon comes in over the nearest edge to nowhere in particular. */
+  private summonDragon(): void {
+    const edge = this.rng.int(4);
+    const along = this.rng.next();
+    const w = this.map.width * SUB;
+    const h = this.map.height * SUB;
+    // Just inside the border rather than exactly on it: a dragon sitting on
+    // tile zero counts as already gone by `atEdge`, and would turn round and
+    // leave the moment its welcome ran out without ever crossing the map.
+    const inset = 3 * SUB;
+    /** Keep the crossways coordinate off the very last tile. */
+    const span = (n: number): number => Math.round(inset + along * (n - 2 * inset));
+    const at =
+      edge === 0 ? { x: inset, y: span(h) }
+      : edge === 1 ? { x: w - inset, y: span(h) }
+      : edge === 2 ? { x: span(w), y: inset }
+      : { x: span(w), y: h - inset };
+    const d = this.spawnUnit(WILD, "dragon", at);
+    this.dragons.set(d.id, { leaves: this.tick + this.paced(DRAGON_STAY), bored: 0 });
+    this.fx.push({ kind: "call", x: d.pos.x, y: d.pos.y, def: "dragon" });
+    for (const p of this.players.keys()) {
+      if (p !== WILD) this.emit(p, "A dragon is on the wing. Get them inside.", "error");
+    }
+  }
+
+  /**
+   * What the dragon goes for next: anything at all, chosen at random.
+   *
+   * At random, and that word is doing the work. Nearest would make it a siege
+   * engine walking up your line; weakest would make it a farmer. Random is what
+   * makes it feel like weather -- it burns the barracks, then a peasant halfway
+   * across the map, then somebody else's tower -- and it is the only version in
+   * which "it attacked THEM this time" is a thing that can happen to you.
+   *
+   * Wildlife is not on the menu. A dragon that spent its ninety seconds chasing
+   * a sheep is funny once.
+   */
+  private pickVictim(d: Unit): Entity | null {
+    const options: Entity[] = [];
+    for (const e of this.entities.values()) {
+      if (e.owner === WILD) continue;
+      options.push(e);
+    }
+    if (options.length === 0) return null;
+    // Weighted a little towards what is nearby, so it does not visibly
+    // teleport its attention across the whole valley every twelve seconds.
+    let best: Entity | null = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < 5; i++) {
+      const e = options[this.rng.int(options.length)]!;
+      const p = this.posOf(e);
+      const score = -Math.hypot(p.x - d.pos.x, p.y - d.pos.y) / SUB + this.rng.next() * 30;
+      if (score > bestScore) {
+        bestScore = score;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  /** The nearest border TILE, for something on its way out. */
+  private nearestEdge(pos: Vec): { x: number; y: number } {
+    const tx = Math.floor(pos.x / SUB);
+    const ty = Math.floor(pos.y / SUB);
+    const w = this.map.width - 1;
+    const h = this.map.height - 1;
+    const min = Math.min(tx, w - tx, ty, h - ty);
+    if (min === tx) return { x: 0, y: Math.max(0, Math.min(h, ty)) };
+    if (min === w - tx) return { x: w, y: Math.max(0, Math.min(h, ty)) };
+    if (min === ty) return { x: Math.max(0, Math.min(w, tx)), y: 0 };
+    return { x: Math.max(0, Math.min(w, tx)), y: h };
+  }
+
+  /** Whether something is close enough to the border to be considered gone. */
+  private atEdge(pos: Vec): boolean {
+    const tx = Math.floor(pos.x / SUB);
+    const ty = Math.floor(pos.y / SUB);
+    return tx <= 1 || ty <= 1 || tx >= this.map.width - 2 || ty >= this.map.height - 2;
+  }
+
+  /**
    * Animals make noise.
    *
    * The wild is a place you cannot see most of, which is exactly why it should
@@ -839,7 +1368,11 @@ export class World {
     // Wolves are a night animal here: they will speak in daylight, but the
     // country after dark should belong to them.
     const chance =
-      u.def === "wolf" ? (this.night ? 0.28 : 0.06)
+      // A dragon announces itself far more often than an animal does, because
+      // the sound is the warning: it is the only thing that tells a player
+      // something is coming before it is overhead.
+      u.def === "dragon" ? 0.6
+      : u.def === "wolf" ? (this.night ? 0.28 : 0.06)
       : u.def === "bear" ? 0.08
       : u.def === "cow" ? 0.1
       : u.def === "sheep" ? 0.12
@@ -1472,6 +2005,8 @@ export class World {
     this.checkDiscovery();
     this.checkRelics();
     this.stepLatecomers();
+    this.stepDragons();
+    this.stepOrcs();
     this.decayPaths();
     this.stepMud();
     this.checkVictory();
@@ -1690,7 +2225,9 @@ export class World {
     if (bounty) {
       const p = this.players.get(attacker.owner);
       if (p) p.gold += bounty;
-      this.emit(attacker.owner, `${UNITS[target.def]!.name} killed — ${bounty} gold for the hide`, "info");
+      // A bear pays for its hide; an orc pays because it was carrying something.
+      const why = UNITS[target.def]!.beast ? "gold for the hide" : "gold in plunder";
+      this.emit(attacker.owner, `${UNITS[target.def]!.name} killed — ${bounty} ${why}`, "info");
     }
     if (target.kind === "building") {
       this.emit(target.owner, `${BUILDINGS[target.def]!.name} destroyed`);
@@ -1741,8 +2278,12 @@ export class World {
         from: { x: u.pos.x, y: u.pos.y },
         to: { x: p.x, y: p.y },
         t: 0,
-        speed: def.id === "bomber" ? 0.06 : 0.12,
-        kind: def.id === "mage" ? "bolt" : def.id === "bomber" || def.id === "cannon" ? "shell" : "arrow",
+        speed: def.id === "bomber" ? 0.06 : def.id === "dragon" ? 0.2 : 0.12,
+        kind:
+          def.id === "dragon" ? "fire"
+          : def.id === "mage" ? "bolt"
+          : def.id === "bomber" || def.id === "cannon" ? "shell"
+          : "arrow",
       });
     }
     return true;
@@ -1903,8 +2444,10 @@ export class World {
     const alive: PlayerId[] = [];
     for (const p of this.players.keys()) {
       // The wild does not win wars. Counting it kept every match alive forever,
-      // because there was always one more bear in the woods.
-      if (p === WILD) continue;
+      // because there was always one more bear in the woods. The Blackrock are
+      // the same: they hold camps and they raid, but they are not in the
+      // competition and a match is not still running because one hut stands.
+      if (p === WILD || p === MARAUDER) continue;
       let has = false;
       for (const e of this.entities.values()) {
         if (e.owner !== p) continue;
@@ -1924,7 +2467,12 @@ export class World {
     if (u.cooldown > 0) u.cooldown--;
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) {
-      this.stepBeast(u);
+      // A dragon is a beast by the data -- it belongs to nobody and fights
+      // everybody -- but it is not wildlife: it has no lair to potter around
+      // and its orders come from stepDragons, which would fight stepBeast for
+      // the wheel every tick.
+      if (u.def === "dragon") this.stepDragon(u);
+      else this.stepBeast(u);
       this.stepBeastVoice(u);
     }
     this.stepRest(u);
@@ -2360,10 +2908,34 @@ export class World {
     }
     b.queue.shift();
     const u = this.spawnUnit(b.owner, job.unit, { x: spawn[0] * SUB + SUB / 2, y: spawn[1] * SUB + SUB / 2 });
+    // An orc off a camp's own line belongs to that camp. Without this the
+    // replacements a stronghold makes are counted as loose warriors, march off
+    // to the nearest town the moment they are born, and the camp empties itself
+    // one warrior at a time instead of holding its ground.
+    if (b.owner === MARAUDER) this.warband.set(u.id, this.campOf(b) ?? b.id);
     if (b.rally) {
       u.task = { kind: "move", target: b.rally };
       this.pathTo(u, Math.floor(b.rally.x / SUB), Math.floor(b.rally.y / SUB));
     }
+  }
+
+  /**
+   * Which camp a Blackrock building belongs to: itself if it is the stronghold,
+   * otherwise the nearest one. A hut turns out grunts for the camp it stands in.
+   */
+  private campOf(b: Building): EntityId | null {
+    if (this.camps.has(b.id)) return b.id;
+    const c = centerOf(b);
+    let best: EntityId | null = null;
+    let bestD = Infinity;
+    for (const [id, camp] of this.camps) {
+      const d = (camp.x - c.x) ** 2 + (camp.y - c.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    return best;
   }
 
   private findSpawnTile(b: Building, domain: Domain): [number, number] | null {

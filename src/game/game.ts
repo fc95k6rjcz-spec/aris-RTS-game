@@ -6,7 +6,7 @@ import { Renderer, type Ghost } from "../render/renderer";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, TICKS_PER_SECOND, WILD, World } from "../sim/world";
+import { Faction, MARAUDER, TICKS_PER_SECOND, WILD, World } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -107,6 +107,8 @@ export class Game {
   private crowningAt: { x: number; y: number; at: number } | null = null;
   /** Whether this player's king has already been proclaimed, so it happens once. */
   private crowned = false;
+  /** Whether the dragon now overhead has already been announced. */
+  private dragonSeen = false;
   /** Test hook: number of ticks simulated. */
   ticks = 0;
   /** Faction picker shown before the first tick. */
@@ -274,6 +276,8 @@ export class Game {
     w.addPlayer(2, Faction.Human, "#ef4444");
     // The country itself, and whatever lives in it.
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
+    // And whoever was holding the middle of it before either of you arrived.
+    w.addPlayer(MARAUDER, Faction.Orc, "#4c7a3a");
     // Seats come from the map, not from two hard-coded corners, so a layout can
     // put them where it makes sense -- and so more than two will fit later.
     const starts = w.map.starts;
@@ -295,6 +299,20 @@ export class Game {
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
+    // War camps, scaled to the board like everything else out here.
+    //
+    // One per sixty-four tiles square, which is six on the big map. Two per was
+    // tried first and it is far too much: thirteen camps each sending a warband
+    // at whoever is nearest works out at a raid somewhere every forty seconds,
+    // and neither player is playing the other any more. Six holds the middle of
+    // the country without owning it.
+    //
+    // BEFORE the fires, and the order matters. Camp placement only asks whether
+    // the ground is free, so laying the fires first meant a stronghold could be
+    // dropped straight on top of one -- a hearth burning inside a hut, on a tile
+    // nothing can walk to. Fire placement checks walkability, so putting the
+    // buildings down first makes the fires route around them for free.
+    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (64 * 64))));
     // Somebody's camp, every so often, and one at each seat. Scaled the same
     // way, and laid whatever the wildlife setting says -- an empty country
     // still had people through it once.
@@ -416,6 +434,18 @@ export class Game {
         }
       }
     }
+    // A dragon coming over the hills is worth stopping the player for. The
+    // roar and the toast both fire from the sim; this is the third leg of it,
+    // and the only one you cannot miss while looking at the other side of the
+    // map.
+    for (const e of this.world.fx) {
+      if (e.kind === "call" && e.def === "dragon" && !this.dragonSeen) {
+        this.dragonSeen = true;
+        this.proclaim("A DRAGON IS ON THE WING", "It answers to nobody and it burns what it finds. Get them inside.", 7000);
+        break;
+      }
+    }
+    if (this.dragonSeen && !this.world.units().some((u) => u.def === "dragon")) this.dragonSeen = false;
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);

@@ -59,6 +59,17 @@ export const enum Faction {
   Elf = "elf",
   /** The Ashen — volcanic country, fire and cinder. */
   Ashen = "ashen",
+  /**
+   * Orcs — the Blackrock. Not a clan you play, a clan you run into.
+   *
+   * They hold war camps out in the country and they were there before you. They
+   * gather nothing, build nothing new and want no ground in particular; what
+   * they do is keep a garrison and, when it is big enough, come and find you.
+   * A faction rather than wildlife because they have buildings, a banner and a
+   * reason, and because making them playable later should be data and art
+   * rather than new plumbing.
+   */
+  Orc = "orc",
 }
 
 export interface Player {

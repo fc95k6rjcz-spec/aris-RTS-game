@@ -302,7 +302,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     syncs.push(
       check(play, "Nomad start", "nomad", "Begin as your King alone, and put your Town Hall where you like."),
       check(play, "The King is not born a King", "crowning", "Start as one peasant. Find your clan's weapon out in the dark and he is crowned; until then you cannot found a hall."),
-      check(play, "Bears in the woods", "wildlife", "Wild country between you and everywhere else. A bear will kill a lone man, and pays sixty gold in hide."),
+      check(play, "A living country", "wildlife", "Bears, wolves and herds between you and everywhere else — and Blackrock war camps holding the middle of it. Off leaves the map to the two of you."),
       check(play, "Walled in by forest", "stockade", "Every base starts ringed by woodland. Nothing gets in or out until you cut a gate."),
     );
     play.appendChild(el("p", "rts-note", "Map, opponent and start all apply to the next game you start, not this one."));

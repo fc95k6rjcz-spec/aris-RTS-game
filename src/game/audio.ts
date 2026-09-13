@@ -41,7 +41,11 @@ export type SoundName =
   | "moo"
   | "bleat"
   /** A deer's alarm bark: the sound of one noticing you first. */
-  | "snort";
+  | "snort"
+  /** A dragon, from a long way off. */
+  | "roar"
+  /** Its breath, close up. */
+  | "breath";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
@@ -63,6 +67,8 @@ const CROWD_MS: Record<SoundName, number> = {
   moo: 1100,
   bleat: 700,
   snort: 800,
+  roar: 2600,
+  breath: 240,
 };
 
 /** Which noise each animal makes. */
@@ -72,6 +78,7 @@ const CALL_OF: Record<string, SoundName> = {
   cow: "moo",
   sheep: "bleat",
   deer: "snort",
+  dragon: "roar",
 };
 
 /** Most voices allowed to start in one tick, whatever the battle is doing. */
@@ -305,6 +312,28 @@ export class Audio {
         const bus = this.callBus(vol);
         this.burst(0.12, 0.3, "bandpass", 780, 1.0, 320, 0, bus);
         this.tone("triangle", 220, 130, 0.1, 0.07, 0, bus);
+        break;
+      }
+      case "roar": {
+        // Three seconds, and it has to be: what makes this a dragon rather
+        // than a large bear is that it goes on long enough for the player to
+        // stop what they are doing and look for it. Very low, torn up by a
+        // slow rasp, with a whole octave of falling pitch behind it.
+        const bus = this.callBus(vol);
+        this.rasp(bus, 42, 2.6, 0.42, 11, "sawtooth", 520);
+        this.cry(bus, "sawtooth", [120, 96, 74, 58], 2.9, 0.2, 380, 1.4);
+        this.burst(2.4, 0.14, "lowpass", 300, 0.7, 120, 0.1, bus);
+        // A crack of air off the top of it, so it carries over the score.
+        this.burst(0.5, 0.16, "bandpass", 1100, 1.2, 420, 0.05, bus);
+        break;
+      }
+      case "breath": {
+        // Not an explosion: a sustained rush, opening and closing. A bomb goes
+        // bang and is over, and fire is a thing that is happening to you.
+        const bus = this.callBus(vol);
+        this.burst(0.62, 0.5, "bandpass", 900, 0.8, 2600, 0, bus);
+        this.burst(0.5, 0.3, "lowpass", 500, 0.7, 180, 0.06, bus);
+        this.tone("sawtooth", 180, 70, 0.4, 0.16, 0, bus);
         break;
       }
     }
@@ -742,12 +771,15 @@ export class Audio {
       // An animal carries further than a sword does. Two and a half screens for
       // a howl against one and a half for everything else, and the falloff is
       // gentler, so the wood off the edge of the view sounds occupied.
-      const reach = e.kind === "call" ? 2.6 : 1.5;
+      const reach = e.kind === "call" ? (e.def === "dragon" ? 6 : 2.6) : 1.5;
       if (d > reach) continue;
       const vol = Math.max(0, 1 - d / reach) ** 1.6;
       switch (e.kind) {
         case "attack":
-          this.play(e.def === "cannon" ? "boom" : e.ranged ? "bow" : "sword", vol);
+          this.play(
+            e.def === "dragon" ? "breath" : e.def === "cannon" ? "boom" : e.ranged ? "bow" : "sword",
+            vol,
+          );
           break;
         case "hit":
           if (e.building) this.play("impact", vol * 0.8);

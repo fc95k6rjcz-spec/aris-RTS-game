@@ -388,6 +388,183 @@ export const UNITS: Record<string, UnitDef> = {
     food: 90,
     description: "Bolts, slowly. Ninety in meat, and they graze in flocks.",
   },
+  /**
+   * The dragon.
+   *
+   * Not wildlife and not an opponent: a disaster with wings. It is not sent by
+   * anybody, it does not want your gold mine, and it does not care which
+   * banner you fly -- it arrives, burns whatever it happens to see, and goes.
+   * That is the whole design, and every number here serves it.
+   *
+   * It is deliberately not winnable-by-accident. Nine hundred hit points and
+   * six armour means a handful of footmen die badly; it takes a real body of
+   * archers, or a mage, or a stone tower, and it takes them together. And it is
+   * deliberately not unwinnable either -- it does not heal, it does not run,
+   * and it only stays a minute and a half. Weathering one is a decision (pull
+   * the workers in, lose the outlying farm) and killing one is an achievement
+   * worth four hundred gold.
+   *
+   * It flies, so terrain is nothing to it and the walls you built are nothing
+   * either. Its breath outranges every hand weapon and most bows.
+   */
+  dragon: {
+    id: "dragon",
+    name: "Dragon",
+    hotkey: "",
+    // Not trainable, not tameable, and not yours.
+    cost: { gold: 0, lumber: 0 },
+    hp: 900,
+    speed: 14,
+    trainTime: 0,
+    supply: 0,
+    domain: "air",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 62,
+    range: 3.2,
+    cooldown: 30,
+    /**
+     * Three, not six.
+     *
+     * Six was chosen to make it feel armoured and it quietly deleted the one
+     * answer the design promises. An Archer hits for nine, so six armour takes
+     * two thirds of every arrow: sixteen of them put out two points of damage a
+     * tick, and since the dragon wanders off to burn something else halfway
+     * through they never get the uptime to finish nine hundred hit points. They
+     * lost three fights in four. At three they do six a shot, the maths works
+     * even at partial uptime, and a body of bowmen is a real answer rather than
+     * a stated one. It is still four hits of plate against a footman.
+     */
+    armour: 3,
+    // It sees most of a valley at once, which is how it finds you.
+    sight: 14,
+    spread: 0.35,
+    beast: true,
+    bounty: 400,
+    description: "Fire on the wing. It belongs to nobody, it burns what it finds, and it leaves.",
+  },
+  // ───────────────────────────── the Blackrock ─────────────────────────────
+  //
+  // Orcs are not balanced against each other, they are balanced against what
+  // walks into their camp. A grunt is a footman who hits harder and dies
+  // slower, because the first thing a player brings to a camp is footmen and
+  // the answer has to be "not enough of them". None of them is trainable by a
+  // player: they come with the camp, and the camp makes more.
+
+  /** The rank and file. A footman who has been eating better. */
+  grunt: {
+    id: "grunt",
+    name: "Grunt",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 135,
+    speed: 6,
+    trainTime: 20 * 22,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 17,
+    range: 1.0,
+    cooldown: 20,
+    armour: 2,
+    sight: 6,
+    spread: 0.3,
+    bounty: 15,
+    description: "Blackrock infantry. Slower to die than a man and quicker to swing.",
+  },
+
+  /**
+   * Reach, which is the thing that makes a camp a problem rather than a chore.
+   *
+   * A camp of nothing but grunts is answered by standing off and shooting it.
+   * Axe throwers mean the answer is a real attack.
+   */
+  axethrower: {
+    id: "axethrower",
+    name: "Axe Thrower",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 90,
+    speed: 6,
+    trainTime: 20 * 24,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 14,
+    range: 4.0,
+    cooldown: 26,
+    armour: 0,
+    sight: 8,
+    spread: 0.35,
+    bounty: 15,
+    description: "Throws a hand axe further than you would like. Blackrock skirmisher.",
+  },
+
+  /**
+   * The reason a raid arrives before you have finished reading about it.
+   *
+   * Faster than anything you have on foot, which means a warband with riders in
+   * it cannot simply be walked away from -- and that a camp left alone too long
+   * turns up at your gold mine rather than at your walls.
+   */
+  wargrider: {
+    id: "wargrider",
+    name: "Warg Rider",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 155,
+    speed: 11,
+    trainTime: 20 * 34,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 19,
+    range: 1.1,
+    cooldown: 18,
+    armour: 2,
+    sight: 9,
+    spread: 0.35,
+    bounty: 28,
+    description: "Blackrock cavalry, mounted on something with teeth.",
+  },
+
+  /**
+   * Rare, and the thing a camp is actually holding.
+   *
+   * One ogre is not a dragon -- it can be brought down by six men who commit --
+   * but it will take four of them with it, and finding one in a camp changes
+   * the size of the party you were planning to send.
+   */
+  ogre: {
+    id: "ogre",
+    name: "Ogre",
+    hotkey: "",
+    cost: { gold: 0, lumber: 0 },
+    hp: 400,
+    speed: 5,
+    trainTime: 20 * 60,
+    supply: 0,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 44,
+    range: 1.3,
+    cooldown: 30,
+    armour: 4,
+    sight: 6,
+    spread: 0.45,
+    bounty: 70,
+    description: "Two heads' worth of bad temper. Slow, and it does not need to be quick.",
+  },
+
   king: {
     id: "king",
     name: "King",
