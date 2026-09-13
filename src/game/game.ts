@@ -24,6 +24,7 @@ import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
+import { skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const EDGE = 14;
@@ -1048,6 +1049,10 @@ export class Game {
     const bn = this.banner && performance.now() < this.banner.until ? this.banner : null;
     if (!bn) this.banner = null;
 
+    // The sky drives the rain bed. Read from the simulation, because how hard it
+    // is raining is the same number that decides how fast people walk.
+    this.audio.setRain(this.world.rain);
+
     shell.update({
       gold: p.gold,
       lumber: p.lumber,
@@ -1065,6 +1070,7 @@ export class Game {
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
       mapName: this.map.name,
+      weather: skyName(this.world.sky),
       paused: this.paused,
     });
 

@@ -435,6 +435,54 @@ export class Audio {
     }
   }
 
+  // ───────────────────────────── weather ─────────────────────────────
+
+  /**
+   * Rain, as a sound.
+   *
+   * Filtered noise, like every percussive effect here, but held open instead of
+   * struck: a lowpass for the body of it and a gentle highpass to take out the
+   * rumble that would otherwise fight the score's drone. The cutoff opens as it
+   * comes down harder, which is most of the difference between drizzle and a
+   * downpour -- loudness alone just sounds like the same drizzle turned up.
+   *
+   * One voice for the whole match, started once and left running at zero gain,
+   * because starting and stopping a noise source is audible and weather should
+   * arrive rather than switch on.
+   */
+  private rain: { gain: GainNode; filter: BiquadFilterNode; src: AudioBufferSourceNode } | null = null;
+
+  /** Follow the simulation's rainfall, 0 to 1. Called every frame; cheap. */
+  setRain(amount: number): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const ctx = this.ctx;
+    if (!this.rain) {
+      if (amount <= 0) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 420;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 1800;
+      filter.Q.value = 0.6;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(hp).connect(filter).connect(gain).connect(this.master);
+      src.start();
+      this.rain = { gain, filter, src };
+    }
+    const r = this.rain;
+    const t = ctx.currentTime;
+    const want = sfxGain() * amount * 0.5;
+    // Ramped, not set: at sixty frames a second a direct write on a parameter
+    // that is also being read is a recipe for zipper noise.
+    r.gain.gain.setTargetAtTime(want, t, 0.4);
+    r.filter.frequency.setTargetAtTime(1300 + amount * 2600, t, 0.6);
+  }
+
   /** Test hooks: whether audio started, and whether the score is running. */
   get readyForTest(): boolean {
     return this.ready;

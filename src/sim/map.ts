@@ -87,6 +87,16 @@ export class GameMap {
    * both machines in a network game must agree about it to the byte.
    */
   readonly wear: Uint8Array;
+  /**
+   * How churned each tile is, 0 to 255.
+   *
+   * Rain falling on a worn, unpaved track turns it to mud, and mud is slower
+   * than the bare grass the track was cut from. It dries out when the rain
+   * stops. Like wear, this is simulation rather than decoration -- it changes
+   * how fast a unit moves -- so both machines in a network game must agree
+   * about it exactly.
+   */
+  readonly mud: Uint8Array;
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -124,6 +134,7 @@ export class GameMap {
     this.amount = new Int32Array(width * height);
     this.felled = new Uint8Array(width * height);
     this.wear = new Uint8Array(width * height);
+    this.mud = new Uint8Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 

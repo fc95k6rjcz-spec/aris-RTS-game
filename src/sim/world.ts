@@ -8,6 +8,7 @@ import { GameMap, type MapKind } from "./map";
 import { Vision, VISION_INTERVAL } from "./vision";
 import { findPath } from "./pathfinding";
 import { REACH, WEAPON_OF, type Relic } from "./relic";
+import { intensityAt, skyAt, type Sky } from "./weather";
 import type { Domain } from "../data/units";
 import { Rng } from "./rng";
 import { Faction, SUB, Tile, type EntityId, type Player, type PlayerId, type Vec } from "./types";
@@ -33,6 +34,13 @@ export const START_PURSE = { gold: 450, lumber: 300, oil: 0 };
  */
 const MOVE_SCALE = 0.5;
 
+/** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
+ * track gives, so a rained-on road is a real setback and not a rounding error. */
+const MUD_PENALTY = 0.45;
+
+/** Wear below this never turns to mud: grass does not churn, tracks do. */
+const MUD_FLOOR = 60;
+
 /** Most a fully beaten dirt track can add to a unit's pace. */
 const PATH_BONUS = 0.35;
 
@@ -41,6 +49,18 @@ const PAVED_BONUS = 0.7;
 
 /** Wear taken off the whole map, a slice at a time, so disused paths grow over. */
 const DECAY_SLICE = 256;
+
+/**
+ * Mud is swept in coarser slices than wear, because it has to move faster.
+ *
+ * Wear is the work of a whole match; mud is the work of one shower. On the
+ * wear sweep a tile was visited once every 256 ticks, which over a minute and a
+ * half of rain came to about twenty points out of 255 -- a road that got very
+ * slightly damp. A quarter of the board a second churns a well-used track
+ * properly inside a couple of minutes of rain, and dries it again over about
+ * four once the sky clears.
+ */
+const MUD_SLICE = 64;
 
 const HARVEST_TICKS = 20 * 3; // 3 s per trip
 const DEPOSIT_TICKS = 10;
@@ -161,8 +181,12 @@ export class World {
    */
   readonly pace: number;
 
+  /** The map's seed. Weather is derived from it, so it has to outlive the generator. */
+  readonly seed: number;
+
   constructor(width: number, height: number, seed: number, kind: MapKind = "lakeland", pace = 1, stockade = false) {
     this.pace = Math.max(0.25, pace);
+    this.seed = seed >>> 0;
     this.map = GameMap.generate(width, height, seed, kind, stockade);
     this.rng = new Rng(seed ^ 0x9e3779b9);
   }
@@ -220,6 +244,46 @@ export class World {
       state.left--;
       if (state.left <= 0) this.latecomers.delete(player);
       else state.at = this.tick + this.paced(FOLLOWER_GAP);
+    }
+  }
+
+  /** Exposed for headless tests: the sky at any seed and tick, asked directly. */
+  skyAtForTest(seed: number, tick: number): string {
+    return skyAt(seed, tick).sky;
+  }
+
+  /** What the sky is doing right now. Pure function of seed and tick. */
+  get sky(): Sky {
+    return skyAt(this.seed, this.tick).sky;
+  }
+
+  /** How hard it is raining right now, 0 to 1, eased at the edges of a spell. */
+  get rain(): number {
+    return intensityAt(this.seed, this.tick);
+  }
+
+  /**
+   * Rain churns worn ground, and dry weather lets it recover.
+   *
+   * Only ground that has actually been walked into a track can turn to mud --
+   * open grass just gets wet -- which is what makes this a tax on the paths
+   * rather than a blanket slowdown. Swept a slice at a time like the wear
+   * decay, so the cost is flat whatever size the board is.
+   */
+  private stepMud(): void {
+    const n = this.map.mud.length;
+    const slice = Math.ceil(n / MUD_SLICE);
+    const from = (this.tick % MUD_SLICE) * slice;
+    const wet = this.rain;
+    const to = Math.min(n, from + slice);
+    for (let i = from; i < to; i++) {
+      if (wet > 0 && this.map.wear[i]! > MUD_FLOOR) {
+        // Churns faster the harder it comes down, and the more worn the track.
+        const gain = Math.ceil(wet * 11 * (this.map.wear[i]! / 255));
+        this.map.mud[i] = Math.min(255, this.map.mud[i]! + gain);
+      } else if (this.map.mud[i]! > 0) {
+        this.map.mud[i] = Math.max(0, this.map.mud[i]! - 2);
+      }
     }
   }
 
@@ -977,6 +1041,7 @@ export class World {
     this.checkRelics();
     this.stepLatecomers();
     this.decayPaths();
+    this.stepMud();
     this.checkVictory();
     // Projectiles are cosmetic; advance and retire them.
     for (const p of this.projectiles) p.t += p.speed;
@@ -1659,9 +1724,14 @@ export class World {
     this.map.wear[i] = Math.min(255, this.map.wear[i]! + amount);
   }
 
+  /** Whether this clan has laid stone over its tracks. */
+  private paved(player: PlayerId): boolean {
+    return (this.players.get(player)?.research.paving ?? 0) > 0;
+  }
+
   /** How much a fully worn path is worth to this player, paved or not. */
   private pathBonus(player: PlayerId): number {
-    return (this.players.get(player)?.research.paving ?? 0) > 0 ? PAVED_BONUS : PATH_BONUS;
+    return this.paved(player) ? PAVED_BONUS : PATH_BONUS;
   }
 
   /**
@@ -1726,8 +1796,13 @@ export class World {
           // A beaten path is easier going. Nobody builds these; they appear
           // under the traffic that is already happening, which is why they end
           // up exactly where they are useful.
-          const worn = this.map.wear[this.map.idx(tx0, ty0)]! / 255;
+          const i0 = this.map.idx(tx0, ty0);
+          const worn = this.map.wear[i0]! / 255;
           speed *= 1 + worn * this.pathBonus(u.owner);
+          // Mud. A clan that has laid stone over its tracks walks on stone, so
+          // the rain is somebody else's problem -- which is the whole point of
+          // the upgrade, and the reason it is worth its cost.
+          if (!this.paved(u.owner)) speed *= 1 - (this.map.mud[i0]! / 255) * MUD_PENALTY;
           // And walking it wears it further. Capped, so a path becomes a path
           // and not a motorway.
           this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);

@@ -137,6 +137,7 @@ export class Renderer {
     if (ghost) this.drawGhost(ghost);
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
+    this.drawWeather(viewH);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
       ctx.lineWidth = 1;
@@ -417,6 +418,64 @@ export class Renderer {
   }
 
   /**
+   * Rain, and the light going out of the day.
+   *
+   * Drawn from the wall clock rather than the sim tick, like every other purely
+   * visual thing here: how the drops happen to fall is not a decision the
+   * simulation is allowed to see. What IS from the simulation is how hard it is
+   * raining, because that is the same number that decides how fast your people
+   * walk, and both machines in a network game have to agree about it.
+   *
+   * The drops are drawn as short streaks rather than dots, and at a slant --
+   * vertical rain reads as static. They are seeded off screen position rather
+   * than stored, so nothing accumulates and panning does not drag the storm
+   * along with the camera.
+   */
+  private drawWeather(viewH: number): void {
+    const wet = this.world.rain;
+    if (wet <= 0.01) return;
+    const ctx = this.ctx;
+    const W = this.cam.viewW;
+    const t = performance.now() / 1000;
+    ctx.save();
+
+    // The light goes first. A storm is not merely wet, it is dim.
+    ctx.fillStyle = `rgba(24,30,44,${wet * 0.3})`;
+    ctx.fillRect(0, 0, W, viewH);
+
+    const drops = Math.round(W * viewH * 0.00042 * wet);
+    const slant = 0.26;
+    const fall = 1350 + wet * 700;
+    ctx.strokeStyle = `rgba(196,214,236,${0.16 + wet * 0.2})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < drops; i++) {
+      // A fixed lattice scrolled by time: no state, no drift, no allocation.
+      const seed = i * 2654435761;
+      const px = ((seed >>> 7) % 10007) / 10007;
+      const phase = ((seed >>> 3) % 1009) / 1009;
+      const y = ((t * fall * (0.75 + phase * 0.5) + phase * viewH * 3) % (viewH + 60)) - 30;
+      const x = (px * (W + viewH * slant) - y * slant + W) % (W + 40) - 20;
+      const len = 11 + phase * 13 + wet * 8;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + len * slant, y + len);
+    }
+    ctx.stroke();
+
+    // Lightning: rare, brief, and only in a storm.
+    if (wet > 0.9) {
+      const beat = Math.floor(t / 6.5);
+      const into = t - beat * 6.5;
+      if (((beat * 2654435761) >>> 8) % 5 === 0 && into < 0.22) {
+        const flash = into < 0.06 ? 1 : Math.max(0, 1 - (into - 0.06) / 0.16);
+        ctx.fillStyle = `rgba(214,226,255,${flash * 0.3})`;
+        ctx.fillRect(0, 0, W, viewH);
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
    * The tracks people have beaten into the ground.
    *
    * Drawn live rather than baked, because wear changes constantly and rebaking a
@@ -443,17 +502,37 @@ export class Renderer {
         if (w < 24 || map.isHidden(x, y)) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
-        const a = Math.min(0.72, (w / 255) * (paved ? 0.85 : 0.7));
+        // Lower per-blob alpha than before: they overlap now, and the overlap adds up.
+        const a = Math.min(0.5, (w / 255) * (paved ? 0.6 : 0.48));
         const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
         const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-        ctx.fillStyle = paved ? `rgba(126,124,120,${a})` : `rgba(104,82,52,${a})`;
-        // Three overlapping blobs, jittered per tile, so the track wanders.
-        for (let i = 0; i < 3; i++) {
-          const jx = (((h >> (i * 5)) & 31) / 31 - 0.5) * s * 0.34;
-          const jy = (((h >> (i * 5 + 3)) & 31) / 31 - 0.5) * s * 0.34;
+        // Mud reads as the same track, wet: darker, browner, and glossy rather
+        // than dusty. Paved ways never take it, which is the point of paving.
+        const wetness = paved ? 0 : (map.mud[map.idx(x, y)] ?? 0) / 255;
+        ctx.fillStyle = paved
+          ? `rgba(126,124,120,${a})`
+          : wetness > 0.05
+            ? `rgba(${Math.round(78 - wetness * 26)},${Math.round(58 - wetness * 18)},${Math.round(36 - wetness * 10)},${Math.min(0.86, a + wetness * 0.3)})`
+            : `rgba(104,82,52,${a})`;
+        // Two broad blobs, jittered, and deliberately wider than the tile they
+        // belong to. Three small ones inside the tile left a gap at every tile
+        // boundary, so a worn route read as a row of polka dots rather than as a
+        // track; overlapping into the neighbours is what makes a line of worn
+        // tiles join up into one path.
+        for (let i = 0; i < 2; i++) {
+          const jx = (((h >> (i * 6)) & 31) / 31 - 0.5) * s * 0.3;
+          const jy = (((h >> (i * 6 + 3)) & 31) / 31 - 0.5) * s * 0.3;
           ctx.beginPath();
-          ctx.ellipse(p.x + jx, p.y + jy, s * 0.3, s * 0.24, 0, 0, Math.PI * 2);
+          ctx.ellipse(p.x + jx, p.y + jy, s * 0.56, s * 0.46, 0, 0, Math.PI * 2);
           ctx.fill();
+        }
+        // A wet track catches the light. One pale streak, offset, is enough.
+        if (wetness > 0.3 && s > 20) {
+          ctx.fillStyle = `rgba(168,176,178,${(wetness - 0.3) * 0.18})`;
+          ctx.beginPath();
+          ctx.ellipse(p.x - s * 0.06, p.y - s * 0.05, s * 0.18, s * 0.1, -0.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = paved ? `rgba(126,124,120,${a})` : `rgba(${Math.round(78 - wetness * 26)},${Math.round(58 - wetness * 18)},${Math.round(36 - wetness * 10)},${Math.min(0.86, a + wetness * 0.3)})`;
         }
         if (paved && s > 22) {
           ctx.strokeStyle = `rgba(182,180,174,${a * 0.5})`;

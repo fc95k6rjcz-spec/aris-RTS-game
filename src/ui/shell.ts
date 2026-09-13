@@ -62,6 +62,8 @@ export interface ShellState {
   /** The standing objective, while there is one. */
   objective: { title: string; line: string } | null;
   mapName: string;
+  /** What the sky is doing, for the top bar. */
+  weather: string;
   paused: boolean;
 }
 
@@ -149,6 +151,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-spacer { flex: 1; }
 .rv-clock { display: flex; align-items: baseline; gap: 8px; margin-right: 6px; }
 .rv-clock .day { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
+.rv-clock .sky { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+.rv-clock .sky.wet { color: #8fb6d8; }
 .rv-clock .time { font-size: 13px; color: #c9c2b0; font-variant-numeric: tabular-nums; }
 .rv-icon {
   width: 30px; height: 30px; padding: 0; cursor: pointer;
@@ -335,9 +339,10 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   top.appendChild(supply);
   top.appendChild(el("div", "rv-spacer"));
   const clock = el("div", "rv-clock");
+  const skyEl = el("span", "sky", "Clear");
   const dayEl = el("span", "day", "Day 1");
   const timeEl = el("span", "time", "0:00");
-  clock.append(dayEl, timeEl);
+  clock.append(skyEl, dayEl, timeEl);
   const pauseBtn = el("button", "rv-icon", "II");
   pauseBtn.title = "Pause (Space)";
   const gearBtn = el("button", "rv-icon", "⚙");
@@ -495,6 +500,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       ticks.childNodes.forEach((n, i) => (n as HTMLElement).classList.toggle("on", i < on));
 
       dayEl.textContent = `Day ${s.day}`;
+      skyEl.textContent = s.weather;
+      skyEl.classList.toggle("wet", s.weather === "Rain" || s.weather === "Storm");
       timeEl.textContent = s.clock;
       pauseBtn.textContent = s.paused ? "▶" : "II";
 
