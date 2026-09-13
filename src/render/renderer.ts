@@ -16,10 +16,11 @@ import { drawFire } from "./fire";
 import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
+import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
-import { goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind } from "./sprites";
+import { goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
 
 export interface Ghost {
   def: string;
@@ -463,6 +464,38 @@ export class Renderer {
         }
       }
     ctx.restore();
+  }
+
+  /**
+   * One unit, from a cut sheet. Returns the height drawn, or null if this unit
+   * has no sheet and should fall through to the painted still.
+   */
+  private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, moving: boolean): number | null {
+    const sheet = sheetFor(faction, u.def);
+    if (!sheet) return null;
+    const img = spriteImage(sheet.src);
+    if (!img) {
+      this.missedArt = true;
+      return null;
+    }
+    let state = stateFor(u, moving);
+    if (state === "walk" && moving && isRunning(u)) state = "run";
+    const clip = clipFor(sheet, state);
+    if (!clip) return null;
+    // Wall clock, not sim tick: which frame is showing is not a decision the
+    // simulation is allowed to see, so it must never be derived from its state.
+    const f = frameAt(clip, performance.now() / 1000, u.id);
+    const h = s * sheet.height;
+    const w = (f.w / f.h) * h;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + s * 0.42, s * 0.3, s * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.drawImage(img, f.x, f.y, f.w, f.h, x - w / 2, y + s * 0.45 - h, w, h);
+    ctx.restore();
+    return h;
   }
 
   /**
@@ -970,11 +1003,17 @@ export class Renderer {
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    const painted = this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase);
-    const peasant = painted === null && player.faction === "human" && u.def === "worker"
+    // A cut sheet wins over the painted still, and everything else -- crown,
+    // health bar, selection ring -- hangs off whatever actually got drawn, so
+    // the two paths are interchangeable from the outside.
+    const framed = anySheets() ? this.drawUnitFrames(u, p.x, p.y, s, player.faction, moving) : null;
+    const painted = framed === null ? this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase) : null;
+    const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
       ? this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)
       : null;
-    if (painted !== null) {
+    if (framed !== null) {
+      drawnH = framed;
+    } else if (painted !== null) {
       drawnH = painted;
     } else if (peasant !== null) {
       drawnH = peasant;

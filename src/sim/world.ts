@@ -194,12 +194,19 @@ export class World {
   private stepLatecomers(): void {
     for (const [player, state] of this.latecomers) {
       if (this.tick < state.at) continue;
+      // Beside the hall, not on it. Spawning at the building's centre put the
+      // man on its roof, standing on the chimney -- the same mistake the
+      // training queue avoids by walking the ring around the footprint looking
+      // for open ground, which is what findSpawnTile is for.
       let at: { x: number; y: number } | null = null;
       for (const e of this.entities.values()) {
         if (e.owner !== player) continue;
         if (e.kind === "building") {
-          at = centerOf(e);
-          break;
+          const t = this.findSpawnTile(e, "land");
+          if (t) {
+            at = { x: t[0] * SUB + SUB / 2, y: t[1] * SUB + SUB / 2 };
+            break;
+          }
         }
         if (e.kind === "unit" && UNITS[e.def]!.royal && !at) at = { x: e.pos.x, y: e.pos.y };
       }
@@ -1475,6 +1482,11 @@ export class World {
         if (this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
           u.path = [];
           const d = BUILDINGS[b.def]!;
+          // A stroke a second, which is what makes a man at a building site look
+          // like he is working on it. Gathering has had this since the start;
+          // building never did, so a crew at a half-built hall stood around it
+          // perfectly still while the walls went up by themselves.
+          if (this.tick % this.paced(20) === 0) this.fx.push({ kind: "chop", id: u.id, x: u.pos.x, y: u.pos.y });
           if (!b.complete) {
             b.builders++;
             // Diminishing returns for extra builders: 1st = 100%, each extra = +50%.

@@ -517,3 +517,16 @@ export function shipSprite(def: string): HTMLImageElement | null {
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
+
+
+/**
+ * Any image by URL, loaded once and shared.
+ *
+ * The animation sheets are imported by the bundler like every other asset and
+ * arrive here as a URL. Returns null until the browser has it, which the
+ * renderer treats as "try again next frame" rather than as an error.
+ */
+export function spriteImage(src: string): HTMLImageElement | null {
+  const img = load(src);
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
