@@ -17,6 +17,8 @@ import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
+import { groundFor } from "./ground";
+import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
@@ -73,6 +75,8 @@ export class Renderer {
    * thousand uncached ones.
    */
   farBelow = T_FAR;
+  /** Whether the ground variants had loaded last time we looked. */
+  private grassWasReady = false;
   /** Set when a bake wanted a sprite that had not loaded yet. */
   private missedArt = false;
   /** Whether the coarse bake must be redone because art was missing. */
@@ -274,6 +278,13 @@ export class Renderer {
         }
       }
       this.terrainVersion = map.version;
+    }
+    // The ground variants load after the first bake, and bakes are cached, so
+    // without this the map keeps the fallback texture for the whole match.
+    if (!this.grassWasReady && grassReady()) {
+      this.grassWasReady = true;
+      this.chunks.clear();
+      this.terrainFar = null;
     }
     const ctx = this.ctx;
     const s = this.cam.zoom;
@@ -478,71 +489,59 @@ export class Renderer {
   /**
    * The tracks people have beaten into the ground.
    *
-   * Drawn live rather than baked, because wear changes constantly and rebaking a
-   * terrain chunk every time somebody walks across it would be absurd. It is
-   * three rounded blobs per tile at an alpha that follows how worn the tile is,
-   * which at any distance reads as a path rather than as a row of squares.
+   * Four rows of photographed tiles do the work now -- see render/ground.ts --
+   * chosen by the three numbers the simulation keeps about each tile: how worn
+   * it is, how churned it is, and whether the clan walking it has laid stone.
+   * The hand-drawn blobs this replaces could show a path was there; these show
+   * what kind of path it is, and what the rain has done to it.
    *
-   * Paved roads are the same shape in grey with a pale edge, so an upgraded
-   * route is recognisable at a glance without being a different system.
+   * Drawn live rather than baked, because wear and mud change constantly and
+   * rebaking a terrain chunk every time somebody walks over it would be absurd.
    */
   private drawPaths(): void {
     const s = this.cam.zoom;
     const map = this.world.map;
-    const paved = (this.world.players.get(1)?.research.paving ?? 0) > 0;
+    const paved = (this.world.players.get(this.viewer)?.research.paving ?? 0) > 0;
+    const rain = this.world.rain;
     const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
     const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
     const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
     const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
     const ctx = this.ctx;
-    ctx.save();
+    // Half a tile of overlap each side, so neighbouring worn tiles run into one
+    // another and a route reads as a track rather than as a row of squares.
+    const size = bucket(s * 1.6);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
-        const w = map.wear[map.idx(x, y)]!;
-        if (w < 24 || map.isHidden(x, y)) continue;
+        const i = map.idx(x, y);
+        const w = map.wear[i]!;
+        if (w < 18 || map.isHidden(x, y)) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
-        // Lower per-blob alpha than before: they overlap now, and the overlap adds up.
-        const a = Math.min(0.5, (w / 255) * (paved ? 0.6 : 0.48));
+        const g = groundFor(w, map.mud[i]!, paved, rain);
+        // Fade in rather than appear: ground one footfall from bare grass should
+        // not be a fully drawn path.
+        const a = Math.min(1, (w - 18) / 90) * 0.92;
         const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
-        const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-        // Mud reads as the same track, wet: darker, browner, and glossy rather
-        // than dusty. Paved ways never take it, which is the point of paving.
-        const wetness = paved ? 0 : (map.mud[map.idx(x, y)] ?? 0) / 255;
-        ctx.fillStyle = paved
-          ? `rgba(126,124,120,${a})`
-          : wetness > 0.05
-            ? `rgba(${Math.round(78 - wetness * 26)},${Math.round(58 - wetness * 18)},${Math.round(36 - wetness * 10)},${Math.min(0.86, a + wetness * 0.3)})`
-            : `rgba(104,82,52,${a})`;
-        // Two broad blobs, jittered, and deliberately wider than the tile they
-        // belong to. Three small ones inside the tile left a gap at every tile
-        // boundary, so a worn route read as a row of polka dots rather than as a
-        // track; overlapping into the neighbours is what makes a line of worn
-        // tiles join up into one path.
-        for (let i = 0; i < 2; i++) {
-          const jx = (((h >> (i * 6)) & 31) / 31 - 0.5) * s * 0.3;
-          const jy = (((h >> (i * 6 + 3)) & 31) / 31 - 0.5) * s * 0.3;
-          ctx.beginPath();
-          ctx.ellipse(p.x + jx, p.y + jy, s * 0.56, s * 0.46, 0, 0, Math.PI * 2);
-          ctx.fill();
+        const px = Math.round(p.x - size / 2);
+        const py = Math.round(p.y - size / 2);
+        const dry = this.groundStamp(g.dry, size);
+        if (dry) {
+          ctx.globalAlpha = a;
+          ctx.drawImage(dry, px, py);
         }
-        // A wet track catches the light. One pale streak, offset, is enough.
-        if (wetness > 0.3 && s > 20) {
-          ctx.fillStyle = `rgba(168,176,178,${(wetness - 0.3) * 0.18})`;
-          ctx.beginPath();
-          ctx.ellipse(p.x - s * 0.06, p.y - s * 0.05, s * 0.18, s * 0.1, -0.5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = paved ? `rgba(126,124,120,${a})` : `rgba(${Math.round(78 - wetness * 26)},${Math.round(58 - wetness * 18)},${Math.round(36 - wetness * 10)},${Math.min(0.86, a + wetness * 0.3)})`;
-        }
-        if (paved && s > 22) {
-          ctx.strokeStyle = `rgba(182,180,174,${a * 0.5})`;
-          ctx.lineWidth = Math.max(1, s * 0.03);
-          ctx.beginPath();
-          ctx.ellipse(p.x, p.y, s * 0.34, s * 0.27, 0, 0, Math.PI * 2);
-          ctx.stroke();
+        // Dry and wet are cross-faded rather than switched between: mud arrives
+        // over a couple of minutes of rain and dries over about four, and a
+        // threshold would throw all of that away.
+        if (g.wetness > 0.03) {
+          const wet = this.groundStamp(g.wet, size);
+          if (wet) {
+            ctx.globalAlpha = a * Math.min(1, g.wetness);
+            ctx.drawImage(wet, px, py);
+          }
         }
       }
-    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   /**
@@ -578,6 +577,32 @@ export class Renderer {
     return h;
   }
 
+  /**
+   * One ground tile, pre-scaled and feathered to a soft disc.
+   *
+   * The feather is the whole trick. Drawn as a hard square these would put a
+   * grid over the map and the edge of a path would be a staircase; faded to
+   * nothing at the rim, neighbours overlap and the join disappears. Cached by
+   * source and size like every other sprite, because otherwise this is a
+   * full-size resample per tile per frame.
+   */
+  private groundStamp(src: string, size: number): HTMLCanvasElement | null {
+    const img = spriteImage(src);
+    if (!img) {
+      this.missedArt = true;
+      return null;
+    }
+    return stamp(`ground:${src}`, size, size, (c, w, h) => {
+      c.drawImage(img, 0, 0, w, h);
+      c.globalCompositeOperation = "destination-in";
+      const grad = c.createRadialGradient(w / 2, h / 2, w * 0.16, w / 2, h / 2, w * 0.5);
+      grad.addColorStop(0, "rgba(0,0,0,1)");
+      grad.addColorStop(0.62, "rgba(0,0,0,0.95)");
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      c.fillStyle = grad;
+      c.fillRect(0, 0, w, h);
+    });
+  }
   /**
    * What a felled tree leaves behind.
    *

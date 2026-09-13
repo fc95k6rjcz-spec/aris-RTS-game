@@ -16,7 +16,8 @@
 
 import { Tile } from "../sim/types";
 import type { GameMap } from "../sim/map";
-import { iceTexture, waterTexture } from "./sprites";
+import { iceTexture, spriteImage, waterTexture } from "./sprites";
+import { grassVariantFor } from "./grass";
 
 /** Pixels per tile in the baked terrain canvas. */
 export const T = 40;
@@ -566,7 +567,21 @@ export function bakeRegion(
   // bigger cell means the eye has further to go before it finds the repeat.
   const waterPat = waterImg ? blendedPattern(c, waterImg, 6) : null;
   const icePat = iceImg ? blendedPattern(c, iceImg, 5) : null;
-  if (pattern) {
+  // Thirty-five different square metres of ground, one chosen per tile from the
+  // tile's own coordinates, instead of a single texture repeated. The old fill
+  // was one drawImage for the whole region and this is one per tile, which is
+  // more work -- but it happens once per chunk bake, not per frame, and it is
+  // the difference between a field and a sheet of wallpaper. Falls back to the
+  // old pattern until the variants have loaded.
+  let variants = 0;
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const v = spriteImage(grassVariantFor(x, y));
+      if (!v) continue;
+      c.drawImage(v, x * T, y * T, T + 1, T + 1);
+      variants++;
+    }
+  if (pattern && variants === 0) {
     c.fillStyle = pattern;
     c.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
   }
