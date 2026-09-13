@@ -19,8 +19,11 @@ export interface UnitDef {
    * Men on foot sit around 6, which is a walk: about two tiles a second. They
    * used to be at 10 to 12, which is a dead sprint kept up indefinitely, and it
    * made the map feel small and the marches feel weightless. Horses are twice
-   * that. The bear is faster than every man on foot and always will be -- you do
-   * not outrun a bear, you fight it or you have friends.
+   * that. A bear outruns every man on foot -- you do not outrun a bear, you
+   * fight it or you have friends -- with one exception, and he does not run
+   * from bears anyway. A crowned King is the quickest thing on two legs in the
+   * game, which is deliberate: the opening is one man crossing a continent
+   * alone and the player is watching every step of it.
    */
   speed: number;
   /** Ticks to train. */
@@ -316,7 +319,7 @@ export const UNITS: Record<string, UnitDef> = {
     // A King outpaces everything else on foot. He is one man crossing a
     // continent alone for the first part of the game, and the whole opening is
     // watching him do it.
-    speed: 11,
+    speed: 16,
     trainTime: 0,
     supply: 0,
     domain: "land",
