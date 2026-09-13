@@ -27,6 +27,8 @@ import type { HudButton } from "./hud";
 
 /** One tile in the command grid. */
 export interface ShellCommand {
+  /** The tile's picture, or null for a command with no art yet. */
+  art: string | null;
   label: string;
   /** "1200 · 800", or null for orders, which cost nothing. */
   cost: string | null;
@@ -50,7 +52,21 @@ export interface ShellState {
   /** Elapsed match time, as a day count and a clock. */
   day: number;
   clock: string;
-  selection: { name: string; sub: string; hp: number; maxHp: number } | null;
+  selection: {
+    name: string;
+    sub: string;
+    hp: number;
+    maxHp: number;
+    portrait: string | null;
+    /**
+     * Everyone selected, when it is more than one.
+     *
+     * A group used to collapse to "2 SELECTED / KING AND OTHERS" over a single
+     * empty portrait, which tells you the count and nothing else -- not who they
+     * are, and not which of them is hurt. This is the roster.
+     */
+    members: Array<{ portrait: string | null; hp: number; maxHp: number; name: string }>;
+  } | null;
   production: { name: string; progress: number; eta: string } | null;
   tabs: ShellTab[];
   activeTab: string;
@@ -217,7 +233,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   width: 56px; height: 56px; flex: none; border: 1px solid rgba(216,179,90,0.35);
   background: #14161b;
   background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
+  background-size: cover; background-position: center top;
 }
+/* The roster, when more than one thing is selected. */
+.rv-roster { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; min-height: 0; overflow: hidden; }
+.rv-face { width: 42px; }
+.rv-face .pic {
+  width: 42px; height: 42px; border: 1px solid rgba(216,179,90,0.35);
+  background: #14161b center top / cover no-repeat;
+  background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
+}
+.rv-face .hp { margin-top: 2px; height: 3px; background: rgba(255,255,255,0.12); }
+.rv-face .hp i { display: block; height: 100%; background: #6fae4e; }
+.rv-face .hp i.hurt { background: #d8b35a; }
+.rv-face .hp i.bad { background: #c4553f; }
 .rv-sel .nm { font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: 0.06em; color: var(--parchment); }
 .rv-sel .sb { margin-top: 3px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 .rv-hp { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
@@ -248,10 +277,23 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   grid-auto-rows: minmax(0, 1fr); gap: 6px; min-height: 0; overflow: hidden;
 }
 .rv-tile {
+  position: relative; overflow: hidden;
   padding: 6px 8px; display: flex; flex-direction: column; justify-content: space-between;
   text-align: left; font-family: var(--mono); cursor: pointer; min-width: 0;
   background: rgba(216,179,90,0.10); border: 1px solid rgba(216,179,90,0.4); color: var(--parchment);
+  background-size: cover; background-position: center;
 }
+/* Painted tiles need their own contrast: the art runs edge to edge, so the
+   label and the cost row sit on gradients of their own rather than on whatever
+   the picture happens to be doing there. */
+.rv-tile.art::before, .rv-tile.art::after {
+  content: ""; position: absolute; left: 0; right: 0; pointer-events: none;
+}
+.rv-tile.art::before { top: 0; height: 46%; background: linear-gradient(180deg, rgba(8,8,10,0.88) 0%, rgba(8,8,10,0.45) 55%, rgba(8,8,10,0) 100%); }
+.rv-tile.art::after { bottom: 0; height: 42%; background: linear-gradient(0deg, rgba(8,8,10,0.9) 0%, rgba(8,8,10,0.4) 60%, rgba(8,8,10,0) 100%); }
+.rv-tile.art .lb, .rv-tile.art .ft { position: relative; z-index: 1; }
+.rv-tile.art .lb { text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.rv-tile.art.off { filter: grayscale(0.75) brightness(0.55); }
 .rv-tile .lb { font-size: 11px; line-height: 1.25; letter-spacing: 0.04em; }
 .rv-tile .ft { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .rv-tile .ct { font-size: 9px; font-variant-numeric: tabular-nums; color: #b6ae9c; }
@@ -387,8 +429,9 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   hp.append(hpTrack, hpVal);
   whoText.append(selName, selSub, hp);
   who.append(port, whoText);
+  const roster = el("div", "rv-roster");
   const prod = el("div", "rv-prod");
-  sel.append(who, prod);
+  sel.append(who, roster, prod);
 
   const cmd = el("div", "rv-pane rv-cmd");
   const tabRow = el("div", "rv-tabs");
@@ -512,11 +555,39 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         hpFill.style.width = `${Math.max(0, Math.min(100, (s.selection.hp / Math.max(1, s.selection.maxHp)) * 100))}%`;
         hpVal.textContent = `${Math.ceil(s.selection.hp)}/${s.selection.maxHp}`;
         port.style.visibility = "visible";
+        port.style.backgroundImage = s.selection.portrait ? `url(${s.selection.portrait})` : "";
+        // One face per selected unit, each with its own health, so a group tells
+        // you who is in it and which of them is hurt.
+        const want = s.selection.members;
+        roster.hidden = want.length < 2;
+        if (want.length >= 2) {
+          while (roster.childElementCount > want.length) roster.lastElementChild!.remove();
+          while (roster.childElementCount < want.length) {
+            const f = el("div", "rv-face");
+            const pic = el("div", "pic");
+            const bar = el("div", "hp");
+            bar.appendChild(el("i"));
+            f.append(pic, bar);
+            roster.appendChild(f);
+          }
+          want.forEach((m, i) => {
+            const f = roster.children[i] as HTMLElement;
+            const pic = f.firstElementChild as HTMLElement;
+            const fill = f.lastElementChild!.firstElementChild as HTMLElement;
+            pic.style.backgroundImage = m.portrait ? `url(${m.portrait})` : "";
+            pic.title = m.name;
+            const frac = Math.max(0, Math.min(1, m.hp / Math.max(1, m.maxHp)));
+            fill.style.width = `${frac * 100}%`;
+            fill.className = frac > 0.6 ? "" : frac > 0.3 ? "hurt" : "bad";
+          });
+        }
       } else {
         selName.textContent = "—";
         selSub.textContent = "Nothing selected";
         hp.hidden = true;
+        roster.hidden = true;
         port.style.visibility = "hidden";
+        port.style.backgroundImage = "";
       }
 
       if (s.production) {
@@ -546,6 +617,9 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         if (t.ct.textContent !== cost) t.ct.textContent = cost;
         if (t.ky.textContent !== c.hotkey) t.ky.textContent = c.hotkey;
         t.node.classList.toggle("off", !c.enabled);
+        const art = c.art ? `url(${c.art})` : "";
+        if (t.node.style.backgroundImage !== art) t.node.style.backgroundImage = art;
+        t.node.classList.toggle("art", !!c.art);
       });
       if (!hovered) desc.textContent = IDLE_HINT;
 

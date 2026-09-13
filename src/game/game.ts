@@ -16,7 +16,8 @@ import {
   type FrontState,
 } from "../ui/frontScreen";
 import { commandSets, compass, describeTask, hudH, layoutButtons, type HudButton, type MenuPage } from "../ui/hud";
-import { createShell, type Shell, type ShellCommand } from "../ui/shell";
+import { createShell, type Shell, type ShellCommand, type ShellState } from "../ui/shell";
+import { commandArt, portraitArt } from "../ui/art";
 import { SkirmishAI, type Difficulty } from "../ai/skirmish";
 import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
@@ -97,6 +98,11 @@ export class Game {
   /** Last state pushed to the button, so a direct write to `paused` still shows. */
   private shownPaused = false;
   private readonly audio = new Audio();
+  /** Exposed for headless tests: which command tab is showing. */
+  set tabForTest(id: string) {
+    this.tab = id;
+  }
+
   /** Exposed for headless tests: the labels currently on the front screen. */
   get frontRowsForTest(): string[] {
     return this.frontHits.map((h) => h.action.kind);
@@ -1004,7 +1010,7 @@ export class Game {
     const clock = `${String(Math.floor((inDay / 240) * 24)).padStart(2, "0")}:${String(Math.floor(((inDay / 240) * 24 % 1) * 60)).padStart(2, "0")}`;
 
     // What is selected, said once.
-    let selection: { name: string; sub: string; hp: number; maxHp: number } | null = null;
+    let selection: ShellState["selection"] = null;
     let production: { name: string; progress: number; eta: string } | null = null;
     const b = selBuildings[0];
     if (selUnits.length > 0) {
@@ -1012,10 +1018,28 @@ export class Game {
       const def = UNITS[u.def]!;
       const name = selUnits.length > 1 ? `${selUnits.length} selected` : unitName(u.def, p.faction).toUpperCase();
       const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others` : `${def.royal ? "Hero" : "Unit"} · ${describeTask(u)}`;
-      selection = { name, sub, hp: u.hp, maxHp: u.maxHp };
+      // The roster is capped: past a couple of dozen faces the panel is a wall
+      // of thumbnails and the count in the heading is the useful number.
+      const members =
+        selUnits.length > 1
+          ? selUnits.slice(0, 24).map((m) => ({
+              portrait: portraitArt(m.def),
+              hp: m.hp,
+              maxHp: m.maxHp,
+              name: unitName(m.def, p.faction),
+            }))
+          : [];
+      selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members };
     } else if (b) {
       const d = BUILDINGS[b.def]!;
-      selection = { name: buildingName(b.def, p.faction).toUpperCase(), sub: b.complete ? "Structure" : "Under construction", hp: b.hp, maxHp: b.maxHp };
+      selection = {
+        name: buildingName(b.def, p.faction).toUpperCase(),
+        sub: b.complete ? "Structure" : "Under construction",
+        hp: b.hp,
+        maxHp: b.maxHp,
+        portrait: null,
+        members: [],
+      };
       if (!b.complete) {
         production = { name: buildingName(b.def, p.faction), progress: b.progress / d.buildTime, eta: eta((d.buildTime - b.progress) / TICKS_PER_SECOND) };
       } else if (b.queue.length > 0) {
@@ -1065,7 +1089,7 @@ export class Game {
       production,
       tabs: sets.tabs,
       activeTab: this.tab,
-      commands: (sets.byTab[this.tab] ?? []) as ShellCommand[],
+      commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action) })) as ShellCommand[],
       banner: objective || !banner ? null : banner,
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
