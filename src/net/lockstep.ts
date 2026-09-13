@@ -181,7 +181,7 @@ export class Lockstep {
 
   /** Prime the pipeline: the first INPUT_DELAY turns carry nobody's orders. */
   start(): void {
-    for (let t = 0; t <= this.transport.inputDelay; t++) this.publish(t, undefined);
+    for (let t = 0; t < this.transport.inputDelay; t++) this.publish(t, undefined);
   }
 
   /**
@@ -225,17 +225,26 @@ export class Lockstep {
     if (this.failure !== null || this.desyncAt !== null) return null;
 
     if (this.tickInTurn === 0) {
+      // A turn boundary is the only place the two worlds are guaranteed
+      // comparable, so it is the only place a checksum is taken.
+      const mark = this.turn % CHECKSUM_EVERY === 0;
+      if (mark) this.noteChecksum(this.turn, checksumFor(this.turn));
+      // Publish BEFORE testing readiness, and for `inputDelay` turns ahead.
+      //
+      // The order matters at both ends of the range. Over a network it means
+      // this machine's orders are on the wire before it starts work, so the
+      // other end is never waiting on us while we compute. With no network --
+      // where the delay is zero -- it means the turn being published IS the
+      // turn about to run, so an order given a moment ago executes on this very
+      // tick, exactly as it did before any of this existed. Publishing after
+      // the readiness test would cost single-player a tick of latency for the
+      // benefit of a network it does not have.
+      this.publish(this.turn + this.transport.inputDelay, mark ? this.mine.get(this.turn) : undefined);
       if (!this.ready(this.turn)) {
         if (this.stalledSince === 0) this.stalledSince = now;
         return null;
       }
       this.stalledSince = 0;
-      // A turn boundary is the only place the two worlds are guaranteed
-      // comparable, so it is the only place a checksum is taken.
-      if (this.turn % CHECKSUM_EVERY === 0) this.noteChecksum(this.turn, checksumFor(this.turn));
-      // Publish this machine's next batch before running the turn, so the other
-      // end is never waiting on us while we work.
-      this.publish(this.turn + this.transport.inputDelay + 1, this.turn % CHECKSUM_EVERY === 0 ? this.mine.get(this.turn) : undefined);
     }
 
     // Every seat's orders for this turn, executed on the turn's first tick so

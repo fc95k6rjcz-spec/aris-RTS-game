@@ -25,6 +25,7 @@ import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
+import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -42,6 +43,16 @@ export class Game {
   renderer: Renderer;
   readonly player: PlayerId = 1;
 
+  /**
+   * The turn scheduler. Every game goes through it, including this one.
+   *
+   * Single-player uses a transport with no network behind it and no input
+   * delay, which collapses the whole thing back to "apply what was queued, then
+   * tick" -- exactly what the loop did before. That is the point: the lockstep
+   * path is the only path, so it is exercised every time anybody plays and
+   * cannot rot while nobody is looking at multiplayer.
+   */
+  private net: Lockstep = new Lockstep(new LocalTransport());
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
   private buildMode: string | null = null;
@@ -89,6 +100,8 @@ export class Game {
   /** Clickable rectangles the front screen put on the canvas this frame. */
   private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
+  /** Set before start() to play over a network instead of alone. */
+  transport: Transport | null = null;
   private settingsPanel: SettingsPanel | null = null;
   /** The DOM chrome: top bar, command bar, minimap. Null in headless tests. */
   private shell: Shell | null = null;
@@ -239,6 +252,11 @@ export class Game {
     this.selected.clear();
     this.pending = [];
     this.buildMode = null;
+    // A fresh scheduler for a fresh match: turn numbers start again, and a
+    // stale one would be waiting on orders from the last game.
+    this.net.close();
+    this.net = new Lockstep(this.transport ?? new LocalTransport());
+    this.net.start();
     this.resize();
     const home = this.world.map.starts[0]!;
     this.cam.centerOn((home.x + 1) * SUB, (home.y + 1) * SUB);
@@ -296,12 +314,22 @@ export class Game {
     requestAnimationFrame(this.frame);
   };
 
-  /** Advance exactly one sim tick with whatever commands are queued. */
+  /**
+   * Advance exactly one sim tick with whatever orders the scheduler hands over.
+   *
+   * It may hand over nothing, when a turn's orders have not all arrived. That
+   * is not a failure -- it is the classic RTS stall, and every client stops at
+   * the same turn, which is precisely why they stay identical. Rendering keeps
+   * going, so the game does not appear frozen; it simply stops advancing.
+   */
   tick(): void {
     if (this.menu) this.start();
+    const turn = this.net.nextTick(performance.now(), () => this.world.checksum());
+    if (!turn) return;
     this.renderer.snapshot();
-    const cmds = this.pending;
-    this.pending = [];
+    const cmds = turn.commands;
+    // The AI is local and is not a seat: it plays on whichever machine is
+    // running it. In a network game there is no AI, so this never fires.
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
@@ -363,7 +391,7 @@ export class Game {
   }
 
   issue(c: Command): void {
-    this.pending.push(c);
+    this.net.issue(c);
   }
 
   stop(): void {

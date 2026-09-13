@@ -35,6 +35,10 @@ const runs = await page.evaluate(() => {
       winner: g.world.winner,
       unclaimed: g.world.relics.filter((x) => !x.taken).length,
       p2: [...g.world.entities.values()].filter((e) => e.owner === 2).length,
+      // Whether a side standing at zero is merely between men. The clan sends
+      // another after a pause, so "nothing on the field" is a legitimate
+      // moment, not a loss -- what matters is that the match did not end.
+      p2Replacing: g.world.relics.some((r) => r.owner === 2 && !r.taken),
     });
   }
   return out;
@@ -42,10 +46,15 @@ const runs = await page.evaluate(() => {
 await browser.close();
 
 const premature = runs.filter((r) => r.winner !== null && r.unclaimed > 0);
-const wiped = runs.filter((r) => r.p2 === 0);
+// A side at zero with its weapon still in the ground is waiting for the next
+// man, which is the rule working. A side at zero with no weapon left to find
+// has genuinely been wiped out.
+const wiped = runs.filter((r) => r.p2 === 0 && !r.p2Replacing);
+const between = runs.filter((r) => r.p2 === 0 && r.p2Replacing);
 console.log(`${runs.length} matches played`);
 console.log(`winners declared while a weapon was still in the ground: ${premature.length}`);
 console.log(`matches where a side was wiped out entirely: ${wiped.length}`);
+console.log(`matches sampled while a clan was between men: ${between.length}`);
 for (const r of premature) console.log(`  ${r.map}: winner ${r.winner}, ${r.unclaimed} weapon(s) unclaimed`);
 
 const fail = [];

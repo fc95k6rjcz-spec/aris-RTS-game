@@ -247,6 +247,63 @@ export class World {
     }
   }
 
+  /**
+   * A fingerprint of the whole simulation, for catching a desync.
+   *
+   * Two machines running a lockstep game must compute identical state from
+   * identical orders, forever. "Must" is a claim, and this is how it is
+   * checked: every few turns each side hashes its world and sends the number
+   * with its orders, and the moment two numbers disagree the match stops and
+   * says so. A desync caught on the turn it happens is a bug report with a turn
+   * number on it. A desync noticed five minutes later is a mystery.
+   *
+   * Everything the players can act on goes in, and nothing that is merely
+   * drawn. Entities are folded in id order so the hash does not depend on the
+   * order a Map happens to iterate, and positions are integers already, so
+   * there is no float to round.
+   */
+  checksum(): number {
+    let h = 2166136261 >>> 0;
+    const mix = (v: number): void => {
+      h ^= v | 0;
+      h = Math.imul(h, 16777619) >>> 0;
+    };
+    mix(this.tick);
+    for (const id of [...this.entities.keys()].sort((a, b) => a - b)) {
+      const e = this.entities.get(id)!;
+      mix(id);
+      mix(e.owner);
+      if (e.kind === "unit") {
+        mix(e.pos.x);
+        mix(e.pos.y);
+        mix(e.hp);
+        mix(e.def.length * 131 + e.def.charCodeAt(0));
+        mix(e.task.kind.length);
+      } else {
+        mix(e.tx);
+        mix(e.ty);
+        mix(e.hp);
+        mix(Math.round(e.progress));
+        mix(e.complete ? 1 : 0);
+      }
+    }
+    for (const p of [...this.players.keys()].sort((a, b) => a - b)) {
+      const pl = this.players.get(p)!;
+      mix(pl.gold);
+      mix(pl.lumber);
+      mix(pl.oil);
+    }
+    // The ground is simulation too: wear and mud both change how fast people
+    // move, so a disagreement about them is a disagreement about the game.
+    // Sampled rather than summed in full -- every 97th tile is enough to catch
+    // a divergence within a turn or two, and cheap enough to do every time.
+    for (let i = 0; i < this.map.wear.length; i += 97) {
+      mix(this.map.wear[i]!);
+      mix(this.map.mud[i]!);
+    }
+    return h >>> 0;
+  }
+
   /** Exposed for headless tests: the sky at any seed and tick, asked directly. */
   skyAtForTest(seed: number, tick: number): string {
     return skyAt(seed, tick).sky;
