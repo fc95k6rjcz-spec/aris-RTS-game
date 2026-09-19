@@ -29,6 +29,8 @@ const BUILDING: Record<string, string> = { townhall, farm, lumbermill, golddepot
 /** The picture for a command tile, or null for the ones not yet painted. */
 export function commandArt(a: HudButton["action"]): string | null {
   switch (a.type) {
+    case "train":
+      return portraitArt(a.def);
     case "build":
       return BUILDING[a.def] ?? null;
     case "attack":

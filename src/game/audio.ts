@@ -23,10 +23,15 @@ import { musicGain, sfxGain } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart";
+export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
+  command: 160,
+  crown: 3000,
+  magic: 140,
+  heal: 220,
+  timber: 150,
   sword: 55,
   bow: 70,
   boom: 180,
@@ -55,6 +60,7 @@ export class Audio {
   private noise: AudioBuffer | null = null;
   private last: Partial<Record<SoundName, number>> = {};
   private startedThisTick = 0;
+  private effectVolume = 1;
   /** Set once the browser has let us start; until then nothing plays. */
   private ready = false;
   /** Everything the score owns, so it can be torn down in one go. */
@@ -124,7 +130,7 @@ export class Audio {
     f.Q.value = q;
     if (sweepTo !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), t + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(gain * this.effectVolume, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     src.connect(f).connect(g).connect(this.master!);
     src.start(t);
@@ -140,7 +146,7 @@ export class Audio {
     if (to !== from) o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain * this.effectVolume), t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     o.connect(g).connect(this.master!);
     o.start(t);
@@ -161,9 +167,35 @@ export class Audio {
     if (now - (this.last[name] ?? -1e9) < CROWD_MS[name]) return;
     this.last[name] = now;
     this.startedThisTick++;
-    this.master.gain.value = vol;
+    // Give each effect its own level; a distant hit must not turn down a
+    // royal chord or another sound that is already playing.
+    this.effectVolume = vol;
 
     switch (name) {
+      case "command":
+        this.tone("triangle", 392, 440, 0.09, 0.08);
+        this.tone("sine", 587.33, 587.33, 0.1, 0.04, 0.04);
+        break;
+      case "crown":
+        // Steel drawn from stone, followed by a warm rising royal chord.
+        this.burst(0.65, 0.18, "bandpass", 1200, 2, 3400);
+        [196, 293.66, 392, 493.88, 587.33].forEach((f, i) => {
+          this.tone("triangle", f, f, 1.2, 0.09, 0.15 + i * 0.17);
+          this.tone("sine", f * 2, f * 2, 0.9, 0.035, 0.2 + i * 0.17);
+        });
+        break;
+      case "magic":
+        this.burst(0.25, 0.15, "bandpass", 650, 1.2, 2600);
+        this.tone("sine", 330, 990, 0.22, 0.13);
+        this.tone("triangle", 660, 220, 0.32, 0.07, 0.05);
+        break;
+      case "heal":
+        [523.25, 659.25, 783.99].forEach((f, i) => this.tone("sine", f, f, 0.42, 0.07, i * 0.09));
+        break;
+      case "timber":
+        this.burst(0.12, 0.22, "bandpass", 280, 2, 150);
+        this.tone("triangle", 140, 85, 0.13, 0.12);
+        break;
       case "sword":
         // Edge on edge: a bright noise scrape with a metallic ring behind it.
         this.burst(0.1, 0.5, "bandpass", 2600, 1.4, 1400);
@@ -509,7 +541,7 @@ export class Audio {
       const vol = Math.max(0, 1 - d / 1.5) ** 1.6;
       switch (e.kind) {
         case "attack":
-          this.play(e.def === "cannon" ? "boom" : e.ranged ? "bow" : "sword", vol);
+          this.play(e.def === "cannon" || e.def === "bomber" ? "boom" : e.def === "mage" ? "magic" : e.ranged ? "bow" : "sword", vol);
           break;
         case "hit":
           if (e.building) this.play("impact", vol * 0.8);
@@ -524,7 +556,13 @@ export class Audio {
           this.play("workstart", vol);
           break;
         case "deposit":
-          this.play("coin", vol * (e.resource === "gold" ? 1 : 0.7));
+          this.play(e.resource === "gold" ? "coin" : "timber", vol);
+          break;
+        case "heal":
+          this.play("heal", vol * 0.7);
+          break;
+        case "crowned":
+          this.play("crown", vol);
           break;
         case "chop":
           this.play("chop", vol * 0.8);

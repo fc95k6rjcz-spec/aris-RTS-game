@@ -16,7 +16,7 @@
     "test:handling": "node test/handling.mjs",
     "test:human": "node test/humanFaction.mjs",
     "verify:human": "npm run build && npm run test:human",
-    "test:animation": "node test/animationCoverage.mjs",
+    "test:animation": "node test/animationLogic.mjs && node test/animationCoverage.mjs",
     "verify:animation": "npm run build && npm run test:animation"
   },
   "devDependencies": {

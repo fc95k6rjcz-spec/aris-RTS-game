@@ -1,8 +1,8 @@
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
 import { Camera } from "../render/camera";
-import { spriteImage } from "../render/sprites";
 import { Renderer, type Ghost } from "../render/renderer";
+import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import type { Building, Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
@@ -26,10 +26,6 @@ import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
-import crowning0 from "../assets/anim/crowning_0.png";
-import crowning1 from "../assets/anim/crowning_1.png";
-import crowning2 from "../assets/anim/crowning_2.png";
-import crowning3 from "../assets/anim/crowning_3.png";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
@@ -108,10 +104,8 @@ export class Game {
   /**
    * The crowning, while it is playing.
    *
-   * Four painted frames -- reach, grasp, pull, raise -- shown where it actually
-   * happened. The whole opening is a walk towards this moment, and it used to
-   * be a line of text in the corner of the screen. It plays once, at the
-   * relic's own position, and then the game carries on.
+   * A restrained gold flourish follows the actual king. The unit keeps its
+   * normal scale instead of being covered by an oversized second character.
    */
   private crowningAt: { x: number; y: number; at: number } | null = null;
   /** Whether this player's king has already been proclaimed, so it happens once. */
@@ -340,6 +334,7 @@ export class Game {
     this.ai = this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
     this.banner = null;
     this.crowned = false;
+    this.crowningAt = null;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
     if (this.setup?.crowning ?? settings.crowning) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
@@ -385,7 +380,7 @@ export class Game {
       this.acc -= step;
       if (!this.paused) this.tick();
     }
-    this.render(this.acc / step);
+    this.render(this.paused ? 1 : this.acc / step);
     requestAnimationFrame(this.frame);
   };
 
@@ -855,6 +850,7 @@ export class Game {
   }
 
   private marker(x: number, y: number, kind: "move" | "attack" | "gather" | "repair"): void {
+    this.audio.play("command", 0.55);
     this.commandMarkers.push({ x, y, kind, at: performance.now() });
     if (this.commandMarkers.length > 12) this.commandMarkers.shift();
   }
@@ -1436,15 +1432,14 @@ export class Game {
       this.crowningAt = null;
       return;
     }
-    const frames = [crowning0, crowning1, crowning2, crowning3];
-    const i = Math.min(frames.length - 1, Math.floor((t / CROWNING_MS) * frames.length));
-    const img = spriteImage(frames[i]!);
-    if (!img) return;
-    const p = this.cam.toScreen(c.x, c.y);
+    if (!settings.animations) return;
+    const king = this.world.units().find((u) => u.owner === this.player && u.def === "king");
+    if (!king) return;
+    const p = this.cam.toScreen(king.pos.x, king.pos.y);
     const s = this.cam.zoom;
-    const h = s * 4.2;
-    const w = (img.naturalWidth / img.naturalHeight) * h;
-    const fade = Math.min(1, t / 220) * Math.min(1, (CROWNING_MS - t) / 420);
+    const h = s * 1.65;
+    const progress = Math.max(0, Math.min(1, t / CROWNING_MS));
+    const fade = Math.sin(progress * Math.PI) ** 2;
     ctx.save();
     ctx.globalAlpha = fade;
     // A wash of gold under it, so it lifts off whatever ground it happens on.
@@ -1453,7 +1448,22 @@ export class Game {
     glow.addColorStop(1, "rgba(255,228,150,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(p.x - h, p.y - h, h * 2, h * 2);
-    ctx.drawImage(img, p.x - w / 2, p.y - h * 0.86, w, h);
+    // Celebrate the actual unit instead of overlaying a giant second person.
+    ctx.strokeStyle = "#f6d98b";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + s * 0.5, s * (0.4 + progress * 0.65), s * (0.16 + progress * 0.2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 10; i++) {
+      const angle = i * Math.PI * 0.2 + progress * 0.6;
+      const radius = s * (0.25 + progress * 0.45);
+      const x = p.x + Math.cos(angle) * radius;
+      const y = p.y + s * 0.3 - progress * h + Math.sin(angle) * s * 0.15;
+      ctx.fillStyle = "#fff0bc";
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1, s * 0.025), 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -1484,8 +1494,12 @@ export class Game {
     if (selUnits.length > 0) {
       const u = selUnits[0]!;
       const def = UNITS[u.def]!;
-      const name = selUnits.length > 1 ? `${selUnits.length} selected` : unitName(u.def, p.faction).toUpperCase();
-      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others` : `${def.royal ? "Hero" : "Unit"} · ${describeTask(u)}`;
+      const personal = p.faction === "human" && (u.def === "worker" || def.royal);
+      const name = selUnits.length > 1 ? `${selUnits.length} selected` : personal
+        ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${personName(u)}`.toUpperCase()
+        : unitName(u.def, p.faction).toUpperCase();
+      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others`
+        : `${unitName(u.def, p.faction)} · ${u.hp < u.maxHp * 0.35 ? "Badly wounded · " : ""}${describeTask(u)}`;
       // The roster is capped: past a couple of dozen faces the panel is a wall
       // of thumbnails and the count in the heading is the useful number.
       const members =
@@ -1494,7 +1508,8 @@ export class Game {
               portrait: portraitArt(m.def),
               hp: m.hp,
               maxHp: m.maxHp,
-              name: unitName(m.def, p.faction),
+              name: p.faction === "human" && (m.def === "worker" || UNITS[m.def]!.royal)
+                ? `${personName(m)} · ${unitName(m.def, p.faction)}` : unitName(m.def, p.faction),
             }))
           : [];
       selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members };

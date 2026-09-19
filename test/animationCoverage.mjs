@@ -6,10 +6,15 @@
  * fails on any render-time exception.
  */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 
 const html = readFileSync("dist/index.html", "utf8");
-const browser = await chromium.launch({ executablePath: process.env.CHROME || "/opt/pw-browsers/chromium" });
+const executablePath = process.env.CHROME || [
+  "/opt/pw-browsers/chromium",
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+].find(existsSync);
+const browser = await chromium.launch({ executablePath });
 const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
@@ -27,6 +32,8 @@ const setup = await page.evaluate(() => {
   g.settingsForTest.edgeScroll = false;
   g.start("none");
   const w = g.world;
+  g.paused = true;
+  w.fogEnabled = false;
 
   // Clean flat board so coverage is about rendering, not map placement.
   for (let y = 0; y < w.map.height; y++)
@@ -50,7 +57,10 @@ const setup = await page.evaluate(() => {
   if (worker) worker.task = { kind: "gather", tx: 8, ty: 8, resource: "lumber", phase: "harvest", timer: 5 };
   const mage = units.find((u) => u.def === "mage");
   const enemy = w.spawnUnit(2, "footman", { x: 31 * SUB, y: 12 * SUB });
-  if (mage) mage.task = { kind: "attack", target: enemy.id };
+  if (mage) {
+    mage.task = { kind: "attack", target: enemy.id };
+    mage.cooldown = rts.UNITS.mage.cooldown;
+  }
   const priest = units.find((u) => u.def === "priest");
   if (priest) priest.cooldown = 18;
   const deer = units.find((u) => u.def === "deer");
@@ -79,6 +89,7 @@ const setup = await page.evaluate(() => {
   if (damaged) damaged.hp = Math.max(1, Math.floor(damaged.maxHp * 0.38));
 
   // Put the coverage field under the camera.
+  g.cam.zoom = 16;
   g.cam.centerOn(40 * SUB, 24 * SUB);
 
   return {
@@ -112,6 +123,30 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(500);
 
+// Compare the worker's actual rendered pixels across two simulation times.
+// Direct rendering avoids the pause overlay and keeps the camera identical.
+const motion = await page.evaluate(() => {
+  const g = window.game;
+  const worker = g.world.units().find((u) => u.def === "worker");
+  const p = g.cam.toScreen(worker.pos.x, worker.pos.y);
+  const ctx = document.getElementById("game").getContext("2d");
+  const sample = (tick, enabled) => {
+    g.settingsForTest.animations = enabled;
+    g.world.tick = tick;
+    g.renderer.draw(0, new Set(), null, null, g.cam.viewH);
+    return Array.from(ctx.getImageData(Math.floor(p.x - 16), Math.floor(p.y - 30), 32, 40).data);
+  };
+  const first = sample(10, true);
+  const second = sample(16, true);
+  const frozenFirst = sample(10, false);
+  const frozenSecond = sample(16, false);
+  g.settingsForTest.animations = true;
+  return {
+    workerMoves: first.some((v, i) => v !== second[i]),
+    disabledIsStill: frozenFirst.every((v, i) => v === frozenSecond[i]),
+  };
+});
+
 const pixel = await page.evaluate(() => {
   const c = document.getElementById("game");
   const ctx = c.getContext("2d");
@@ -119,14 +154,18 @@ const pixel = await page.evaluate(() => {
   return Array.from(d);
 });
 
+mkdirSync("test/artifacts", { recursive: true });
+await page.screenshot({ path: "test/artifacts/animation-coverage.png" });
 await browser.close();
 
-console.log(JSON.stringify({ ...setup, errors, pixel }, null, 2));
+console.log(JSON.stringify({ ...setup, ...motion, errors, pixel }, null, 2));
 const fail = [];
 if (setup.units !== setup.expectedUnits) fail.push("not every unit spawned");
 if (setup.buildings !== setup.expectedBuildings) fail.push("not every building spawned");
 if (!setup.torch) fail.push("Torch missing");
 if (!setup.renderer) fail.push("renderer missing");
+if (!motion.workerMoves) fail.push("working worker does not animate");
+if (!motion.disabledIsStill) fail.push("worker moves with animations disabled");
 if (errors.length) fail.push("page errors: " + errors.join(" | "));
 if (pixel[3] === 0) fail.push("canvas appears empty");
 if (fail.length) {

@@ -16,7 +16,7 @@ import { drawFire } from "./fire";
 import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
-import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
+import { AnimationClock, anySheets, clipFor, frameAt, sheetFor, stateFor, type AnimState } from "./anim";
 import { motionFor } from "./motion";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
@@ -53,6 +53,7 @@ export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
   /** Previous-tick unit positions for interpolation. */
   private prev = new Map<number, { x: number; y: number }>();
+  private animationClock = new AnimationClock();
   /** Near-detail terrain, baked one chunk at a time and kept while it is used. */
   private chunks = new Map<number, { img: HTMLCanvasElement; used: number }>();
   /** The whole map at a coarse resolution, trees and all, for zoomed-out views. */
@@ -139,15 +140,17 @@ export class Renderer {
       // ground whether or not anyone is watching it now.
       .filter((u) => this.world.canSeeEntity(this.viewer, u))
       .sort((a, b) => a.pos.y - b.pos.y);
-    for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
-    this.drawProjectiles();
-    this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
-    if (ghost) this.drawGhost(ghost);
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
     this.drawDaylight(viewH);
     this.drawLocalLights(viewH);
     this.drawWeather(viewH);
+    // Keep visible people readable over the atmospheric terrain wash. The
+    // visibility filter above still hides enemies outside our actual sight.
+    for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
+    this.drawProjectiles();
+    this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
+    if (ghost) this.drawGhost(ghost);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
       ctx.lineWidth = 1;
@@ -655,16 +658,13 @@ export class Renderer {
    * One unit, from a cut sheet. Returns the height drawn, or null if this unit
    * has no sheet and should fall through to the painted still.
    */
-  private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, moving: boolean): number | null {
+  private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, state: AnimState, seconds: number): number | null {
     const sheet = sheetFor(faction, u.def);
     if (!sheet) return null;
-    let state = stateFor(u, moving);
-    if (state === "walk" && moving && isRunning(u)) state = "run";
     const clip = clipFor(sheet, state);
     if (!clip) return null;
-    // Wall clock, not sim tick: which frame is showing is not a decision the
-    // simulation is allowed to see, so it must never be derived from its state.
-    const src = frameAt(clip, performance.now() / 1000, u.id);
+    // Action time starts at the gesture, not at application launch.
+    const src = frameAt(clip, settings.animations ? seconds : 0, settings.animations ? u.id : 0);
     if (!src) return null;
     const img = spriteImage(src);
     if (!img) {
@@ -1496,7 +1496,9 @@ export class Renderer {
 
   private drawUnit(u: Unit, alpha: number, selected: boolean): void {
     const ctx = this.ctx;
-    const s = this.cam.zoom;
+    const person = UNITS[u.def]!.domain === "land" && !UNITS[u.def]!.skittish
+      && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
+    const s = this.cam.zoom * (person ? 1.18 : 1);
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
       if (selected) {
@@ -1528,17 +1530,23 @@ export class Renderer {
     const player = this.world.players.get(u.owner)!;
     const def = UNITS[u.def]!;
     const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
-    const moving = u.path.length > 0;
+    const moving = pv.x !== u.pos.x || pv.y !== u.pos.y;
     // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
-    const phase = (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1;
+    const phase = settings.animations ? (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1 : 0;
     const state = stateFor(u, moving);
+    const seconds = (this.world.tick + alpha) / 20;
+    const elapsed = this.animationClock.elapsed(u, state, seconds);
 
-    if (selected) {
-      ctx.strokeStyle = "#9cff9c";
-      ctx.lineWidth = 1.5;
+    if (selected || (person && u.owner === this.viewer)) {
+      ctx.save();
+      ctx.strokeStyle = selected ? "#b9ff9c" : def.royal ? "rgba(242,193,78,0.8)" : "rgba(189,215,172,0.6)";
+      ctx.lineWidth = selected ? 2 : 1;
+      ctx.fillStyle = "rgba(12,18,12,0.3)";
       ctx.beginPath();
       ctx.ellipse(p.x, p.y + h * 0.42, h * 0.4, h * 0.17, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
+      ctx.restore();
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
@@ -1548,7 +1556,7 @@ export class Renderer {
     const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
     const hasClip = sheet ? clipFor(sheet, state) !== null : false;
     const pose = settings.animations && !hasClip
-      ? motionFor(u, state, performance.now() / 1000, flash)
+      ? motionFor(u, state, seconds, flash)
       : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
     const ax = p.x + pose.dx * h;
     const ay = p.y + pose.dy * h;
@@ -1567,7 +1575,7 @@ export class Renderer {
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    const framed = anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, moving) : null;
+    const framed = anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null;
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
       ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, afloat)
@@ -1744,7 +1752,7 @@ export class Renderer {
     const view = unitViewSprite(u.def, u.facing, color);
     if (!view) return null;
     const ctx = this.ctx;
-    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? 1.5);
+    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? (UNITS[u.def]!.royal ? 1.4 : 1.5));
     const w = (view.img.width / view.img.height) * h;
     // Wheeled things roll rather than step, so they get the sway and no bounce.
     const heavy = UNIT_VIEW_HEIGHT[u.def] !== undefined;
