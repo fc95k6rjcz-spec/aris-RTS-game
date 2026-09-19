@@ -119,6 +119,7 @@ export class Renderer {
     ctx.rect(0, 0, cam.viewW, viewH);
     ctx.clip();
     this.drawTerrain();
+    if (settings.animations) this.drawWaterMotion();
     // Tracks go on the ground, under everything that stands on it.
     this.drawPaths();
     this.drawOreCarts(alpha);
@@ -145,6 +146,7 @@ export class Renderer {
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
     this.drawDaylight(viewH);
+    this.drawLocalLights(viewH);
     this.drawWeather(viewH);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
@@ -997,13 +999,14 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick };
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level };
     if (!b.complete) {
       drawConstruction(art);
       this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
     } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
       artFor(faction, b.def)?.(art);
     }
+    if (b.complete && settings.animations) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
       // the painted art, which deliberately overhangs its tiles.
@@ -1157,7 +1160,7 @@ export class Renderer {
     const w = d.size * s;
     ctx.globalAlpha = 0.55;
     const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick });
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1 });
     ctx.globalAlpha = 1;
     // Per-tile validity overlay.
     for (let y = 0; y < d.size; y++)
