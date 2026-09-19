@@ -421,29 +421,62 @@ export function artFor(faction: string, def: string): Drawer | undefined {
  */
 export function drawConstruction(a: ArtCtx): void {
   const c = a.ctx;
-  const p = a.progress;
-  // Foundation: cleared earth + stakes.
+  const p = Math.max(0, Math.min(1, a.progress));
+
+  // Stage 1 — cleared ground, footings and delivered material.
   gradRect(a, 0.02, 0.06, 0.96, 0.92, "#6a5236", "#4d3a25");
   for (let i = 0; i < 4; i++) {
     rect(a, 0.04 + i * 0.3, 0.06, 0.03, 0.06, "#c9a469");
     rect(a, 0.04 + i * 0.3, 0.92, 0.03, 0.06, "#c9a469");
   }
-  // Finished body clipped to the built fraction, rising from the ground.
-  if (p > 0.15) {
-    const built = (p - 0.15) / 0.85;
+  // Stone pallets and timber stacks disappear as the structure consumes them.
+  if (p < 0.78) {
+    const fade = 1 - p / 0.78;
+    c.save();
+    c.globalAlpha = 0.35 + fade * 0.65;
+    for (let i = 0; i < 4; i++) rect(a, 0.08 + i * 0.075, 0.82 - (i % 2) * 0.035, 0.06, 0.04, "#898176");
+    for (let i = 0; i < 3; i++) line(a, 0.7, 0.84 + i * 0.035, 0.92, 0.8 + i * 0.035, "#6b4a2b", 1.5);
+    c.restore();
+  }
+
+  // Stage 2/3/4 — the real finished design rises through the frame rather than
+  // being swapped in at the end, so every building visibly becomes itself.
+  if (p > 0.22) {
+    const built = Math.min(1, (p - 0.22) / 0.73);
     c.save();
     c.beginPath();
-    c.rect(a.x - 0.15 * a.w, a.y + (1 - built) * a.w - 0.02 * a.w, a.w * 1.3, built * a.w + 0.2 * a.w);
+    c.rect(a.x - 0.16 * a.w, a.y + (1 - built) * a.w - 0.04 * a.w, a.w * 1.32, built * a.w + 0.22 * a.w);
     c.clip();
     artFor(a.faction, a.def)?.({ ...a, progress: 1 });
     c.restore();
   }
-  // Scaffold: poles and cross braces over everything not yet built.
-  const pole = "#c9a469";
-  for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
-  for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
-  line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
-  line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
-  line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
-  line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+
+  // Timber structural frame becomes dominant in the middle of the build.
+  if (p > 0.08 && p < 0.9) {
+    const frameAlpha = p < 0.5 ? 0.95 : Math.max(0.2, 1 - (p - 0.5) / 0.5);
+    c.save();
+    c.globalAlpha = frameAlpha;
+    const beam = "#8b663d";
+    for (const fx of [0.12, 0.34, 0.56, 0.78, 0.94]) line(a, fx, 0.2, fx, 0.94, beam, 1.8);
+    line(a, 0.1, 0.52, 0.95, 0.52, beam, 1.5);
+    line(a, 0.1, 0.78, 0.95, 0.78, beam, 1.5);
+    line(a, 0.12, 0.22, 0.56, 0.52, beam, 1.1);
+    line(a, 0.56, 0.22, 0.94, 0.52, beam, 1.1);
+    c.restore();
+  }
+
+  // External scaffolding stays longest and comes down in the final 15%.
+  if (p < 0.95) {
+    const pole = "#c9a469";
+    const scaffoldAlpha = p < 0.75 ? 1 : Math.max(0.15, (0.95 - p) / 0.2);
+    c.save();
+    c.globalAlpha = scaffoldAlpha;
+    for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
+    for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
+    line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
+    line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
+    line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
+    line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+    c.restore();
+  }
 }
