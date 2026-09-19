@@ -42,6 +42,10 @@ export interface UnitDef {
   cooldown: number;
   /** Flat damage subtracted from each hit taken. */
   armour: number;
+  /** Amount restored when this support unit heals an ally. */
+  heal?: number;
+  /** Healing reach in tiles. */
+  healRange?: number;
   /**
    * How far this unit sees, in tiles. Scouts and archers see further than they
    * shoot; siege engines are half blind and want a spotter.
@@ -209,7 +213,30 @@ export const UNITS: Record<string, UnitDef> = {
     armour: 0,
     sight: 9,
     spread: 0.35,
-    description: "Fragile spellcaster. Long reach, and worth protecting.",
+    description: "Fragile spellcaster. Arcane bolts splash through clustered enemies, and Mage Tower tiers amplify the spell.",
+  },
+  priest: {
+    id: "priest",
+    name: "Priest",
+    hotkey: "P",
+    cost: { gold: 170, lumber: 40, food: 45 },
+    hp: 82,
+    speed: 6,
+    trainTime: 20 * 32,
+    supply: 2,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 0,
+    range: 0,
+    cooldown: 26,
+    armour: 0,
+    heal: 11,
+    healRange: 5.5,
+    sight: 8,
+    spread: 0,
+    description: "Support caster. Automatically heals the most wounded nearby ally and belongs behind the battle line.",
   },
   ballista: {
     id: "ballista",
@@ -421,6 +448,27 @@ export const UNITS: Record<string, UnitDef> = {
     sight: 8,
     spread: 0.45,
     description: "Heavy aircraft. Slow, tough, and ignores the ground entirely.",
+  },
+  gryphon: {
+    id: "gryphon",
+    name: "Gryphon Rider",
+    hotkey: "G",
+    cost: { gold: 330, lumber: 140, food: 90 },
+    hp: 285,
+    speed: 17,
+    trainTime: 20 * 48,
+    supply: 4,
+    domain: "air",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 31,
+    range: 1.4,
+    cooldown: 30,
+    armour: 2,
+    sight: 10,
+    spread: 0.3,
+    description: "Elite fantasy air cavalry. Fast, durable and deadly when it dives onto exposed troops or siege.",
   },
   longboat: {
     id: "longboat",
