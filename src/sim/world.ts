@@ -1260,11 +1260,12 @@ export class World {
         if (e.kind === "unit") {
           watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6 });
         } else {
-          // A building watches from its middle, and a levelled Watch Tower
-          // finally gets to use the radius it has always carried.
+          // Towers and Torches use their tier radius; ordinary buildings
+          // keep a modest footprint-based sight range.
           const c = centerOf(e);
           const lv = LEVELLED[e.def] ? levelDef(e.def, e.level) : null;
-          const r = e.def === "tower" && lv?.radius ? lv.radius : Math.max(5, e.size + 3);
+          const tierSight = (e.def === "tower" || e.def === "torch") ? lv?.radius : undefined;
+          const r = tierSight ?? Math.max(5, e.size + 3);
           watchers.push({ x: c.x, y: c.y, r });
         }
       }
