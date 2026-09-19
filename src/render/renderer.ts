@@ -1629,13 +1629,68 @@ export class Renderer {
     const s = this.cam.zoom;
     const now = this.world.tick;
     for (const c of this.fx.corpses) {
-      if (c.building) continue; // buildings leave rubble via the dust puff instead
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);
-      if (p.x < -s || p.y < -s || p.x > this.cam.viewW + s || p.y > this.cam.viewH + s) continue;
+      if (p.x < -s * 6 || p.y < -s * 6 || p.x > this.cam.viewW + s * 6 || p.y > this.cam.viewH + s * 6) continue;
       const player = this.world.players.get(c.owner);
       if (!player) continue;
+
+      if (c.building) {
+        const size = BUILDINGS[c.def]?.size ?? 2;
+        const w = size * s;
+        const collapse = Math.min(1, k / 0.2);
+        const fade = k < 0.78 ? 1 : Math.max(0, (1 - k) / 0.22);
+        ctx.save();
+        ctx.globalAlpha = fade;
+
+        // The footprint remains as charred rubble after the vertical collapse.
+        ctx.fillStyle = "rgba(42,38,35,0.78)";
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + w * 0.2, w * 0.48, w * 0.24, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Chunks fall outward during the first second, then stay where they land.
+        const seed = c.def.length * 97 + c.t0;
+        for (let i = 0; i < 12; i++) {
+          const a = ((seed + i * 43) % 360) * Math.PI / 180;
+          const dist = w * (0.08 + ((seed + i * 17) % 23) / 100) * collapse;
+          const bx = p.x + Math.cos(a) * dist;
+          const by = p.y + w * 0.1 + Math.sin(a) * dist * 0.45 + collapse * w * 0.12;
+          const bw = w * (0.045 + (i % 4) * 0.012);
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.rotate(a + collapse * (i % 2 ? 0.8 : -0.6));
+          ctx.fillStyle = i % 3 === 0 ? player.color : i % 2 === 0 ? "#6f6860" : "#4f4438";
+          ctx.fillRect(-bw / 2, -bw * 0.35, bw, bw * 0.7);
+          ctx.restore();
+        }
+
+        // A shrinking upright silhouette sells the actual collapse rather than
+        // making the building pop straight into a rubble decal.
+        if (collapse < 1) {
+          ctx.globalAlpha = fade * (1 - collapse) * 0.75;
+          ctx.fillStyle = "#514942";
+          ctx.save();
+          ctx.translate(p.x, p.y + w * 0.16);
+          ctx.scale(1 + collapse * 0.25, 1 - collapse * 0.85);
+          ctx.fillRect(-w * 0.32, -w * 0.8, w * 0.64, w * 0.8);
+          ctx.restore();
+        }
+
+        // Dust rolls outward while the walls are coming down.
+        if (collapse < 1) {
+          ctx.globalAlpha = (1 - collapse) * 0.32;
+          ctx.strokeStyle = "#c9bda8";
+          ctx.lineWidth = Math.max(2, s * 0.06);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y + w * 0.16, w * (0.28 + collapse * 0.35), w * (0.1 + collapse * 0.14), 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        continue;
+      }
+
       const view = unitViewSprite(c.def, c.facing, player.color);
       ctx.save();
       ctx.globalAlpha = 1 - k * k;
