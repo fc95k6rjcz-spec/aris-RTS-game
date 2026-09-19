@@ -5,7 +5,7 @@ import type { EntityId, PlayerId } from "./types";
  * They are serialisable so they can later be sent over the wire for lockstep play.
  */
 export type Command =
-  | { type: "move"; player: PlayerId; units: EntityId[]; x: number; y: number }
+  | { type: "move"; player: PlayerId; units: EntityId[]; x: number; y: number; queue?: boolean }
   | { type: "gather"; player: PlayerId; units: EntityId[]; tx: number; ty: number }
   | { type: "build"; player: PlayerId; units: EntityId[]; building: string; tx: number; ty: number }
   | { type: "repair"; player: PlayerId; units: EntityId[]; target: EntityId }
@@ -17,5 +17,6 @@ export type Command =
   | { type: "stop"; player: PlayerId; units: EntityId[] }
   | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId }
   | { type: "attackMove"; player: PlayerId; units: EntityId[]; x: number; y: number }
+  | { type: "setRally"; player: PlayerId; building: EntityId; x: number; y: number }
   | { type: "research"; player: PlayerId; building: EntityId; upgrade: string }
   | { type: "cancelResearch"; player: PlayerId; building: EntityId };
