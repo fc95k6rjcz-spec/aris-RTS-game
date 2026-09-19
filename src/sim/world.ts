@@ -294,6 +294,11 @@ export class World {
         mix(e.hp);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
+        mix(e.moveQueue.length);
+        for (const q of e.moveQueue) {
+          mix(q.x);
+          mix(q.y);
+        }
       } else {
         mix(e.tx);
         mix(e.ty);
@@ -697,6 +702,7 @@ export class World {
       maxHp,
       task: { kind: "idle" },
       path: [],
+      moveQueue: [],
       repathIn: 0,
       carrying: null,
       facing: 4,
@@ -934,8 +940,16 @@ export class World {
   private applyCommand(c: Command): void {
     switch (c.type) {
       case "move": {
+        const target = { x: c.x, y: c.y };
         for (const u of this.ownedUnits(c.player, c.units)) {
-          u.task = { kind: "move", target: { x: c.x, y: c.y } };
+          // Shift-moving while already marching appends a waypoint. Any ordinary
+          // move is a fresh order and deliberately clears the old route.
+          if (c.queue && u.task.kind === "move") {
+            u.moveQueue.push(target);
+            continue;
+          }
+          u.moveQueue = [];
+          u.task = { kind: "move", target };
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
         }
         break;
@@ -945,6 +959,7 @@ export class World {
         if (!target || target.owner === c.player) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (UNITS[u.def]!.damage <= 0) continue;
+          u.moveQueue = [];
           u.task = { kind: "attack", target: c.target };
           u.engaging = null;
         }
@@ -952,6 +967,7 @@ export class World {
       }
       case "attackMove": {
         for (const u of this.ownedUnits(c.player, c.units)) {
+          u.moveQueue = [];
           u.task = { kind: "attackMove", target: { x: c.x, y: c.y } };
           u.engaging = null;
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
@@ -962,6 +978,7 @@ export class World {
         for (const u of this.ownedUnits(c.player, c.units)) {
           u.task = { kind: "idle" };
           u.path = [];
+          u.moveQueue = [];
           u.engaging = null;
         }
         break;
@@ -976,6 +993,7 @@ export class World {
         if (!node) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (!UNITS[u.def]!.canGather) continue;
+          u.moveQueue = [];
           u.task = { kind: "gather", tx: node[0], ty: node[1], resource, phase: "toNode", timer: 0 };
           this.pathTo(u, node[0], node[1], true);
         }
@@ -1002,6 +1020,7 @@ export class World {
         const b = this.placeBuilding(c.player, c.building, c.tx, c.ty)!;
         this.fx.push({ kind: "buildStart", x: (c.tx + b.size / 2) * SUB, y: (c.ty + b.size / 2) * SUB, def: b.def });
         for (const u of workers) {
+          u.moveQueue = [];
           u.task = { kind: "build", building: b.id };
           this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), true);
         }
@@ -1012,9 +1031,16 @@ export class World {
         if (!b || b.kind !== "building" || b.owner !== c.player) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (!UNITS[u.def]!.canBuild) continue;
+          u.moveQueue = [];
           u.task = b.complete ? { kind: "repair", building: b.id } : { kind: "build", building: b.id };
           this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), true);
         }
+        break;
+      }
+      case "setRally": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete) break;
+        b.rally = { x: c.x, y: c.y };
         break;
       }
       case "train": {
@@ -1681,7 +1707,15 @@ export class World {
             u.path = keep; // tryAttack halts a chaser; a moving unit keeps going
           }
         }
-        if (this.followPath(u)) u.task = { kind: "idle" };
+        if (this.followPath(u)) {
+          const next = u.moveQueue.shift();
+          if (next) {
+            u.task = { kind: "move", target: next };
+            this.pathTo(u, Math.floor(next.x / SUB), Math.floor(next.y / SUB), true);
+          } else {
+            u.task = { kind: "idle" };
+          }
+        }
         return;
       }
       case "attack": {
