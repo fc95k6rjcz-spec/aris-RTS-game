@@ -1039,8 +1039,10 @@ export class Renderer {
     }
     // Fire, straight off the health bar's own number: no state, no events. A
     // building that is being repaired stops burning by itself.
-    if (b.complete && settings.animations) {
-      drawFire(ctx, p.x, p.y, w, b.hp / b.maxHp, this.world.tick + alpha, b.id);
+    if (b.complete) {
+      const frac = b.hp / b.maxHp;
+      this.drawBuildingDamage(b, p.x, p.y, w, frac);
+      if (settings.animations) drawFire(ctx, p.x, p.y, w, frac, this.world.tick + alpha, b.id);
     }
     // A damaged building shows its health, selected or not, unless the player
     // has asked for bars only on selection.
@@ -1054,6 +1056,96 @@ export class Renderer {
         if (job) this.bar(p.x, p.y + w - 5, w, 1 - job.remaining / job.total, "#5ab0ff");
       }
     }
+  }
+
+  /**
+   * Readable structural damage layered over the finished building art.
+   *
+   * This gives every Human structure seven visible damage bands even where a
+   * bespoke destroyed sprite has not been painted yet: cracks, soot, missing
+   * masonry, exposed beams and rubble intensify as HP falls. Fire remains a
+   * separate animated layer so repairing a building naturally reverses both.
+   */
+  private drawBuildingDamage(b: Building, x: number, y: number, w: number, frac: number): void {
+    if (frac > 0.9) return;
+    const ctx = this.ctx;
+    const severity = Math.max(0, Math.min(1, (0.9 - frac) / 0.9));
+    ctx.save();
+
+    // Soot and scorching start early and become much stronger below half health.
+    ctx.globalAlpha = 0.08 + severity * 0.22;
+    ctx.fillStyle = "#171719";
+    for (let i = 0; i < 2 + Math.floor(severity * 5); i++) {
+      const h = ((b.id * 1103515245 + i * 12345) >>> 0) / 4294967296;
+      const k = ((b.id * 2654435761 + i * 7919) >>> 0) / 4294967296;
+      ctx.beginPath();
+      ctx.ellipse(
+        x + w * (0.15 + h * 0.7),
+        y + w * (0.2 + k * 0.55),
+        w * (0.05 + severity * 0.05),
+        w * (0.025 + severity * 0.04),
+        h * 2,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+
+    // Masonry cracks. Fixed from id/index so they do not shimmer frame to frame.
+    ctx.globalAlpha = 0.55 + severity * 0.35;
+    ctx.strokeStyle = "#2b2522";
+    ctx.lineWidth = Math.max(1, w * 0.012);
+    const cracks = 1 + Math.floor(severity * 7);
+    for (let i = 0; i < cracks; i++) {
+      const sx = x + w * (0.15 + (((b.id * 17 + i * 31) % 67) / 100));
+      const sy = y + w * (0.28 + (((b.id * 29 + i * 19) % 48) / 100));
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + w * (0.025 + (i % 3) * 0.015), sy + w * 0.07);
+      ctx.lineTo(sx - w * (0.015 + (i % 2) * 0.02), sy + w * 0.12);
+      if (severity > 0.45) ctx.lineTo(sx + w * 0.03, sy + w * 0.18);
+      ctx.stroke();
+    }
+
+    // Heavy damage exposes timber and drops rubble around the footprint.
+    if (frac < 0.55) {
+      const heavy = (0.55 - frac) / 0.55;
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = "#5b4028";
+      ctx.lineWidth = Math.max(2, w * 0.025);
+      for (let i = 0; i < 2 + Math.floor(heavy * 4); i++) {
+        const bx = x + w * (0.18 + (((b.id + i * 13) % 61) / 100));
+        const by = y + w * (0.32 + (((b.id * 7 + i * 23) % 47) / 100));
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + w * (i % 2 ? 0.09 : -0.07), by + w * 0.16);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#6d665d";
+      const rubble = 3 + Math.floor(heavy * 8);
+      for (let i = 0; i < rubble; i++) {
+        const rx = x + w * (0.04 + (((b.id * 11 + i * 37) % 91) / 100));
+        const ry = y + w * (0.82 + (((b.id * 5 + i * 17) % 15) / 100));
+        const rw = w * (0.025 + (i % 3) * 0.012);
+        ctx.fillRect(rx, ry, rw, rw * 0.65);
+      }
+    }
+
+    // Near collapse: dark broken voids imply missing roof/wall sections.
+    if (frac < 0.28) {
+      const collapse = (0.28 - frac) / 0.28;
+      ctx.globalAlpha = 0.35 + collapse * 0.35;
+      ctx.fillStyle = "#171516";
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.14, y + w * 0.22);
+      ctx.lineTo(x + w * (0.35 + collapse * 0.08), y + w * 0.18);
+      ctx.lineTo(x + w * 0.31, y + w * (0.42 + collapse * 0.08));
+      ctx.lineTo(x + w * 0.11, y + w * 0.38);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   private drawGhost(g: Ghost): void {
