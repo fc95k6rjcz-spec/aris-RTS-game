@@ -17,6 +17,7 @@ import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
+import { motionFor } from "./motion";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
@@ -1230,6 +1231,7 @@ export class Renderer {
     const moving = u.path.length > 0;
     // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
     const phase = (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1;
+    const state = stateFor(u, moving);
 
     if (selected) {
       ctx.strokeStyle = "#9cff9c";
@@ -1240,25 +1242,35 @@ export class Renderer {
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
-    // A struck sprite lights up for a few ticks. `filter` is not universal, so a
-    // browser without it simply shows no flash rather than failing to draw.
+    // A struck sprite lights up for a few ticks. Real frame clips own their body
+    // motion; procedural/still art receives the universal fallback pose.
     const flash = settings.animations ? this.fx.flashAt(u.id, this.world.tick + alpha) : 0;
+    const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
+    const hasClip = sheet ? clipFor(sheet, state) !== null : false;
+    const pose = settings.animations && !hasClip
+      ? motionFor(u, state, performance.now() / 1000, flash)
+      : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
+    const ax = p.x + pose.dx * h;
+    const ay = p.y + pose.dy * h;
+
     if (flash > 0) {
       ctx.save();
-      // Enough to register as a blow landing, not enough to bleach the armour.
       ctx.filter = `brightness(${1 + flash * 0.55}) saturate(${1 - flash * 0.25})`;
     }
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(pose.rotate);
+    ctx.scale(pose.sx, pose.sy);
+    ctx.translate(-ax, -ay);
+
     // How tall the thing that was actually drawn turned out to be. The painted
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    // A cut sheet wins over the painted still, and everything else -- crown,
-    // health bar, selection ring -- hangs off whatever actually got drawn, so
-    // the two paths are interchangeable from the outside.
-    const framed = anySheets() ? this.drawUnitFrames(u, p.x, p.y, s, player.faction, moving) : null;
-    const painted = framed === null ? this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase) : null;
+    const framed = anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, moving) : null;
+    const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
-      ? this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)
+      ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, afloat)
       : null;
     if (framed !== null) {
       drawnH = framed;
@@ -1267,32 +1279,33 @@ export class Renderer {
     } else if (peasant !== null) {
       drawnH = peasant;
     } else if (draw) {
-      draw({ ctx, x: p.x, y: p.y, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
+      draw({ ctx, x: ax, y: ay, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
     } else {
       ctx.fillStyle = player.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, h * 0.3, 0, Math.PI * 2);
+      ctx.arc(ax, ay, h * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
     if (flash > 0) ctx.restore();
     // A crown, so the King is never lost in a crowd of his own footmen. Gold for
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
       const king = u.def === "king";
-      const cy = p.y + s * 0.45 - drawnH - s * 0.1;
+      const cy = ay + s * 0.45 - drawnH - s * 0.1;
       const cw = s * (king ? 0.26 : 0.2);
       ctx.save();
       ctx.strokeStyle = "rgba(20,14,4,0.85)";
       ctx.lineWidth = Math.max(1, s * 0.025);
       ctx.fillStyle = king ? "#f2c14e" : "#cfd6e0";
       ctx.beginPath();
-      ctx.moveTo(p.x - cw, cy);
-      ctx.lineTo(p.x - cw, cy - s * 0.1);
-      ctx.lineTo(p.x - cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x, cy - s * (king ? 0.14 : 0.11));
-      ctx.lineTo(p.x + cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x + cw, cy - s * 0.1);
-      ctx.lineTo(p.x + cw, cy);
+      ctx.moveTo(ax - cw, cy);
+      ctx.lineTo(ax - cw, cy - s * 0.1);
+      ctx.lineTo(ax - cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax, cy - s * (king ? 0.14 : 0.11));
+      ctx.lineTo(ax + cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax + cw, cy - s * 0.1);
+      ctx.lineTo(ax + cw, cy);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
@@ -1301,8 +1314,8 @@ export class Renderer {
     if (this.wantsBar(u.hp / u.maxHp, selected)) {
       // Above the head of whatever was drawn, and above the crown if there is
       // one, rather than across the chest of a tall sprite.
-      const barY = p.y + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
-      this.bar(p.x - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
+      const barY = ay + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
+      this.bar(ax - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
     }
   }
 
