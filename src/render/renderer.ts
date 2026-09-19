@@ -1063,6 +1063,230 @@ export class Renderer {
   }
 
   /**
+   * Small, cheap loops that keep completed structures alive even when their
+   * painted tier sprite is static. Bespoke building sheets can replace these
+   * later without changing simulation or building data.
+   */
+  private drawBuildingActivity(b: Building, x: number, y: number, w: number, alpha: number): void {
+    const ctx = this.ctx;
+    const t = (this.world.tick + alpha) / 20 + b.id * 0.173;
+    const cx = x + w * 0.5;
+    const cy = y + w * 0.5;
+
+    const puff = (px: number, py: number, phase: number, scale = 1): void => {
+      const k = ((t * 0.32 + phase) % 1 + 1) % 1;
+      ctx.globalAlpha = (1 - k) * 0.26;
+      ctx.fillStyle = "#c9c7c2";
+      ctx.beginPath();
+      ctx.arc(px + Math.sin(t * 1.7 + phase * 5) * w * 0.025, py - k * w * 0.3, w * (0.018 + k * 0.035) * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+
+    const pennant = (px: number, py: number, h: number): void => {
+      const player = this.world.players.get(b.owner);
+      if (!player) return;
+      const wave = Math.sin(t * 4.2) * w * 0.035;
+      ctx.strokeStyle = "#3a2a1a";
+      ctx.lineWidth = Math.max(1, w * 0.009);
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, py + h);
+      ctx.stroke();
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.quadraticCurveTo(px + w * 0.12, py + h * 0.1 + wave, px + w * 0.2, py + h * 0.22);
+      ctx.lineTo(px, py + h * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    ctx.save();
+    switch (b.def) {
+      case "townhall":
+      case "barracks":
+      case "stables":
+      case "tower":
+      case "gryphonaviary":
+        pennant(cx, y + w * 0.06, w * 0.26);
+        break;
+
+      case "farm": {
+        // A few foreground stalks bend together in the wind.
+        ctx.strokeStyle = "rgba(221,190,89,0.75)";
+        ctx.lineWidth = Math.max(1, w * 0.008);
+        const sway = Math.sin(t * 2.4) * w * 0.025;
+        for (let i = 0; i < 6; i++) {
+          const px = x + w * (0.18 + i * 0.12);
+          const py = y + w * 0.83;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.quadraticCurveTo(px + sway, py - w * 0.12, px + sway * 1.4, py - w * 0.2);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "lumbermill": {
+        // Visible saw wheel: enough motion to read as a working mill over any
+        // painted tier sprite.
+        const sx = x + w * 0.8;
+        const sy = y + w * 0.7;
+        const r = w * 0.075;
+        ctx.strokeStyle = "#c8cdd1";
+        ctx.lineWidth = Math.max(1, w * 0.012);
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 6; i++) {
+          const a = t * 7 + (i / 6) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "shipyard": {
+        const sway = Math.sin(t * 1.8) * w * 0.08;
+        ctx.strokeStyle = "#d9d1bf";
+        ctx.lineWidth = Math.max(1, w * 0.007);
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.78, y + w * 0.25);
+        ctx.lineTo(x + w * 0.61 + sway, y + w * 0.67);
+        ctx.stroke();
+        ctx.fillStyle = "#777d82";
+        ctx.fillRect(x + w * 0.59 + sway, y + w * 0.66, w * 0.045, w * 0.035);
+        break;
+      }
+
+      case "church": {
+        const pulse = 0.45 + Math.sin(t * 2.2) * 0.18;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.22;
+        const g = ctx.createRadialGradient(cx, y + w * 0.28, 0, cx, y + w * 0.28, w * 0.28);
+        g.addColorStop(0, "rgba(255,232,155,1)");
+        g.addColorStop(1, "rgba(255,232,155,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, y + w * 0.28, w * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      case "magetower": {
+        ctx.globalCompositeOperation = "lighter";
+        const r = w * 0.16;
+        for (let i = 0; i < 3; i++) {
+          const a = t * (1.1 + i * 0.18) + (i / 3) * Math.PI * 2;
+          const px = cx + Math.cos(a) * r;
+          const py = y + w * 0.28 + Math.sin(a) * r * 0.42;
+          ctx.fillStyle = i === 0 ? "rgba(120,205,255,0.8)" : "rgba(135,120,255,0.62)";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "foundry":
+        puff(x + w * 0.35, y + w * 0.3, 0.1, 1.2);
+        puff(x + w * 0.68, y + w * 0.26, 0.58, 1.1);
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 4; i++) {
+          const k = ((t * 1.4 + i * 0.23) % 1 + 1) % 1;
+          ctx.globalAlpha = 1 - k;
+          ctx.fillStyle = "#ffb43d";
+          ctx.beginPath();
+          ctx.arc(x + w * 0.54 + Math.sin(i * 2.2) * w * 0.07 * k, y + w * 0.73 - k * w * 0.18, Math.max(1, w * 0.009), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+
+      case "oilrig": {
+        const a = Math.sin(t * 2.1) * 0.32;
+        const px = x + w * 0.52;
+        const py = y + w * 0.42;
+        ctx.strokeStyle = "#4b4240";
+        ctx.lineWidth = Math.max(2, w * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(a) * w * 0.23, py + Math.sin(a) * w * 0.13);
+        ctx.stroke();
+        break;
+      }
+
+      case "refinery":
+        puff(x + w * 0.34, y + w * 0.24, 0.2, 1.1);
+        puff(x + w * 0.62, y + w * 0.2, 0.66, 1.35);
+        break;
+
+      case "airfactory": {
+        // A test propeller on the apron.
+        const px = x + w * 0.76;
+        const py = y + w * 0.7;
+        ctx.strokeStyle = "#d6dadd";
+        ctx.lineWidth = Math.max(1.2, w * 0.012);
+        for (let i = 0; i < 2; i++) {
+          const a = t * 11 + i * Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(px - Math.cos(a) * w * 0.09, py - Math.sin(a) * w * 0.09);
+          ctx.lineTo(px + Math.cos(a) * w * 0.09, py + Math.sin(a) * w * 0.09);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "torch": {
+        // The main flame is part of the tier art. Loose embers make it feel
+        // alive and scale naturally with the larger upper-tier beacon.
+        const lv = levelDef("torch", b.level);
+        const power = lv.light ?? 0.3;
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 5; i++) {
+          const k = ((t * (0.7 + i * 0.09) + i * 0.21) % 1 + 1) % 1;
+          const px = cx + Math.sin(i * 3.1 + t) * w * 0.08 * k;
+          const py = y + w * (0.39 - b.level * 0.012) - k * w * (0.18 + power * 0.2);
+          ctx.globalAlpha = (1 - k) * (0.3 + power * 0.55);
+          ctx.fillStyle = b.level >= 10 ? "#9bd7ff" : "#ffbe55";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1, w * (0.008 + power * 0.008) * (1 - k)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "golddepot": {
+        const pulse = 0.45 + Math.sin(t * 3.4) * 0.35;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.5;
+        ctx.fillStyle = "#ffd85e";
+        ctx.beginPath();
+        ctx.arc(cx + w * 0.18, cy - w * 0.12, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+
+    // Any active upgrade/research gets a few work sparks so progress is visible
+    // in the world as well as on the HUD bar.
+    if (b.upgrade || b.research) {
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        const k = ((t * 1.7 + i * 0.31) % 1 + 1) % 1;
+        ctx.globalAlpha = 1 - k;
+        ctx.fillStyle = b.research ? "#cfa5ff" : "#ffd36b";
+        ctx.beginPath();
+        ctx.arc(cx + Math.sin(i * 4 + t) * w * 0.12, y + w * 0.68 - k * w * 0.16, Math.max(1, w * 0.008), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
    * Readable structural damage layered over the finished building art.
    *
    * This gives every Human structure seven visible damage bands even where a
