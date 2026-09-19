@@ -128,12 +128,12 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     cost: { gold: 260, lumber: 160 },
     hp: 700,
     buildTime: 20 * 50,
-    trains: [],
+    trains: ["priest"],
     requires: ["townhall"],
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Heals nearby friendly units. Higher tiers heal faster and reach further.",
+    description: "Heals nearby friendly units and trains Priests. Higher tiers heal faster and reach further.",
   },
   oilrig: {
     id: "oilrig",
@@ -195,6 +195,21 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     coastal: false,
     description: "Trains Mages and reveals the ground around it. Tiers raise spell power.",
   },
+  gryphonaviary: {
+    id: "gryphonaviary",
+    name: "Gryphon Aviary",
+    hotkey: "Y",
+    size: 3,
+    cost: { gold: 360, lumber: 260 },
+    hp: 850,
+    buildTime: 20 * 62,
+    trains: ["gryphon"],
+    requires: ["stables", "magetower"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Breeds and equips Gryphon Riders. Requires both cavalry craft and arcane training.",
+  },
   foundry: {
     id: "foundry",
     name: "Foundry",
@@ -225,6 +240,21 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     coastal: false,
     description: "Builds aircraft, which fly over water, forest and rock.",
   },
+  torch: {
+    id: "torch",
+    name: "Torch",
+    hotkey: "Q",
+    size: 1,
+    cost: { gold: 25, lumber: 20 },
+    hp: 120,
+    buildTime: 20 * 10,
+    trains: [],
+    requires: ["townhall"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Lights roads and bases at night. Upgrade it from a small torch into an enormous beacon with much greater light and vision.",
+  },
   tower: {
     id: "tower",
     name: "Watch Tower",
@@ -238,7 +268,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Watches the ground around it. Higher tiers see further.",
+    description: "Defensive lookout. Automatically fires on enemy forces; higher tiers shoot farther, harder and more often.",
   },
 };
 
@@ -268,6 +298,6 @@ export function buildingName(def: string, faction: string): string {
  * things you build in any match; everything with a prerequisite behind it is a
  * tab away.
  */
-export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower"];
-export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "foundry", "oilrig", "refinery", "airfactory"];
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch"];
+export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];

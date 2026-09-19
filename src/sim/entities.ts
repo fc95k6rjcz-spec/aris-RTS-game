@@ -20,8 +20,15 @@ export interface Unit {
   hp: number;
   maxHp: number;
   task: UnitTask;
-  /** Remaining waypoints in tile coords. */
+  /** Remaining A* waypoints in tile coords for the active order. */
   path: Array<[number, number]>;
+  /**
+   * Player-queued move destinations, in world sub-units.
+   *
+   * Kept in simulation state rather than the UI so Shift-waypoints are
+   * deterministic and survive lockstep exactly like the active task.
+   */
+  moveQueue: Vec[];
   /** Ticks left before the unit will re-path after being blocked. */
   repathIn: number;
   carrying: { resource: "gold" | "lumber"; amount: number } | null;

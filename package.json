@@ -12,7 +12,12 @@
     "preview:web": "vite preview --outDir dist-web",
     "server:build": "esbuild server/main.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=server/dist/main.mjs",
     "server": "npm run server:build && node server/dist/main.mjs",
-    "server:check": "tsc -p server/tsconfig.json --noEmit"
+    "server:check": "tsc -p server/tsconfig.json --noEmit",
+    "test:handling": "node test/handling.mjs",
+    "test:human": "node test/humanFaction.mjs",
+    "verify:human": "npm run build && npm run test:human",
+    "test:animation": "node test/animationLogic.mjs && node test/animationCoverage.mjs",
+    "verify:animation": "npm run build && npm run test:animation"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

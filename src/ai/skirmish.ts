@@ -13,6 +13,7 @@
  */
 
 import { BUILDINGS } from "../data/buildings";
+import { upgradesFor } from "../data/upgrades";
 import { UNITS } from "../data/units";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
@@ -45,7 +46,22 @@ const SETTINGS: Record<
 };
 
 /** The order it builds in. Repeats the last entries once the list is exhausted. */
-const BUILD_ORDER = ["farm", "barracks", "lumbermill", "farm", "barracks", "tower", "farm", "stables", "farm", "church"];
+const BUILD_ORDER = [
+  "farm",
+  "barracks",
+  "lumbermill",
+  "farm",
+  "barracks",
+  "tower",
+  "farm",
+  "stables",
+  "church",
+  "farm",
+  "foundry",
+  "magetower",
+  "farm",
+  "gryphonaviary",
+];
 
 export class SkirmishAI {
   private wave = 0;
@@ -85,6 +101,9 @@ export class SkirmishAI {
   private soldiers(): Unit[] {
     return this.myUnits().filter((u) => UNITS[u.def]!.damage > 0 && !UNITS[u.def]!.canGather);
   }
+  private supporters(): Unit[] {
+    return this.myUnits().filter((u) => (UNITS[u.def]!.heal ?? 0) > 0);
+  }
   private has(def: string): boolean {
     return this.mine().some((b) => b.def === def && b.complete);
   }
@@ -99,6 +118,7 @@ export class SkirmishAI {
     this.keepWorkersBusy(out);
     this.trainUnits(out);
     this.buildSomething(out, tick);
+    this.researchHumanTech(out);
     // Defence first: a warband massing for an attack that ignores an enemy
     // already inside its own base is the single most obviously stupid thing an
     // RTS opponent can do.
@@ -280,12 +300,38 @@ export class SkirmishAI {
     // Then soldiers from every idle barracks.
     for (const b of this.mine()) {
       if (!b.complete || b.queue.length > 0) continue;
-      const trains = BUILDINGS[b.def]!.trains.filter((u) => UNITS[u]!.damage > 0 && !UNITS[u]!.canGather);
+      const trains = BUILDINGS[b.def]!.trains.filter((u) => !UNITS[u]!.canGather && (UNITS[u]!.damage > 0 || (UNITS[u]!.heal ?? 0) > 0));
       if (trains.length === 0) continue;
       const unit = trains[this.wave % trains.length]!;
       if (headroom < UNITS[unit]!.supply) continue;
       if (!this.world.canAfford(this.player, UNITS[unit]!.cost)) continue;
       out.push({ type: "train", player: this.player, building: b.id, unit });
+    }
+  }
+
+  /**
+   * Spend surplus resources on faction research once the relevant workshop exists.
+   * One command per think pass keeps the AI from emptying its purse in one frame.
+   */
+  private researchHumanTech(out: Command[]): void {
+    const p = this.world.players.get(this.player);
+    if (!p) return;
+    for (const b of this.mine().sort((a, z) => a.id - z.id)) {
+      if (!b.complete || b.research || b.upgrade || b.queue.length > 0) continue;
+      for (const up of upgradesFor(b.def)) {
+        const have = p.research[up.id] ?? 0;
+        if (have >= up.levels.length) continue;
+        const lv = up.levels[have]!;
+        if (!this.world.canAfford(this.player, lv.cost)) continue;
+        // Keep enough cash for at least one ordinary combat unit/building after
+        // research so the AI does not tech itself into paralysis.
+        const reserveGold = 180;
+        const reserveLumber = 120;
+        if ((p.gold ?? 0) - (lv.cost.gold ?? 0) < reserveGold) continue;
+        if ((p.lumber ?? 0) - (lv.cost.lumber ?? 0) < reserveLumber) continue;
+        out.push({ type: "research", player: this.player, building: b.id, upgrade: up.id });
+        return;
+      }
     }
   }
 
@@ -409,6 +455,9 @@ export class SkirmishAI {
     const idle = this.soldiers().filter((u) => u.task.kind === "idle");
     if (idle.length === 0) return true; // under attack, nothing spare — still our problem
     out.push({ type: "attack", player: this.player, units: idle.map((u) => u.id), target: threat.id });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length)
+      out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: threat.pos.x, y: threat.pos.y });
     return true;
   }
 
@@ -462,5 +511,7 @@ export class SkirmishAI {
     this.wave++;
     this.massingSince = tick;
     out.push({ type: "attackMove", player: this.player, units: idle.map((u) => u.id), x: c.x, y: c.y });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length) out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: c.x, y: c.y });
   }
 }

@@ -1,8 +1,8 @@
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
 import { Camera } from "../render/camera";
-import { spriteImage } from "../render/sprites";
 import { Renderer, type Ghost } from "../render/renderer";
+import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import type { Building, Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
@@ -26,10 +26,6 @@ import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
-import crowning0 from "../assets/anim/crowning_0.png";
-import crowning1 from "../assets/anim/crowning_1.png";
-import crowning2 from "../assets/anim/crowning_2.png";
-import crowning3 from "../assets/anim/crowning_3.png";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
@@ -78,6 +74,16 @@ export class Game {
   private attackMoveMode = false;
   private mouse = { x: 0, y: 0, inside: false };
   private drag: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** Middle-mouse camera drag, in screen pixels. */
+  private panDrag: { x: number; y: number } | null = null;
+  /** Smoothed camera velocity, screen pixels per frame at 60 Hz. */
+  private camVelocity = { x: 0, y: 0 };
+  /** Classic RTS control groups. UI state only; unit ids are cleaned every tick. */
+  private controlGroups = new Map<number, Set<EntityId>>();
+  /** Last single-click, for same-type double-click selection. */
+  private lastUnitClick: { id: EntityId; at: number } | null = null;
+  /** Presentation-only order pings. They never enter the simulation. */
+  private commandMarkers: Array<{ x: number; y: number; kind: "move" | "attack" | "gather" | "repair"; at: number }> = [];
   private keys = new Set<string>();
   private message: { text: string; until: number; level: "info" | "error" } | null = null;
   /**
@@ -98,10 +104,8 @@ export class Game {
   /**
    * The crowning, while it is playing.
    *
-   * Four painted frames -- reach, grasp, pull, raise -- shown where it actually
-   * happened. The whole opening is a walk towards this moment, and it used to
-   * be a line of text in the corner of the screen. It plays once, at the
-   * relic's own position, and then the game carries on.
+   * A restrained gold flourish follows the actual king. The unit keeps its
+   * normal scale instead of being covered by an oversized second character.
    */
   private crowningAt: { x: number; y: number; at: number } | null = null;
   /** Whether this player's king has already been proclaimed, so it happens once. */
@@ -312,6 +316,8 @@ export class Game {
     // view, and the guest's is not seat one.
     this.renderer.viewer = this.player;
     this.selected.clear();
+    this.controlGroups.clear();
+    this.commandMarkers = [];
     this.pending = [];
     this.buildMode = null;
     // A fresh scheduler for a fresh match: turn numbers start again, and a
@@ -328,6 +334,7 @@ export class Game {
     this.ai = this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
     this.banner = null;
     this.crowned = false;
+    this.crowningAt = null;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
     if (this.setup?.crowning ?? settings.crowning) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
@@ -373,7 +380,7 @@ export class Game {
       this.acc -= step;
       if (!this.paused) this.tick();
     }
-    this.render(this.acc / step);
+    this.render(this.paused ? 1 : this.acc / step);
     requestAnimationFrame(this.frame);
   };
 
@@ -420,8 +427,12 @@ export class Game {
       r: this.cam.viewW / this.cam.scale / 2,
     });
     for (const ev of this.world.events) if (ev.player === this.player) this.toast(ev.text, ev.level);
-    // Drop selections of entities that no longer exist.
+    // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
+    for (const [n, ids] of this.controlGroups) {
+      for (const id of ids) if (!this.world.entities.has(id)) ids.delete(id);
+      if (ids.size === 0) this.controlGroups.delete(n);
+    }
   }
 
   /**
@@ -521,16 +532,30 @@ export class Game {
     }
   }
 
-  /** Click or drag the minimap to move the camera. */
+  /** Left-drag the minimap to move the camera; right-click sends an order. */
   private bindMinimap(mm: HTMLCanvasElement): void {
-    const jump = (e: MouseEvent) => {
+    const point = (e: MouseEvent) => {
       const r = mm.getBoundingClientRect();
-      const fx = (e.clientX - r.left) / Math.max(1, r.width);
-      const fy = (e.clientY - r.top) / Math.max(1, r.height);
-      this.cam.centerOn(fx * this.world.map.width * SUB - this.cam.viewW / this.cam.zoom / 2 * SUB, fy * this.world.map.height * SUB - this.cam.viewH / this.cam.zoom / 2 * SUB);
+      const size = Math.min(r.width, r.height);
+      const ox = (r.width - size) / 2;
+      const oy = (r.height - size) / 2;
+      const fx = Math.max(0, Math.min(1, (e.clientX - r.left - ox) / Math.max(1, size)));
+      const fy = Math.max(0, Math.min(1, (e.clientY - r.top - oy) / Math.max(1, size)));
+      return { x: fx * this.world.map.width * SUB, y: fy * this.world.map.height * SUB };
     };
+    const jump = (e: MouseEvent) => {
+      const p = point(e);
+      this.cam.centerOn(p.x, p.y);
+    };
+    mm.addEventListener("contextmenu", (e) => e.preventDefault());
     mm.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      if (e.button === 2) {
+        const p = point(e);
+        this.contextOrder(p.x, p.y, e.shiftKey);
+        return;
+      }
+      if (e.button !== 0) return;
       jump(e);
       const move = (m: MouseEvent) => jump(m);
       const up = () => {
@@ -543,20 +568,28 @@ export class Game {
   }
 
   private updateCamera(dt: number): void {
-    const k = (dt / 16.67) * EDGE_SPEED * settings.scrollSpeed;
-    let dx = 0;
-    let dy = 0;
-    if (this.keys.has("a") || this.keys.has("arrowleft")) dx -= k;
-    if (this.keys.has("d") || this.keys.has("arrowright")) dx += k;
-    if (this.keys.has("w") || this.keys.has("arrowup")) dy -= k;
-    if (this.keys.has("s") || this.keys.has("arrowdown")) dy += k;
-    if (settings.edgeScroll && this.mouse.inside && !this.drag) {
-      if (this.mouse.x < EDGE) dx -= k;
-      if (this.mouse.x > this.canvas.width - EDGE) dx += k;
-      if (this.mouse.y < EDGE) dy -= k;
-      if (this.mouse.y > this.canvas.height - EDGE && this.mouse.y < this.canvas.height) dy += k;
+    const frame = Math.min(3, dt / 16.67);
+    const top = EDGE_SPEED * settings.scrollSpeed;
+    let wantX = 0;
+    let wantY = 0;
+    if (this.keys.has("a") || this.keys.has("arrowleft")) wantX -= top;
+    if (this.keys.has("d") || this.keys.has("arrowright")) wantX += top;
+    if (this.keys.has("w") || this.keys.has("arrowup")) wantY -= top;
+    if (this.keys.has("s") || this.keys.has("arrowdown")) wantY += top;
+    if (settings.edgeScroll && this.mouse.inside && !this.drag && !this.panDrag) {
+      if (this.mouse.x < EDGE) wantX -= top;
+      if (this.mouse.x > this.canvas.width - EDGE) wantX += top;
+      if (this.mouse.y < EDGE) wantY -= top;
+      if (this.mouse.y > this.canvas.height - EDGE && this.mouse.y < this.canvas.height) wantY += top;
     }
-    if (dx || dy) this.cam.pan(dx, dy);
+    // Quick acceleration and a softer coast make keyboard/edge scrolling feel
+    // deliberate without leaving the camera drifting after the player lets go.
+    const accel = 1 - Math.pow(wantX || wantY ? 0.58 : 0.28, frame);
+    this.camVelocity.x += (wantX - this.camVelocity.x) * accel;
+    this.camVelocity.y += (wantY - this.camVelocity.y) * accel;
+    if (Math.abs(this.camVelocity.x) < 0.05) this.camVelocity.x = 0;
+    if (Math.abs(this.camVelocity.y) < 0.05) this.camVelocity.y = 0;
+    if (this.camVelocity.x || this.camVelocity.y) this.cam.pan(this.camVelocity.x * frame, this.camVelocity.y * frame);
   }
 
   // ───────────────────────────── input ─────────────────────────────
@@ -570,13 +603,21 @@ export class Game {
     c.addEventListener("mousemove", (e) => {
       this.mouse.x = e.offsetX;
       this.mouse.y = e.offsetY;
-      if (this.drag) {
+      if (this.panDrag) {
+        this.cam.pan(this.panDrag.x - e.offsetX, this.panDrag.y - e.offsetY);
+        this.panDrag = { x: e.offsetX, y: e.offsetY };
+        this.camVelocity.x = 0;
+        this.camVelocity.y = 0;
+      } else if (this.drag) {
         this.drag.x1 = e.offsetX;
         this.drag.y1 = e.offsetY;
       }
     });
     c.addEventListener("mousedown", (e) => this.onMouseDown(e));
     c.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 1) this.panDrag = null;
+    });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
       // On the front screen the wheel scrolls the realm list; there is no camera
@@ -585,7 +626,7 @@ export class Game {
         this.runFront({ kind: "scroll", by: e.deltaY > 0 ? 1 : -1 });
         return;
       }
-      this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.09 : 1 / 1.09);
     }, { passive: false });
     window.addEventListener("keydown", (e) => this.onKey(e));
     window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
@@ -633,12 +674,20 @@ export class Game {
       }
       if (this.attackMoveMode) {
         const w = this.cam.toWorld(x, y);
-        const ids = this.selectedUnits().filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);
-        if (ids.length) this.issue({ type: "attackMove", player: this.player, units: ids, x: Math.round(w.x), y: Math.round(w.y) });
+        const fighters = this.selectedUnits().filter((u) => UNITS[u.def]!.damage > 0);
+        for (const target of this.formationTargets(fighters, w.x, w.y))
+          this.issue({ type: "attackMove", player: this.player, units: [target.unit.id], x: target.x, y: target.y });
+        if (fighters.length) this.marker(w.x, w.y, "attack");
         this.attackMoveMode = false;
         return;
       }
       this.drag = { x0: x, y0: y, x1: x, y1: y };
+    } else if (e.button === 1) {
+      if (!this.inViewport(x, y)) return;
+      e.preventDefault();
+      this.panDrag = { x, y };
+      this.camVelocity.x = 0;
+      this.camVelocity.y = 0;
     } else if (e.button === 2) {
       if (this.buildMode) {
         this.buildMode = null;
@@ -646,11 +695,15 @@ export class Game {
       }
       if (!this.inViewport(x, y)) return;
       const w = this.cam.toWorld(x, y);
-      this.contextOrder(w.x, w.y);
+      this.contextOrder(w.x, w.y, e.shiftKey);
     }
   }
 
   private onMouseUp(e: MouseEvent): void {
+    if (e.button === 1) {
+      this.panDrag = null;
+      return;
+    }
     if (e.button !== 0 || !this.drag) return;
     const d = this.drag;
     this.drag = null;
@@ -665,7 +718,22 @@ export class Game {
         if (this.selected.has(hit)) this.selected.delete(hit);
         else this.selected.add(hit);
       } else {
-        this.selected = new Set([hit]);
+        const entity = this.world.entities.get(hit);
+        const now = performance.now();
+        const double = entity?.kind === "unit" && entity.owner === this.player && this.lastUnitClick?.id === hit && now - this.lastUnitClick.at < 360;
+        if (double && entity?.kind === "unit") {
+          const ids: EntityId[] = [];
+          for (const u of this.world.units()) {
+            if (u.owner !== this.player || u.def !== entity.def || !this.world.canSeeEntity(this.player, u)) continue;
+            const p = this.cam.toScreen(u.pos.x, u.pos.y);
+            if (p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH) ids.push(u.id);
+          }
+          this.selected = new Set(ids);
+          this.lastUnitClick = null;
+        } else {
+          this.selected = new Set([hit]);
+          this.lastUnitClick = entity?.kind === "unit" && entity.owner === this.player ? { id: hit, at: now } : null;
+        }
       }
     } else {
       const a = this.cam.toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
@@ -699,14 +767,106 @@ export class Game {
     return occ !== 0 ? occ : null;
   }
 
-  private contextOrder(wx: number, wy: number): void {
+  /**
+   * Give a group distinct destinations around the clicked point.
+   *
+   * This is deliberately client-side: the result is a set of ordinary,
+   * serialisable move commands, so the simulation still receives nothing but
+   * commands and lockstep peers receive the exact same destinations.
+   */
+  private formationTargets(units: Unit[], wx: number, wy: number): Array<{ unit: Unit; x: number; y: number }> {
+    if (units.length <= 1) return units.map((unit) => ({ unit, x: Math.round(wx), y: Math.round(wy) }));
+
+    const cx = units.reduce((n, u) => n + u.pos.x, 0) / units.length;
+    const cy = units.reduce((n, u) => n + u.pos.y, 0) / units.length;
+    let fx = wx - cx;
+    let fy = wy - cy;
+    const fm = Math.hypot(fx, fy);
+    if (fm < 1) {
+      fx = 0;
+      fy = -1;
+    } else {
+      fx /= fm;
+      fy /= fm;
+    }
+    const rx = -fy;
+    const ry = fx;
+
+    // Front-line first, then short ranged, long ranged/air, and siege/heavy.
+    // Id is the tie-breaker, making repeated orders stable rather than shuffling.
+    const role = (u: Unit): number => {
+      const d = UNITS[u.def]!;
+      // Support stays furthest back; it should never be sorted into the melee
+      // line merely because its attack range is zero.
+      if ((d.heal ?? 0) > 0) return 5;
+      if (d.domain === "air") return 3;
+      if (d.range >= 4) return 3;
+      if (d.range >= 2) return 2;
+      if (d.speed <= 4 && d.damage > 0) return 4;
+      return 1;
+    };
+    const ordered = [...units].sort((a, b) => role(a) - role(b) || a.id - b.id);
+    const cols = Math.max(2, Math.ceil(Math.sqrt(ordered.length * 1.6)));
+    const spacing = SUB * (ordered.some((u) => UNITS[u.def]!.domain === "sea") ? 1.35 : 0.92);
+    const out: Array<{ unit: Unit; x: number; y: number }> = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      const unit = ordered[i]!;
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(cols, ordered.length - row * cols);
+      const col = i % cols;
+      const side = (col - (inRow - 1) / 2) * spacing;
+      const back = row * spacing;
+      let x = Math.round(wx + rx * side - fx * back);
+      let y = Math.round(wy + ry * side - fy * back);
+
+      // If a slot lands in water/rock/building, spiral locally for a valid tile
+      // rather than sending the whole formation back onto the centre point.
+      const domain = UNITS[unit.def]!.domain;
+      let tx = Math.floor(x / SUB);
+      let ty = Math.floor(y / SUB);
+      if (!this.world.map.isWalkable(tx, ty, domain)) {
+        let found = false;
+        for (let ring = 1; ring <= 4 && !found; ring++) {
+          for (let dy = -ring; dy <= ring && !found; dy++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+              const nx = tx + dx;
+              const ny = ty + dy;
+              if (!this.world.map.isWalkable(nx, ny, domain)) continue;
+              tx = nx;
+              ty = ny;
+              x = nx * SUB + SUB / 2;
+              y = ny * SUB + SUB / 2;
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+      out.push({ unit, x, y });
+    }
+    return out;
+  }
+
+  private marker(x: number, y: number, kind: "move" | "attack" | "gather" | "repair"): void {
+    this.audio.play("command", 0.55);
+    this.commandMarkers.push({ x, y, kind, at: performance.now() });
+    if (this.commandMarkers.length > 12) this.commandMarkers.shift();
+  }
+
+  private contextOrder(wx: number, wy: number, queue = false): void {
     const units = this.selectedUnits().filter((u) => u.owner === this.player);
     const tx = Math.floor(wx / SUB);
     const ty = Math.floor(wy / SUB);
     const map = this.world.map;
     if (units.length === 0) {
-      // Building selected → set rally.
-      for (const b of this.selectedBuildings()) if (b.owner === this.player && b.complete) b.rally = { x: Math.round(wx), y: Math.round(wy) };
+      for (const b of this.selectedBuildings()) {
+        if (b.owner === this.player && b.complete) {
+          this.issue({ type: "setRally", player: this.player, building: b.id, x: Math.round(wx), y: Math.round(wy) });
+          this.marker(wx, wy, "move");
+        }
+      }
       return;
     }
     const ids = units.map((u) => u.id);
@@ -715,17 +875,19 @@ export class Game {
       const gatherers = units.filter((u) => UNITS[u.def]!.canGather).map((u) => u.id);
       if ((t === Tile.Gold || t === Tile.Tree) && gatherers.length > 0) {
         this.issue({ type: "gather", player: this.player, units: gatherers, tx, ty });
-        const others = ids.filter((id) => !gatherers.includes(id));
-        if (others.length) this.issue({ type: "move", player: this.player, units: others, x: Math.round(wx), y: Math.round(wy) });
+        const others = units.filter((u) => !gatherers.includes(u.id));
+        for (const target of this.formationTargets(others, wx, wy))
+          this.issue({ type: "move", player: this.player, units: [target.unit.id], x: target.x, y: target.y, queue });
+        this.marker(wx, wy, "gather");
         return;
       }
-      // An enemy under the cursor is an attack order.
       const foe = this.pick(wx, wy);
       const fe = foe !== null ? this.world.entities.get(foe) : undefined;
       if (fe && fe.owner !== this.player) {
         const fighters = units.filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);
         if (fighters.length > 0) {
           this.issue({ type: "attack", player: this.player, units: fighters, target: fe.id });
+          this.marker(wx, wy, "attack");
           return;
         }
       }
@@ -735,11 +897,14 @@ export class Game {
         const builders = units.filter((u) => UNITS[u.def]!.canBuild).map((u) => u.id);
         if (builders.length > 0 && (!b.complete || b.hp < b.maxHp)) {
           this.issue({ type: "repair", player: this.player, units: builders, target: b.id });
+          this.marker(wx, wy, "repair");
           return;
         }
       }
     }
-    this.issue({ type: "move", player: this.player, units: ids, x: Math.round(wx), y: Math.round(wy) });
+    for (const target of this.formationTargets(units, wx, wy))
+      this.issue({ type: "move", player: this.player, units: [target.unit.id], x: target.x, y: target.y, queue });
+    this.marker(wx, wy, "move");
   }
 
   /**
@@ -941,6 +1106,37 @@ export class Game {
       this.setPaused(!this.paused);
       return;
     }
+    if (/^[1-9]$/.test(k)) {
+      const n = Number(k);
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const ids = this.selectedUnits().filter((u) => u.owner === this.player).map((u) => u.id);
+        this.controlGroups.set(n, new Set(ids));
+        this.toast(ids.length ? `Group ${n} set — ${ids.length} unit${ids.length === 1 ? "" : "s"}` : `Group ${n} cleared`, "info");
+      } else if (e.shiftKey) {
+        const group = this.controlGroups.get(n) ?? new Set<EntityId>();
+        for (const u of this.selectedUnits()) if (u.owner === this.player) group.add(u.id);
+        this.controlGroups.set(n, group);
+        this.toast(`Added to group ${n}`, "info");
+      } else {
+        const group = this.controlGroups.get(n);
+        if (group) {
+          this.selected = new Set([...group].filter((id) => this.world.entities.has(id)));
+          const units = this.selectedUnits();
+          if (units.length) {
+            const now = performance.now();
+            const double = this.lastUnitClick?.id === -n && now - this.lastUnitClick.at < 360;
+            if (double) {
+              const cx = units.reduce((s, u) => s + u.pos.x, 0) / units.length;
+              const cy = units.reduce((s, u) => s + u.pos.y, 0) / units.length;
+              this.cam.centerOn(cx, cy);
+            }
+            this.lastUnitClick = { id: -n as EntityId, at: now };
+          }
+        }
+      }
+      return;
+    }
     if (k === "escape") {
       if (this.attackMoveMode) this.attackMoveMode = false;
       else if (this.buildMode) this.buildMode = null;
@@ -1137,6 +1333,7 @@ export class Game {
     const selUnits = this.selectedUnits();
     const selBuildings = this.selectedBuildings();
     this.renderer.draw(alpha, this.selected, this.ghost(), this.drag, this.canvas.height);
+    this.drawCommandMarkers(ctx);
     // Rally point for a selected building.
     for (const b of selBuildings) {
       if (!b.rally) continue;
@@ -1202,6 +1399,31 @@ export class Game {
    * allowed to be bigger than the game. It fades in and out at the edges so it
    * arrives and leaves rather than blinking.
    */
+  private drawCommandMarkers(ctx: CanvasRenderingContext2D): void {
+    const now = performance.now();
+    this.commandMarkers = this.commandMarkers.filter((m) => now - m.at < 650);
+    for (const m of this.commandMarkers) {
+      const age = now - m.at;
+      const t = age / 650;
+      const p = this.cam.toScreen(m.x, m.y);
+      const radius = 7 + t * 13;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.strokeStyle = m.kind === "attack" ? "#ff5b5b" : m.kind === "gather" ? "#e7c75a" : m.kind === "repair" ? "#75e6b1" : "#74b9ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x - radius * 0.55, p.y);
+      ctx.lineTo(p.x + radius * 0.55, p.y);
+      ctx.moveTo(p.x, p.y - radius * 0.55);
+      ctx.lineTo(p.x, p.y + radius * 0.55);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   private drawCrowning(ctx: CanvasRenderingContext2D): void {
     const c = this.crowningAt;
     if (!c) return;
@@ -1210,15 +1432,14 @@ export class Game {
       this.crowningAt = null;
       return;
     }
-    const frames = [crowning0, crowning1, crowning2, crowning3];
-    const i = Math.min(frames.length - 1, Math.floor((t / CROWNING_MS) * frames.length));
-    const img = spriteImage(frames[i]!);
-    if (!img) return;
-    const p = this.cam.toScreen(c.x, c.y);
+    if (!settings.animations) return;
+    const king = this.world.units().find((u) => u.owner === this.player && u.def === "king");
+    if (!king) return;
+    const p = this.cam.toScreen(king.pos.x, king.pos.y);
     const s = this.cam.zoom;
-    const h = s * 4.2;
-    const w = (img.naturalWidth / img.naturalHeight) * h;
-    const fade = Math.min(1, t / 220) * Math.min(1, (CROWNING_MS - t) / 420);
+    const h = s * 1.65;
+    const progress = Math.max(0, Math.min(1, t / CROWNING_MS));
+    const fade = Math.sin(progress * Math.PI) ** 2;
     ctx.save();
     ctx.globalAlpha = fade;
     // A wash of gold under it, so it lifts off whatever ground it happens on.
@@ -1227,7 +1448,22 @@ export class Game {
     glow.addColorStop(1, "rgba(255,228,150,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(p.x - h, p.y - h, h * 2, h * 2);
-    ctx.drawImage(img, p.x - w / 2, p.y - h * 0.86, w, h);
+    // Celebrate the actual unit instead of overlaying a giant second person.
+    ctx.strokeStyle = "#f6d98b";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + s * 0.5, s * (0.4 + progress * 0.65), s * (0.16 + progress * 0.2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 10; i++) {
+      const angle = i * Math.PI * 0.2 + progress * 0.6;
+      const radius = s * (0.25 + progress * 0.45);
+      const x = p.x + Math.cos(angle) * radius;
+      const y = p.y + s * 0.3 - progress * h + Math.sin(angle) * s * 0.15;
+      ctx.fillStyle = "#fff0bc";
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1, s * 0.025), 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -1258,8 +1494,12 @@ export class Game {
     if (selUnits.length > 0) {
       const u = selUnits[0]!;
       const def = UNITS[u.def]!;
-      const name = selUnits.length > 1 ? `${selUnits.length} selected` : unitName(u.def, p.faction).toUpperCase();
-      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others` : `${def.royal ? "Hero" : "Unit"} · ${describeTask(u)}`;
+      const personal = p.faction === "human" && (u.def === "worker" || def.royal);
+      const name = selUnits.length > 1 ? `${selUnits.length} selected` : personal
+        ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${personName(u)}`.toUpperCase()
+        : unitName(u.def, p.faction).toUpperCase();
+      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others`
+        : `${unitName(u.def, p.faction)} · ${u.hp < u.maxHp * 0.35 ? "Badly wounded · " : ""}${describeTask(u)}`;
       // The roster is capped: past a couple of dozen faces the panel is a wall
       // of thumbnails and the count in the heading is the useful number.
       const members =
@@ -1268,7 +1508,8 @@ export class Game {
               portrait: portraitArt(m.def),
               hp: m.hp,
               maxHp: m.maxHp,
-              name: unitName(m.def, p.faction),
+              name: p.faction === "human" && (m.def === "worker" || UNITS[m.def]!.royal)
+                ? `${personName(m)} · ${unitName(m.def, p.faction)}` : unitName(m.def, p.faction),
             }))
           : [];
       selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members };

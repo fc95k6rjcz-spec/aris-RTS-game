@@ -487,6 +487,126 @@ const mage: UnitDrawer = (a) => {
   });
 };
 
+/** Human support caster: white-and-blue robes, gold stole and a healing staff. */
+const priest: UnitDrawer = (a) => {
+  shadow(a);
+  withSprite(a, (c, u) => {
+    const lw = Math.max(0.75, u * 0.025);
+    const sway = a.moving ? Math.sin(a.phase * Math.PI * 2) * u * 0.03 : 0;
+    // Robes and boots.
+    legs(c, u, a.phase, a.moving, "#4a4034", Math.max(2, u * 0.065), u * 0.14, u * 0.4);
+    c.fillStyle = "#e9e3d4";
+    c.beginPath();
+    c.moveTo(-u * 0.13, -u * 0.2);
+    c.lineTo(u * 0.13, -u * 0.2);
+    c.lineTo(u * 0.23, u * 0.38);
+    c.lineTo(-u * 0.23, u * 0.38);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = "#897d6b";
+    c.lineWidth = lw;
+    c.stroke();
+    // Player-colour shoulder cape and gold stole.
+    c.fillStyle = a.color;
+    c.beginPath();
+    c.moveTo(-u * 0.16, -u * 0.18);
+    c.lineTo(u * 0.16, -u * 0.18);
+    c.lineTo(u * 0.12, -u * 0.02);
+    c.lineTo(-u * 0.12, -u * 0.02);
+    c.closePath();
+    c.fill();
+    c.fillStyle = "#d9b84c";
+    c.fillRect(-u * 0.035, -u * 0.1, u * 0.07, u * 0.37);
+    // Head and hood.
+    ellipse(c, 0, -u * 0.32, u * 0.1, u * 0.1, "#e8b892", "#a8795a", lw);
+    c.strokeStyle = a.color;
+    c.lineWidth = Math.max(2, u * 0.055);
+    c.beginPath();
+    c.arc(0, -u * 0.34, u * 0.12, Math.PI, Math.PI * 2);
+    c.stroke();
+    // Staff and holy crystal.
+    c.strokeStyle = "#76552f";
+    c.lineWidth = Math.max(1.5, u * 0.035);
+    c.beginPath();
+    c.moveTo(u * 0.2, u * 0.34);
+    c.lineTo(u * 0.25 + sway, -u * 0.48);
+    c.stroke();
+    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(a.phase * Math.PI * 2 + a.seed));
+    c.fillStyle = `rgba(145,245,175,${pulse})`;
+    c.beginPath();
+    c.arc(u * 0.25 + sway, -u * 0.5, u * 0.07, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#f4df73";
+    c.lineWidth = Math.max(1, u * 0.018);
+    c.stroke();
+  });
+};
+
+/** Gryphon Rider: broad eagle wings, lion body and a small armoured rider. */
+const gryphon: UnitDrawer = (a) => {
+  const c = a.ctx;
+  const u = a.h;
+  shadow(a);
+  c.save();
+  c.translate(a.x, a.y - u * 0.18 + Math.sin(a.phase * Math.PI * 2 + a.seed) * u * 0.05);
+  const left = a.facing === 7 || a.facing === 0 || a.facing === 1;
+  if (left) c.scale(-1, 1);
+  const flap = a.moving ? Math.sin(a.phase * Math.PI * 2) * u * 0.09 : 0;
+  // Wings: feathered gold-brown fans.
+  c.fillStyle = "#8b6337";
+  c.beginPath();
+  c.moveTo(-u * 0.08, -u * 0.12);
+  c.quadraticCurveTo(-u * 0.5, -u * 0.55 - flap, -u * 0.62, -u * 0.1 - flap);
+  c.quadraticCurveTo(-u * 0.42, -u * 0.18, -u * 0.12, u * 0.02);
+  c.closePath();
+  c.fill();
+  c.beginPath();
+  c.moveTo(u * 0.08, -u * 0.12);
+  c.quadraticCurveTo(u * 0.5, -u * 0.55 + flap, u * 0.62, -u * 0.1 + flap);
+  c.quadraticCurveTo(u * 0.42, -u * 0.18, u * 0.12, u * 0.02);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "#5f4228";
+  c.lineWidth = Math.max(1, u * 0.018);
+  for (const side of [-1, 1]) {
+    for (let i = 1; i <= 4; i++) {
+      c.beginPath();
+      c.moveTo(side * u * 0.12, -u * 0.08);
+      c.lineTo(side * u * (0.18 + i * 0.09), -u * (0.14 + i * 0.05) + flap * side * 0.35);
+      c.stroke();
+    }
+  }
+  // Lion body and hind legs.
+  ellipse(c, 0, 0, u * 0.26, u * 0.16, "#b98542", "#5f4228", Math.max(0.75, u * 0.02));
+  c.strokeStyle = "#8b6337";
+  c.lineWidth = Math.max(2, u * 0.065);
+  c.beginPath();
+  c.moveTo(-u * 0.15, u * 0.08);
+  c.lineTo(-u * 0.25, u * 0.28);
+  c.moveTo(u * 0.1, u * 0.08);
+  c.lineTo(u * 0.2, u * 0.29);
+  c.stroke();
+  // Eagle neck/head/beak.
+  ellipse(c, u * 0.23, -u * 0.16, u * 0.12, u * 0.11, "#e8dfc5", "#6c624f", Math.max(0.75, u * 0.02));
+  c.fillStyle = "#d9a827";
+  poly(c, [[u * 0.32, -u * 0.17], [u * 0.48, -u * 0.11], [u * 0.31, -u * 0.07]], "#d9a827");
+  c.fillStyle = "#1b1b18";
+  c.beginPath();
+  c.arc(u * 0.27, -u * 0.2, u * 0.018, 0, Math.PI * 2);
+  c.fill();
+  // Rider, saddle and lance.
+  c.fillStyle = a.color;
+  c.fillRect(-u * 0.07, -u * 0.2, u * 0.16, u * 0.18);
+  ellipse(c, u * 0.01, -u * 0.29, u * 0.065, u * 0.065, "#aeb4b8", "#50545a", Math.max(0.75, u * 0.018));
+  c.strokeStyle = "#c8a24d";
+  c.lineWidth = Math.max(1.5, u * 0.03);
+  c.beginPath();
+  c.moveTo(-u * 0.03, -u * 0.16);
+  c.lineTo(u * 0.48, -u * 0.32);
+  c.stroke();
+  c.restore();
+};
+
 /** Siege engine: a heavy bow on a wheeled carriage, seen three-quarters on. */
 const ballista: UnitDrawer = (a) => {
   shadow(a);
@@ -625,8 +745,10 @@ const HUMAN_UNITS: Record<string, UnitDrawer> = {
   tanker: paintedShip("tanker"),
   scout,
   bomber,
+  gryphon,
   knight,
   mage,
+  priest,
   ballista,
 };
 

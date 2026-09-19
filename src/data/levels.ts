@@ -23,8 +23,10 @@ export interface LevelDef {
   trainSpeed?: number;
   /** HP restored per tick to friendly units in range (Church). */
   heal?: number;
-  /** Radius in tiles this building affects — healing or vision. */
+  /** Radius in tiles this building affects — healing, vision or light. */
   radius?: number;
+  /** Local night-light strength, 0..1 (Torch/Beacon). */
+  light?: number;
   /** Fractional max-HP bonus this tier grants to every unit the owner has. */
   armour?: number;
   /** Crude oil pumped each second (Oil Rig). */
@@ -131,6 +133,26 @@ export const TOWER_LEVELS: LevelDef[] = [
   { level: 8, name: "Beacon Tower", blurb: "Heavily fortified tower with magical fire beacons and enhanced range.", cost: { gold: 730, lumber: 470 }, time: 20 * 82, hp: 2100, supply: 0, scale: 1.43, radius: 12.6 },
   { level: 9, name: "Grand Watch Tower", blurb: "Grand watch tower with superior artillery and magical enhancements.", cost: { gold: 900, lumber: 580 }, time: 20 * 95, hp: 2480, supply: 0, scale: 1.49, radius: 13.4 },
   { level: 10, name: "Arcane Spire", blurb: "The ultimate watch tower. Unmatched range, defence and magical power.", cost: { gold: 1100, lumber: 700 }, time: 20 * 110, hp: 2900, supply: 0, scale: 1.55, radius: 14.5 },
+];
+
+/**
+ * Torch / Beacon tiers 1-10.
+ *
+ * A tiny road torch grows into a major signal beacon. Radius drives both the
+ * owner's vision and the visible pool of light at night; the light field controls
+ * how strongly that pool pushes back the darkness.
+ */
+export const TORCH_LEVELS: LevelDef[] = [
+  { level: 1, name: "Camp Torch", blurb: "A simple wooden torch. Enough light for a worker camp or road junction.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 120, supply: 0, scale: 1.0, radius: 4.0, light: 0.34 },
+  { level: 2, name: "Iron Torch", blurb: "An iron basket burns brighter and survives rough weather.", cost: { gold: 45, lumber: 25 }, time: 20 * 15, hp: 180, supply: 0, scale: 1.05, radius: 5.0, light: 0.42 },
+  { level: 3, name: "Twin Brazier", blurb: "Twin flames throw a broader pool of light across roads and walls.", cost: { gold: 75, lumber: 45 }, time: 20 * 20, hp: 260, supply: 0, scale: 1.10, radius: 6.2, light: 0.50 },
+  { level: 4, name: "Raised Beacon", blurb: "A taller stone post carries the fire above nearby roofs and trees.", cost: { gold: 115, lumber: 65 }, time: 20 * 26, hp: 360, supply: 0, scale: 1.16, radius: 7.4, light: 0.58 },
+  { level: 5, name: "Stone Brazier", blurb: "A permanent stone beacon with a deep iron fire bowl.", cost: { gold: 165, lumber: 90 }, time: 20 * 32, hp: 480, supply: 0, scale: 1.22, radius: 8.8, light: 0.66 },
+  { level: 6, name: "Guard Beacon", blurb: "A fortified signal fire designed to illuminate approaches to the settlement.", cost: { gold: 230, lumber: 120 }, time: 20 * 39, hp: 620, supply: 0, scale: 1.28, radius: 10.2, light: 0.73 },
+  { level: 7, name: "Royal Beacon", blurb: "Gold-trimmed braziers burn high above a reinforced stone plinth.", cost: { gold: 310, lumber: 155 }, time: 20 * 47, hp: 780, supply: 0, scale: 1.34, radius: 11.8, light: 0.80 },
+  { level: 8, name: "Arcane Flame", blurb: "Mage-wrought fire burns brighter than ordinary pitch and resists the wind.", cost: { gold: 410, lumber: 195 }, time: 20 * 56, hp: 960, supply: 0, scale: 1.40, radius: 13.6, light: 0.87 },
+  { level: 9, name: "Great Signal Fire", blurb: "A towering beacon visible across the battlefield.", cost: { gold: 530, lumber: 245 }, time: 20 * 66, hp: 1170, supply: 0, scale: 1.47, radius: 15.6, light: 0.94 },
+  { level: 10, name: "Eternal Beacon", blurb: "The realm's ultimate beacon: a legendary flame that turns night around the stronghold into day.", cost: { gold: 680, lumber: 310 }, time: 20 * 78, hp: 1420, supply: 0, scale: 1.55, radius: 18.0, light: 1.0 },
 ];
 
 /**
@@ -250,6 +272,23 @@ export const FARM_LEVELS: LevelDef[] = [
   { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 1060, lumber: 780 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.41 },
 ];
 
+/**
+ * Gryphon Aviary tiers 1-10. Higher tiers harden the roost and turn out
+ * Gryphon Riders faster, mirroring the cavalry and aircraft production curves.
+ */
+export const GRYPHONAVIARY_LEVELS: LevelDef[] = [
+  { level: 1, name: "Cliffside Roost", blurb: "A rough stone-and-timber roost for the first bonded gryphons.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 850, supply: 0, scale: 1.0, trainSpeed: 1.0 },
+  { level: 2, name: "High Roost", blurb: "Stronger perches and larger mews support a growing flight.", cost: { gold: 230, lumber: 170 }, time: 20 * 46, hp: 1060, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Stone Aviary", blurb: "Stone towers shelter riders, tack and breeding pairs.", cost: { gold: 350, lumber: 250 }, time: 20 * 57, hp: 1320, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "War Roost", blurb: "Armour racks and launch platforms prepare gryphons for battle.", cost: { gold: 500, lumber: 350 }, time: 20 * 70, hp: 1630, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Royal Mews", blurb: "A permanent royal flight with dedicated handlers and healers.", cost: { gold: 680, lumber: 480 }, time: 20 * 85, hp: 1990, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "Sky Barracks", blurb: "Fortified towers and broad launch decks keep elite riders ready.", cost: { gold: 900, lumber: 640 }, time: 20 * 102, hp: 2410, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Storm Roost", blurb: "Arcane wards and hardened stone protect the realm's aerial cavalry.", cost: { gold: 1160, lumber: 820 }, time: 20 * 120, hp: 2890, supply: 0, scale: 1.37, trainSpeed: 1.56 },
+  { level: 8, name: "Master Aviary", blurb: "Master handlers maintain several combat flights at once.", cost: { gold: 1460, lumber: 1030 }, time: 20 * 140, hp: 3430, supply: 0, scale: 1.43, trainSpeed: 1.68 },
+  { level: 9, name: "Sky Citadel", blurb: "A towering fortress-roost dominating the air above the realm.", cost: { gold: 1800, lumber: 1270 }, time: 20 * 162, hp: 4040, supply: 0, scale: 1.49, trainSpeed: 1.8 },
+  { level: 10, name: "Crown of the Skies", blurb: "The ultimate gryphon stronghold, home to the realm's legendary riders.", cost: { gold: 2180, lumber: 1540 }, time: 20 * 186, hp: 4720, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+];
+
 /** Buildings that support levelling, and their tier table. */
 export const LEVELLED: Record<string, LevelDef[]> = {
   townhall: TOWNHALL_LEVELS,
@@ -258,12 +297,14 @@ export const LEVELLED: Record<string, LevelDef[]> = {
   shipyard: SHIPYARD_LEVELS,
   church: CHURCH_LEVELS,
   tower: TOWER_LEVELS,
+  torch: TORCH_LEVELS,
   airfactory: AIRFACTORY_LEVELS,
   foundry: FOUNDRY_LEVELS,
   oilrig: OILRIG_LEVELS,
   refinery: REFINERY_LEVELS,
   stables: STABLES_LEVELS,
   magetower: MAGETOWER_LEVELS,
+  gryphonaviary: GRYPHONAVIARY_LEVELS,
   farm: FARM_LEVELS,
 };
 
