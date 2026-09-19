@@ -1093,16 +1093,10 @@ export class World {
         const table = LEVELLED[b.def];
         if (!table) break;
         if (b.research) {
-      if (--b.research.remaining <= 0) {
-        const up = UPGRADES[b.research.id]!;
-        const p = this.players.get(b.owner)!;
-        p.research[up.id] = b.research.toLevel;
-        this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
-        b.research = null;
-      }
-      return; // researching halts training, as upgrading does
-    }
-    if (b.upgrade) {
+          this.emit(c.player, "Already researching");
+          break;
+        }
+        if (b.upgrade) {
           this.emit(c.player, "Already upgrading");
           break;
         }
@@ -2161,7 +2155,9 @@ export class World {
         let target: Entity | null = null;
         let bestD = Infinity;
         for (const e of this.entities.values()) {
-          if (e.owner === b.owner) continue;
+          // Only fire on another actual player. Wildlife remains wildlife rather
+          // than causing every border tower to spend the match shooting deer.
+          if (e.owner === b.owner || !this.players.has(e.owner)) continue;
           if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
           const p = this.posOf(e);
           const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
