@@ -23,6 +23,8 @@ export interface ArtCtx {
   color: string;
   /** 0..1 construction progress; 1 = complete. */
   progress: number;
+  /** Upgrade tier when this building has one. */
+  level?: number;
   /** Game tick, for subtle animation (smoke, water). */
   tick: number;
 }
@@ -354,6 +356,113 @@ const shipyard: Drawer = (a) => {
   flag(a, 0.8, 0.12, 0.1, a.color);
 };
 
+/** Torch / Beacon: changes silhouette radically as it climbs through ten tiers. */
+const torch: Drawer = (a) => {
+  const level = Math.max(1, Math.min(10, a.level ?? 1));
+  const t = (level - 1) / 9;
+  const c = a.ctx;
+
+  // Ground shadow stays compact; the height grows above the one-tile footprint.
+  c.save();
+  c.globalAlpha = 0.28;
+  c.fillStyle = "#000";
+  c.beginPath();
+  c.ellipse(a.x + a.w * 0.52, a.y + a.w * 0.82, a.w * (0.14 + t * 0.06), a.w * 0.07, 0, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+
+  const baseY = 0.82;
+  const topY = 0.56 - t * 0.34;
+  const postX = 0.5;
+  const postW = 0.08 + t * 0.08;
+
+  // Tier 1-2: timber post. Tier 3+ progressively turns to stone.
+  if (level <= 2) {
+    gradRect(a, postX - postW / 2, topY + 0.1, postW, baseY - topY - 0.1, "#7e5b35", "#49331f");
+    // Iron binding straps.
+    for (const fy of [baseY - 0.18, baseY - 0.34])
+      rect(a, postX - postW * 0.65, fy, postW * 1.3, 0.028, "#5e6468");
+  } else {
+    // Stone plinth becomes wider and more monumental with level.
+    const bw = 0.22 + t * 0.28;
+    const bh = 0.18 + t * 0.25;
+    stoneWall(a, postX - bw / 2, baseY - bh, bw, bh, level >= 8 ? "#777f89" : "#8d887e");
+    if (level >= 4) {
+      stoneWall(a, postX - postW / 2, topY + 0.12, postW, baseY - bh - (topY + 0.12), "#969087");
+    }
+    if (level >= 7) {
+      // Human blue/gold heraldic trim.
+      rect(a, postX - bw * 0.42, baseY - bh * 0.72, bw * 0.13, bh * 0.46, a.color);
+      rect(a, postX + bw * 0.29, baseY - bh * 0.72, bw * 0.13, bh * 0.46, a.color);
+      line(a, postX - bw * 0.42, baseY - bh * 0.72, postX - bw * 0.29, baseY - bh * 0.26, "#d7b64d", 0.9);
+      line(a, postX + bw * 0.29, baseY - bh * 0.26, postX + bw * 0.42, baseY - bh * 0.72, "#d7b64d", 0.9);
+    }
+  }
+
+  // Bowl grows from a tiny torch cup into a crown-like beacon brazier.
+  const bowlW = 0.16 + t * 0.28;
+  const bowlY = topY + 0.09;
+  c.fillStyle = level >= 8 ? "#d0aa42" : "#3f4449";
+  c.beginPath();
+  c.moveTo(a.x + (postX - bowlW / 2) * a.w, a.y + bowlY * a.w);
+  c.lineTo(a.x + (postX + bowlW / 2) * a.w, a.y + bowlY * a.w);
+  c.lineTo(a.x + (postX + bowlW * 0.34) * a.w, a.y + (bowlY + 0.09) * a.w);
+  c.lineTo(a.x + (postX - bowlW * 0.34) * a.w, a.y + (bowlY + 0.09) * a.w);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "#1f2327";
+  c.lineWidth = Math.max(1, a.w * 0.018);
+  c.stroke();
+
+  // Tall crown prongs arrive at the upper tiers.
+  if (level >= 8) {
+    c.strokeStyle = "#d7b64d";
+    c.lineWidth = Math.max(1.2, a.w * 0.02);
+    for (const ox of [-0.42, -0.14, 0.14, 0.42]) {
+      c.beginPath();
+      c.moveTo(a.x + (postX + ox * bowlW) * a.w, a.y + (bowlY + 0.015) * a.w);
+      c.lineTo(a.x + (postX + ox * bowlW * 0.92) * a.w, a.y + (bowlY - 0.075 - t * 0.03) * a.w);
+      c.stroke();
+    }
+  }
+
+  // Animated flame. Levels 8-10 become increasingly arcane-blue at the core.
+  const flicker = Math.sin(a.tick * 0.55 + level * 1.7) * 0.018;
+  const flameH = 0.18 + t * 0.26 + flicker;
+  const fx = a.x + postX * a.w;
+  const fy = a.y + (bowlY - 0.01) * a.w;
+  const grad = c.createLinearGradient(fx, fy, fx, fy - flameH * a.w);
+  if (level >= 10) {
+    grad.addColorStop(0, "rgba(255,210,80,0.95)");
+    grad.addColorStop(0.38, "rgba(110,190,255,0.95)");
+    grad.addColorStop(1, "rgba(120,90,255,0)");
+  } else {
+    grad.addColorStop(0, "rgba(255,220,110,0.98)");
+    grad.addColorStop(0.45, "rgba(255,125,24,0.9)");
+    grad.addColorStop(1, "rgba(255,70,10,0)");
+  }
+  c.fillStyle = grad;
+  c.beginPath();
+  c.moveTo(fx - bowlW * a.w * 0.3, fy);
+  c.quadraticCurveTo(fx - bowlW * a.w * 0.34, fy - flameH * a.w * 0.55, fx + flicker * a.w * 1.4, fy - flameH * a.w);
+  c.quadraticCurveTo(fx + bowlW * a.w * 0.34, fy - flameH * a.w * 0.5, fx + bowlW * a.w * 0.3, fy);
+  c.closePath();
+  c.fill();
+
+  // Stronger tiers radiate a visible halo even before the night-light pass.
+  c.save();
+  c.globalCompositeOperation = "lighter";
+  c.globalAlpha = 0.08 + t * 0.18;
+  const halo = c.createRadialGradient(fx, fy - flameH * a.w * 0.35, 0, fx, fy, a.w * (0.18 + t * 0.16));
+  halo.addColorStop(0, level >= 10 ? "rgba(150,205,255,1)" : "rgba(255,180,70,1)");
+  halo.addColorStop(1, "rgba(255,150,30,0)");
+  c.fillStyle = halo;
+  c.beginPath();
+  c.arc(fx, fy, a.w * (0.18 + t * 0.16), 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+};
+
 /** Gryphon Aviary: a fortified blue-roofed roost with open launch platforms. */
 const gryphonaviary: Drawer = (a) => {
   shadow(a, 0.08, 0.16, 0.84, 0.78);
@@ -404,6 +513,7 @@ const styled =
 const HUMAN_ART: Record<string, Drawer> = {
   ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
   gryphonaviary,
+  torch,
 };
 
 /** Art sets per faction. A faction with no set of its own falls back to the Human one. */
