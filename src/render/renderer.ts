@@ -431,7 +431,80 @@ export class Renderer {
       c.fill();
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
-    ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+    const live = ctx === this.ctx && settings.animations;
+    const sway = live ? Math.sin((this.world.tick + x * 7 + y * 11) / 18) * s * 0.028 : 0;
+    ctx.drawImage(canopy, Math.round(cx + jx + sway - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * Cheap live water detail layered over the baked terrain.
+   * Only a fraction of visible water tiles draw a ripple, so large maps remain cheap.
+   */
+  private drawWaterMotion(): void {
+    const s = this.cam.zoom;
+    if (s < 18) return;
+    const map = this.world.map;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const t = performance.now() / 1000;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(220,240,255,0.2)";
+    ctx.lineWidth = Math.max(0.75, s * 0.015);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (map.get(x, y) !== Tile.Water) continue;
+        const hash = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        if ((hash & 3) !== 0) continue;
+        const p = this.cam.toScreen((x + 0.5) * SUB, (y + 0.5) * SUB);
+        const phase = t * (0.8 + ((hash >>> 5) & 7) * 0.05) + (hash % 17);
+        const drift = Math.sin(phase) * s * 0.08;
+        const len = s * (0.18 + ((hash >>> 8) & 7) * 0.018);
+        ctx.globalAlpha = 0.12 + (Math.sin(phase * 1.7) + 1) * 0.07;
+        ctx.beginPath();
+        ctx.moveTo(p.x - len + drift, p.y);
+        ctx.quadraticCurveTo(p.x + drift, p.y - s * 0.035, p.x + len + drift, p.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Pools of warm light from completed Torches are drawn after the global
+   * day/night wash. Higher tiers have both a larger radius and stronger light.
+   * This is presentation only; actual sight radius is handled by vision.
+   */
+  private drawLocalLights(viewH: number): void {
+    if (!settings.animations) return;
+    const night = lightAt(this.world.tick).alpha;
+    if (night < 0.06) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (const b of this.world.buildings()) {
+      if (!b.complete || b.def !== "torch") continue;
+      if (b.owner !== this.viewer && !this.world.canSeeEntity(this.viewer, b)) continue;
+      const lv = levelDef("torch", b.level);
+      const radius = (lv.radius ?? 4) * this.cam.zoom;
+      const power = lv.light ?? 0.3;
+      const centre = this.cam.toScreen((b.tx + 0.5) * SUB, (b.ty + 0.5) * SUB);
+      if (centre.x + radius < 0 || centre.y + radius < 0 || centre.x - radius > this.cam.viewW || centre.y - radius > viewH) continue;
+
+      const flicker = 0.92 + Math.sin(performance.now() / 85 + b.id * 1.7) * 0.08;
+      const alpha = Math.min(0.72, night * power * 0.62 * flicker);
+      const g = ctx.createRadialGradient(centre.x, centre.y, 0, centre.x, centre.y, radius);
+      g.addColorStop(0, b.level >= 10 ? `rgba(170,215,255,${alpha})` : `rgba(255,205,105,${alpha})`);
+      g.addColorStop(0.28, `rgba(255,175,70,${alpha * 0.58})`);
+      g.addColorStop(1, "rgba(255,150,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /**
