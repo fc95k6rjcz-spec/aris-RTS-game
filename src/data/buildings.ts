@@ -240,6 +240,21 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     coastal: false,
     description: "Builds aircraft, which fly over water, forest and rock.",
   },
+  torch: {
+    id: "torch",
+    name: "Torch",
+    hotkey: "Q",
+    size: 1,
+    cost: { gold: 25, lumber: 20 },
+    hp: 120,
+    buildTime: 20 * 10,
+    trains: [],
+    requires: ["townhall"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Lights roads and bases at night. Upgrade it from a small torch into an enormous beacon with much greater light and vision.",
+  },
   tower: {
     id: "tower",
     name: "Watch Tower",
@@ -283,6 +298,6 @@ export function buildingName(def: string, faction: string): string {
  * things you build in any match; everything with a prerequisite behind it is a
  * tab away.
  */
-export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower"];
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch"];
 export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];
