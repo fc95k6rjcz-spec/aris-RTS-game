@@ -305,6 +305,8 @@ export class World {
         mix(e.hp);
         mix(Math.round(e.progress));
         mix(e.complete ? 1 : 0);
+        mix(e.rally ? e.rally.x : 0);
+        mix(e.rally ? e.rally.y : 0);
       }
     }
     for (const p of [...this.players.keys()].sort((a, b) => a - b)) {
@@ -1543,7 +1545,12 @@ export class World {
    */
   private separate(): void {
     const units = this.units();
-    const R = SUB * 0.55;
+    // A soft personal-space ring starts before sprites overlap. Inside the hard
+    // radius the old separation force still does the real work; outside it a
+    // much smaller predictive nudge encourages two streams to flow around one
+    // another instead of waiting until they are already occupying the same spot.
+    const HARD = SUB * 0.55;
+    const SOFT = SUB * 0.82;
     const px = new Float64Array(units.length);
     const py = new Float64Array(units.length);
     for (let i = 0; i < units.length; i++) {
@@ -1555,14 +1562,16 @@ export class World {
         let dx = b.pos.x - a.pos.x;
         let dy = b.pos.y - a.pos.y;
         let d = Math.hypot(dx, dy);
-        if (d >= R) continue;
+        if (d >= SOFT) continue;
         if (d < 0.001) {
           // Exactly coincident: push apart along a fixed axis so it stays deterministic.
           dx = (a.id % 2 === 0 ? 1 : -1) * 0.5;
           dy = 0.5;
           d = Math.hypot(dx, dy);
         }
-        const push = (R - d) / 2;
+        const overlap = Math.max(0, HARD - d);
+        const warning = Math.max(0, SOFT - Math.max(HARD, d));
+        const push = overlap / 2 + warning * 0.09;
         px[i]! -= (dx / d) * push;
         py[i]! -= (dy / d) * push;
         px[j]! += (dx / d) * push;
