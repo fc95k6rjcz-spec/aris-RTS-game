@@ -17,6 +17,7 @@ import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
+import { motionFor } from "./motion";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
@@ -118,6 +119,7 @@ export class Renderer {
     ctx.rect(0, 0, cam.viewW, viewH);
     ctx.clip();
     this.drawTerrain();
+    if (settings.animations) this.drawWaterMotion();
     // Tracks go on the ground, under everything that stands on it.
     this.drawPaths();
     this.drawOreCarts(alpha);
@@ -144,6 +146,7 @@ export class Renderer {
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
     this.drawDaylight(viewH);
+    this.drawLocalLights(viewH);
     this.drawWeather(viewH);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
@@ -428,7 +431,80 @@ export class Renderer {
       c.fill();
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
-    ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+    const live = ctx === this.ctx && settings.animations;
+    const sway = live ? Math.sin((this.world.tick + x * 7 + y * 11) / 18) * s * 0.028 : 0;
+    ctx.drawImage(canopy, Math.round(cx + jx + sway - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * Cheap live water detail layered over the baked terrain.
+   * Only a fraction of visible water tiles draw a ripple, so large maps remain cheap.
+   */
+  private drawWaterMotion(): void {
+    const s = this.cam.zoom;
+    if (s < 18) return;
+    const map = this.world.map;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const t = performance.now() / 1000;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(220,240,255,0.2)";
+    ctx.lineWidth = Math.max(0.75, s * 0.015);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (map.get(x, y) !== Tile.Water) continue;
+        const hash = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        if ((hash & 3) !== 0) continue;
+        const p = this.cam.toScreen((x + 0.5) * SUB, (y + 0.5) * SUB);
+        const phase = t * (0.8 + ((hash >>> 5) & 7) * 0.05) + (hash % 17);
+        const drift = Math.sin(phase) * s * 0.08;
+        const len = s * (0.18 + ((hash >>> 8) & 7) * 0.018);
+        ctx.globalAlpha = 0.12 + (Math.sin(phase * 1.7) + 1) * 0.07;
+        ctx.beginPath();
+        ctx.moveTo(p.x - len + drift, p.y);
+        ctx.quadraticCurveTo(p.x + drift, p.y - s * 0.035, p.x + len + drift, p.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Pools of warm light from completed Torches are drawn after the global
+   * day/night wash. Higher tiers have both a larger radius and stronger light.
+   * This is presentation only; actual sight radius is handled by vision.
+   */
+  private drawLocalLights(viewH: number): void {
+    if (!settings.animations) return;
+    const night = lightAt(this.world.tick).alpha;
+    if (night < 0.06) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (const b of this.world.buildings()) {
+      if (!b.complete || b.def !== "torch") continue;
+      if (b.owner !== this.viewer && !this.world.canSeeEntity(this.viewer, b)) continue;
+      const lv = levelDef("torch", b.level);
+      const radius = (lv.radius ?? 4) * this.cam.zoom;
+      const power = lv.light ?? 0.3;
+      const centre = this.cam.toScreen((b.tx + 0.5) * SUB, (b.ty + 0.5) * SUB);
+      if (centre.x + radius < 0 || centre.y + radius < 0 || centre.x - radius > this.cam.viewW || centre.y - radius > viewH) continue;
+
+      const flicker = 0.92 + Math.sin(performance.now() / 85 + b.id * 1.7) * 0.08;
+      const alpha = Math.min(0.72, night * power * 0.62 * flicker);
+      const g = ctx.createRadialGradient(centre.x, centre.y, 0, centre.x, centre.y, radius);
+      g.addColorStop(0, b.level >= 10 ? `rgba(170,215,255,${alpha})` : `rgba(255,205,105,${alpha})`);
+      g.addColorStop(0.28, `rgba(255,175,70,${alpha * 0.58})`);
+      g.addColorStop(1, "rgba(255,150,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /**
@@ -996,13 +1072,14 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick };
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level };
     if (!b.complete) {
       drawConstruction(art);
       this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
     } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
       artFor(faction, b.def)?.(art);
     }
+    if (b.complete && settings.animations) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
       // the painted art, which deliberately overhangs its tiles.
@@ -1056,6 +1133,230 @@ export class Renderer {
         if (job) this.bar(p.x, p.y + w - 5, w, 1 - job.remaining / job.total, "#5ab0ff");
       }
     }
+  }
+
+  /**
+   * Small, cheap loops that keep completed structures alive even when their
+   * painted tier sprite is static. Bespoke building sheets can replace these
+   * later without changing simulation or building data.
+   */
+  private drawBuildingActivity(b: Building, x: number, y: number, w: number, alpha: number): void {
+    const ctx = this.ctx;
+    const t = (this.world.tick + alpha) / 20 + b.id * 0.173;
+    const cx = x + w * 0.5;
+    const cy = y + w * 0.5;
+
+    const puff = (px: number, py: number, phase: number, scale = 1): void => {
+      const k = ((t * 0.32 + phase) % 1 + 1) % 1;
+      ctx.globalAlpha = (1 - k) * 0.26;
+      ctx.fillStyle = "#c9c7c2";
+      ctx.beginPath();
+      ctx.arc(px + Math.sin(t * 1.7 + phase * 5) * w * 0.025, py - k * w * 0.3, w * (0.018 + k * 0.035) * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+
+    const pennant = (px: number, py: number, h: number): void => {
+      const player = this.world.players.get(b.owner);
+      if (!player) return;
+      const wave = Math.sin(t * 4.2) * w * 0.035;
+      ctx.strokeStyle = "#3a2a1a";
+      ctx.lineWidth = Math.max(1, w * 0.009);
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, py + h);
+      ctx.stroke();
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.quadraticCurveTo(px + w * 0.12, py + h * 0.1 + wave, px + w * 0.2, py + h * 0.22);
+      ctx.lineTo(px, py + h * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    ctx.save();
+    switch (b.def) {
+      case "townhall":
+      case "barracks":
+      case "stables":
+      case "tower":
+      case "gryphonaviary":
+        pennant(cx, y + w * 0.06, w * 0.26);
+        break;
+
+      case "farm": {
+        // A few foreground stalks bend together in the wind.
+        ctx.strokeStyle = "rgba(221,190,89,0.75)";
+        ctx.lineWidth = Math.max(1, w * 0.008);
+        const sway = Math.sin(t * 2.4) * w * 0.025;
+        for (let i = 0; i < 6; i++) {
+          const px = x + w * (0.18 + i * 0.12);
+          const py = y + w * 0.83;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.quadraticCurveTo(px + sway, py - w * 0.12, px + sway * 1.4, py - w * 0.2);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "lumbermill": {
+        // Visible saw wheel: enough motion to read as a working mill over any
+        // painted tier sprite.
+        const sx = x + w * 0.8;
+        const sy = y + w * 0.7;
+        const r = w * 0.075;
+        ctx.strokeStyle = "#c8cdd1";
+        ctx.lineWidth = Math.max(1, w * 0.012);
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 6; i++) {
+          const a = t * 7 + (i / 6) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "shipyard": {
+        const sway = Math.sin(t * 1.8) * w * 0.08;
+        ctx.strokeStyle = "#d9d1bf";
+        ctx.lineWidth = Math.max(1, w * 0.007);
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.78, y + w * 0.25);
+        ctx.lineTo(x + w * 0.61 + sway, y + w * 0.67);
+        ctx.stroke();
+        ctx.fillStyle = "#777d82";
+        ctx.fillRect(x + w * 0.59 + sway, y + w * 0.66, w * 0.045, w * 0.035);
+        break;
+      }
+
+      case "church": {
+        const pulse = 0.45 + Math.sin(t * 2.2) * 0.18;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.22;
+        const g = ctx.createRadialGradient(cx, y + w * 0.28, 0, cx, y + w * 0.28, w * 0.28);
+        g.addColorStop(0, "rgba(255,232,155,1)");
+        g.addColorStop(1, "rgba(255,232,155,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, y + w * 0.28, w * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      case "magetower": {
+        ctx.globalCompositeOperation = "lighter";
+        const r = w * 0.16;
+        for (let i = 0; i < 3; i++) {
+          const a = t * (1.1 + i * 0.18) + (i / 3) * Math.PI * 2;
+          const px = cx + Math.cos(a) * r;
+          const py = y + w * 0.28 + Math.sin(a) * r * 0.42;
+          ctx.fillStyle = i === 0 ? "rgba(120,205,255,0.8)" : "rgba(135,120,255,0.62)";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "foundry":
+        puff(x + w * 0.35, y + w * 0.3, 0.1, 1.2);
+        puff(x + w * 0.68, y + w * 0.26, 0.58, 1.1);
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 4; i++) {
+          const k = ((t * 1.4 + i * 0.23) % 1 + 1) % 1;
+          ctx.globalAlpha = 1 - k;
+          ctx.fillStyle = "#ffb43d";
+          ctx.beginPath();
+          ctx.arc(x + w * 0.54 + Math.sin(i * 2.2) * w * 0.07 * k, y + w * 0.73 - k * w * 0.18, Math.max(1, w * 0.009), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+
+      case "oilrig": {
+        const a = Math.sin(t * 2.1) * 0.32;
+        const px = x + w * 0.52;
+        const py = y + w * 0.42;
+        ctx.strokeStyle = "#4b4240";
+        ctx.lineWidth = Math.max(2, w * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(a) * w * 0.23, py + Math.sin(a) * w * 0.13);
+        ctx.stroke();
+        break;
+      }
+
+      case "refinery":
+        puff(x + w * 0.34, y + w * 0.24, 0.2, 1.1);
+        puff(x + w * 0.62, y + w * 0.2, 0.66, 1.35);
+        break;
+
+      case "airfactory": {
+        // A test propeller on the apron.
+        const px = x + w * 0.76;
+        const py = y + w * 0.7;
+        ctx.strokeStyle = "#d6dadd";
+        ctx.lineWidth = Math.max(1.2, w * 0.012);
+        for (let i = 0; i < 2; i++) {
+          const a = t * 11 + i * Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(px - Math.cos(a) * w * 0.09, py - Math.sin(a) * w * 0.09);
+          ctx.lineTo(px + Math.cos(a) * w * 0.09, py + Math.sin(a) * w * 0.09);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "torch": {
+        // The main flame is part of the tier art. Loose embers make it feel
+        // alive and scale naturally with the larger upper-tier beacon.
+        const lv = levelDef("torch", b.level);
+        const power = lv.light ?? 0.3;
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 5; i++) {
+          const k = ((t * (0.7 + i * 0.09) + i * 0.21) % 1 + 1) % 1;
+          const px = cx + Math.sin(i * 3.1 + t) * w * 0.08 * k;
+          const py = y + w * (0.39 - b.level * 0.012) - k * w * (0.18 + power * 0.2);
+          ctx.globalAlpha = (1 - k) * (0.3 + power * 0.55);
+          ctx.fillStyle = b.level >= 10 ? "#9bd7ff" : "#ffbe55";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1, w * (0.008 + power * 0.008) * (1 - k)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "golddepot": {
+        const pulse = 0.45 + Math.sin(t * 3.4) * 0.35;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.5;
+        ctx.fillStyle = "#ffd85e";
+        ctx.beginPath();
+        ctx.arc(cx + w * 0.18, cy - w * 0.12, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+
+    // Any active upgrade/research gets a few work sparks so progress is visible
+    // in the world as well as on the HUD bar.
+    if (b.upgrade || b.research) {
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        const k = ((t * 1.7 + i * 0.31) % 1 + 1) % 1;
+        ctx.globalAlpha = 1 - k;
+        ctx.fillStyle = b.research ? "#cfa5ff" : "#ffd36b";
+        ctx.beginPath();
+        ctx.arc(cx + Math.sin(i * 4 + t) * w * 0.12, y + w * 0.68 - k * w * 0.16, Math.max(1, w * 0.008), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -1156,7 +1457,7 @@ export class Renderer {
     const w = d.size * s;
     ctx.globalAlpha = 0.55;
     const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick });
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1 });
     ctx.globalAlpha = 1;
     // Per-tile validity overlay.
     for (let y = 0; y < d.size; y++)
@@ -1230,6 +1531,7 @@ export class Renderer {
     const moving = u.path.length > 0;
     // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
     const phase = (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1;
+    const state = stateFor(u, moving);
 
     if (selected) {
       ctx.strokeStyle = "#9cff9c";
@@ -1240,25 +1542,35 @@ export class Renderer {
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
-    // A struck sprite lights up for a few ticks. `filter` is not universal, so a
-    // browser without it simply shows no flash rather than failing to draw.
+    // A struck sprite lights up for a few ticks. Real frame clips own their body
+    // motion; procedural/still art receives the universal fallback pose.
     const flash = settings.animations ? this.fx.flashAt(u.id, this.world.tick + alpha) : 0;
+    const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
+    const hasClip = sheet ? clipFor(sheet, state) !== null : false;
+    const pose = settings.animations && !hasClip
+      ? motionFor(u, state, performance.now() / 1000, flash)
+      : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
+    const ax = p.x + pose.dx * h;
+    const ay = p.y + pose.dy * h;
+
     if (flash > 0) {
       ctx.save();
-      // Enough to register as a blow landing, not enough to bleach the armour.
       ctx.filter = `brightness(${1 + flash * 0.55}) saturate(${1 - flash * 0.25})`;
     }
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(pose.rotate);
+    ctx.scale(pose.sx, pose.sy);
+    ctx.translate(-ax, -ay);
+
     // How tall the thing that was actually drawn turned out to be. The painted
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    // A cut sheet wins over the painted still, and everything else -- crown,
-    // health bar, selection ring -- hangs off whatever actually got drawn, so
-    // the two paths are interchangeable from the outside.
-    const framed = anySheets() ? this.drawUnitFrames(u, p.x, p.y, s, player.faction, moving) : null;
-    const painted = framed === null ? this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase) : null;
+    const framed = anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, moving) : null;
+    const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
-      ? this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)
+      ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, afloat)
       : null;
     if (framed !== null) {
       drawnH = framed;
@@ -1267,32 +1579,33 @@ export class Renderer {
     } else if (peasant !== null) {
       drawnH = peasant;
     } else if (draw) {
-      draw({ ctx, x: p.x, y: p.y, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
+      draw({ ctx, x: ax, y: ay, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
     } else {
       ctx.fillStyle = player.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, h * 0.3, 0, Math.PI * 2);
+      ctx.arc(ax, ay, h * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
     if (flash > 0) ctx.restore();
     // A crown, so the King is never lost in a crowd of his own footmen. Gold for
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
       const king = u.def === "king";
-      const cy = p.y + s * 0.45 - drawnH - s * 0.1;
+      const cy = ay + s * 0.45 - drawnH - s * 0.1;
       const cw = s * (king ? 0.26 : 0.2);
       ctx.save();
       ctx.strokeStyle = "rgba(20,14,4,0.85)";
       ctx.lineWidth = Math.max(1, s * 0.025);
       ctx.fillStyle = king ? "#f2c14e" : "#cfd6e0";
       ctx.beginPath();
-      ctx.moveTo(p.x - cw, cy);
-      ctx.lineTo(p.x - cw, cy - s * 0.1);
-      ctx.lineTo(p.x - cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x, cy - s * (king ? 0.14 : 0.11));
-      ctx.lineTo(p.x + cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x + cw, cy - s * 0.1);
-      ctx.lineTo(p.x + cw, cy);
+      ctx.moveTo(ax - cw, cy);
+      ctx.lineTo(ax - cw, cy - s * 0.1);
+      ctx.lineTo(ax - cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax, cy - s * (king ? 0.14 : 0.11));
+      ctx.lineTo(ax + cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax + cw, cy - s * 0.1);
+      ctx.lineTo(ax + cw, cy);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
@@ -1301,8 +1614,8 @@ export class Renderer {
     if (this.wantsBar(u.hp / u.maxHp, selected)) {
       // Above the head of whatever was drawn, and above the crown if there is
       // one, rather than across the chest of a tall sprite.
-      const barY = p.y + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
-      this.bar(p.x - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
+      const barY = ay + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
+      this.bar(ax - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
     }
   }
 
@@ -1316,13 +1629,68 @@ export class Renderer {
     const s = this.cam.zoom;
     const now = this.world.tick;
     for (const c of this.fx.corpses) {
-      if (c.building) continue; // buildings leave rubble via the dust puff instead
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);
-      if (p.x < -s || p.y < -s || p.x > this.cam.viewW + s || p.y > this.cam.viewH + s) continue;
+      if (p.x < -s * 6 || p.y < -s * 6 || p.x > this.cam.viewW + s * 6 || p.y > this.cam.viewH + s * 6) continue;
       const player = this.world.players.get(c.owner);
       if (!player) continue;
+
+      if (c.building) {
+        const size = BUILDINGS[c.def]?.size ?? 2;
+        const w = size * s;
+        const collapse = Math.min(1, k / 0.2);
+        const fade = k < 0.78 ? 1 : Math.max(0, (1 - k) / 0.22);
+        ctx.save();
+        ctx.globalAlpha = fade;
+
+        // The footprint remains as charred rubble after the vertical collapse.
+        ctx.fillStyle = "rgba(42,38,35,0.78)";
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + w * 0.2, w * 0.48, w * 0.24, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Chunks fall outward during the first second, then stay where they land.
+        const seed = c.def.length * 97 + c.t0;
+        for (let i = 0; i < 12; i++) {
+          const a = ((seed + i * 43) % 360) * Math.PI / 180;
+          const dist = w * (0.08 + ((seed + i * 17) % 23) / 100) * collapse;
+          const bx = p.x + Math.cos(a) * dist;
+          const by = p.y + w * 0.1 + Math.sin(a) * dist * 0.45 + collapse * w * 0.12;
+          const bw = w * (0.045 + (i % 4) * 0.012);
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.rotate(a + collapse * (i % 2 ? 0.8 : -0.6));
+          ctx.fillStyle = i % 3 === 0 ? player.color : i % 2 === 0 ? "#6f6860" : "#4f4438";
+          ctx.fillRect(-bw / 2, -bw * 0.35, bw, bw * 0.7);
+          ctx.restore();
+        }
+
+        // A shrinking upright silhouette sells the actual collapse rather than
+        // making the building pop straight into a rubble decal.
+        if (collapse < 1) {
+          ctx.globalAlpha = fade * (1 - collapse) * 0.75;
+          ctx.fillStyle = "#514942";
+          ctx.save();
+          ctx.translate(p.x, p.y + w * 0.16);
+          ctx.scale(1 + collapse * 0.25, 1 - collapse * 0.85);
+          ctx.fillRect(-w * 0.32, -w * 0.8, w * 0.64, w * 0.8);
+          ctx.restore();
+        }
+
+        // Dust rolls outward while the walls are coming down.
+        if (collapse < 1) {
+          ctx.globalAlpha = (1 - collapse) * 0.32;
+          ctx.strokeStyle = "#c9bda8";
+          ctx.lineWidth = Math.max(2, s * 0.06);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y + w * 0.16, w * (0.28 + collapse * 0.35), w * (0.1 + collapse * 0.14), 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        continue;
+      }
+
       const view = unitViewSprite(c.def, c.facing, player.color);
       ctx.save();
       ctx.globalAlpha = 1 - k * k;

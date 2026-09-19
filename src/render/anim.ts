@@ -38,6 +38,9 @@ export type AnimState =
   | "idle"
   | "walk"
   | "run"
+  | "fly"
+  | "sail"
+  | "flee"
   | "chop"
   | "mine"
   | "build"
@@ -46,6 +49,8 @@ export type AnimState =
   | "gather"
   | "deposit"
   | "attack"
+  | "cast"
+  | "heal"
   | "hurt"
   | "die";
 
@@ -82,25 +87,41 @@ export interface SheetDef {
  * whether the man is swinging, walking, or carrying something home.
  */
 export function stateFor(u: Unit, moving: boolean): AnimState {
+  const d = UNITS[u.def]!;
   const t = u.task;
+
+  // Domain-specific locomotion keeps future sprite sheets readable: a Gryphon
+  // flies, a battleship sails, and a frightened deer flees rather than "runs".
+  const travel = (): AnimState => {
+    if (d.domain === "air") return "fly";
+    if (d.domain === "sea" || d.domain === "icebreaker") return "sail";
+    if (d.skittish) return "flee";
+    if (u.carrying) return "carry";
+    return isRunning(u) ? "run" : "walk";
+  };
+
   switch (t.kind) {
     case "build":
-      return moving ? "walk" : "build";
+      return moving ? travel() : "build";
     case "repair":
-      return moving ? "walk" : "repair";
+      return moving ? travel() : "repair";
     case "attack":
     case "attackMove":
-      return moving ? "run" : "attack";
+      if (moving) return travel();
+      if (u.def === "mage") return "cast";
+      return "attack";
     case "gather": {
       if (t.phase === "harvest") return t.resource === "lumber" ? "chop" : "mine";
       if (t.phase === "deposit") return "deposit";
-      // Walking there empty-handed, or walking back with a load.
-      return u.carrying ? "carry" : "walk";
+      return travel();
     }
     case "move":
-      return u.carrying ? "carry" : "walk";
+      return travel();
     default:
-      return moving ? "walk" : "idle";
+      // A Priest has no attack cooldown; whenever healing puts it on cooldown,
+      // that cooldown is the presentation cue for the healing gesture.
+      if ((d.heal ?? 0) > 0 && u.cooldown > 0) return "heal";
+      return moving ? travel() : "idle";
   }
 }
 
@@ -130,6 +151,9 @@ const FALLBACK: Record<AnimState, AnimState[]> = {
   idle: [],
   walk: ["idle"],
   run: ["walk", "idle"],
+  fly: ["run", "walk", "idle"],
+  sail: ["walk", "idle"],
+  flee: ["run", "walk", "idle"],
   chop: ["build", "attack", "idle"],
   mine: ["chop", "build", "attack", "idle"],
   build: ["repair", "chop", "idle"],
@@ -138,6 +162,8 @@ const FALLBACK: Record<AnimState, AnimState[]> = {
   gather: ["chop", "idle"],
   deposit: ["carry", "walk", "idle"],
   attack: ["chop", "idle"],
+  cast: ["attack", "idle"],
+  heal: ["cast", "idle"],
   hurt: ["idle"],
   die: ["hurt", "idle"],
 };
@@ -153,7 +179,7 @@ const FALLBACK: Record<AnimState, AnimState[]> = {
  * Falling back everywhere would have quietly replaced six good task sprites
  * with one man standing still.
  */
-const MOVEMENT = new Set<AnimState>(["idle", "walk", "run", "carry"]);
+const MOVEMENT = new Set<AnimState>(["idle", "walk", "run", "fly", "sail", "flee", "carry"]);
 
 export function clipFor(sheet: SheetDef, state: AnimState): Clip | null {
   const direct = sheet.clips[state];
