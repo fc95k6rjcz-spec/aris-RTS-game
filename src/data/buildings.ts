@@ -253,7 +253,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Watches the ground around it. Higher tiers see further.",
+    description: "Defensive lookout. Automatically fires on enemy forces; higher tiers shoot farther, harder and more often.",
   },
 };
 
