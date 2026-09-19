@@ -45,7 +45,22 @@ const SETTINGS: Record<
 };
 
 /** The order it builds in. Repeats the last entries once the list is exhausted. */
-const BUILD_ORDER = ["farm", "barracks", "lumbermill", "farm", "barracks", "tower", "farm", "stables", "farm", "church"];
+const BUILD_ORDER = [
+  "farm",
+  "barracks",
+  "lumbermill",
+  "farm",
+  "barracks",
+  "tower",
+  "farm",
+  "stables",
+  "church",
+  "farm",
+  "foundry",
+  "magetower",
+  "farm",
+  "gryphonaviary",
+];
 
 export class SkirmishAI {
   private wave = 0;
@@ -84,6 +99,9 @@ export class SkirmishAI {
   }
   private soldiers(): Unit[] {
     return this.myUnits().filter((u) => UNITS[u.def]!.damage > 0 && !UNITS[u.def]!.canGather);
+  }
+  private supporters(): Unit[] {
+    return this.myUnits().filter((u) => (UNITS[u.def]!.heal ?? 0) > 0);
   }
   private has(def: string): boolean {
     return this.mine().some((b) => b.def === def && b.complete);
@@ -280,7 +298,7 @@ export class SkirmishAI {
     // Then soldiers from every idle barracks.
     for (const b of this.mine()) {
       if (!b.complete || b.queue.length > 0) continue;
-      const trains = BUILDINGS[b.def]!.trains.filter((u) => UNITS[u]!.damage > 0 && !UNITS[u]!.canGather);
+      const trains = BUILDINGS[b.def]!.trains.filter((u) => !UNITS[u]!.canGather && (UNITS[u]!.damage > 0 || (UNITS[u]!.heal ?? 0) > 0));
       if (trains.length === 0) continue;
       const unit = trains[this.wave % trains.length]!;
       if (headroom < UNITS[unit]!.supply) continue;
@@ -409,6 +427,9 @@ export class SkirmishAI {
     const idle = this.soldiers().filter((u) => u.task.kind === "idle");
     if (idle.length === 0) return true; // under attack, nothing spare — still our problem
     out.push({ type: "attack", player: this.player, units: idle.map((u) => u.id), target: threat.id });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length)
+      out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: threat.pos.x, y: threat.pos.y });
     return true;
   }
 
@@ -462,5 +483,7 @@ export class SkirmishAI {
     this.wave++;
     this.massingSince = tick;
     out.push({ type: "attackMove", player: this.player, units: idle.map((u) => u.id), x: c.x, y: c.y });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length) out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: c.x, y: c.y });
   }
 }
