@@ -250,6 +250,23 @@ export const FARM_LEVELS: LevelDef[] = [
   { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 1060, lumber: 780 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.41 },
 ];
 
+/**
+ * Gryphon Aviary tiers 1-10. Higher tiers harden the roost and turn out
+ * Gryphon Riders faster, mirroring the cavalry and aircraft production curves.
+ */
+export const GRYPHONAVIARY_LEVELS: LevelDef[] = [
+  { level: 1, name: "Cliffside Roost", blurb: "A rough stone-and-timber roost for the first bonded gryphons.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 850, supply: 0, scale: 1.0, trainSpeed: 1.0 },
+  { level: 2, name: "High Roost", blurb: "Stronger perches and larger mews support a growing flight.", cost: { gold: 230, lumber: 170 }, time: 20 * 46, hp: 1060, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Stone Aviary", blurb: "Stone towers shelter riders, tack and breeding pairs.", cost: { gold: 350, lumber: 250 }, time: 20 * 57, hp: 1320, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "War Roost", blurb: "Armour racks and launch platforms prepare gryphons for battle.", cost: { gold: 500, lumber: 350 }, time: 20 * 70, hp: 1630, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Royal Mews", blurb: "A permanent royal flight with dedicated handlers and healers.", cost: { gold: 680, lumber: 480 }, time: 20 * 85, hp: 1990, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "Sky Barracks", blurb: "Fortified towers and broad launch decks keep elite riders ready.", cost: { gold: 900, lumber: 640 }, time: 20 * 102, hp: 2410, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Storm Roost", blurb: "Arcane wards and hardened stone protect the realm's aerial cavalry.", cost: { gold: 1160, lumber: 820 }, time: 20 * 120, hp: 2890, supply: 0, scale: 1.37, trainSpeed: 1.56 },
+  { level: 8, name: "Master Aviary", blurb: "Master handlers maintain several combat flights at once.", cost: { gold: 1460, lumber: 1030 }, time: 20 * 140, hp: 3430, supply: 0, scale: 1.43, trainSpeed: 1.68 },
+  { level: 9, name: "Sky Citadel", blurb: "A towering fortress-roost dominating the air above the realm.", cost: { gold: 1800, lumber: 1270 }, time: 20 * 162, hp: 4040, supply: 0, scale: 1.49, trainSpeed: 1.8 },
+  { level: 10, name: "Crown of the Skies", blurb: "The ultimate gryphon stronghold, home to the realm's legendary riders.", cost: { gold: 2180, lumber: 1540 }, time: 20 * 186, hp: 4720, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+];
+
 /** Buildings that support levelling, and their tier table. */
 export const LEVELLED: Record<string, LevelDef[]> = {
   townhall: TOWNHALL_LEVELS,
@@ -264,6 +281,7 @@ export const LEVELLED: Record<string, LevelDef[]> = {
   refinery: REFINERY_LEVELS,
   stables: STABLES_LEVELS,
   magetower: MAGETOWER_LEVELS,
+  gryphonaviary: GRYPHONAVIARY_LEVELS,
   farm: FARM_LEVELS,
 };
 
