@@ -15,7 +15,9 @@
     "server:check": "tsc -p server/tsconfig.json --noEmit",
     "test:handling": "node test/handling.mjs",
     "test:human": "node test/humanFaction.mjs",
-    "verify:human": "npm run build && npm run test:human"
+    "verify:human": "npm run build && npm run test:human",
+    "test:animation": "node test/animationCoverage.mjs",
+    "verify:animation": "npm run build && npm run test:animation"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
