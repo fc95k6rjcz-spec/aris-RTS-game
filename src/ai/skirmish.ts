@@ -13,6 +13,7 @@
  */
 
 import { BUILDINGS } from "../data/buildings";
+import { upgradesFor } from "../data/upgrades";
 import { UNITS } from "../data/units";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
@@ -117,6 +118,7 @@ export class SkirmishAI {
     this.keepWorkersBusy(out);
     this.trainUnits(out);
     this.buildSomething(out, tick);
+    this.researchHumanTech(out);
     // Defence first: a warband massing for an attack that ignores an enemy
     // already inside its own base is the single most obviously stupid thing an
     // RTS opponent can do.
@@ -304,6 +306,32 @@ export class SkirmishAI {
       if (headroom < UNITS[unit]!.supply) continue;
       if (!this.world.canAfford(this.player, UNITS[unit]!.cost)) continue;
       out.push({ type: "train", player: this.player, building: b.id, unit });
+    }
+  }
+
+  /**
+   * Spend surplus resources on faction research once the relevant workshop exists.
+   * One command per think pass keeps the AI from emptying its purse in one frame.
+   */
+  private researchHumanTech(out: Command[]): void {
+    const p = this.world.players.get(this.player);
+    if (!p) return;
+    for (const b of this.mine().sort((a, z) => a.id - z.id)) {
+      if (!b.complete || b.research || b.upgrade || b.queue.length > 0) continue;
+      for (const up of upgradesFor(b.def)) {
+        const have = p.research[up.id] ?? 0;
+        if (have >= up.levels.length) continue;
+        const lv = up.levels[have]!;
+        if (!this.world.canAfford(this.player, lv.cost)) continue;
+        // Keep enough cash for at least one ordinary combat unit/building after
+        // research so the AI does not tech itself into paralysis.
+        const reserveGold = 180;
+        const reserveLumber = 120;
+        if ((p.gold ?? 0) - (lv.cost.gold ?? 0) < reserveGold) continue;
+        if ((p.lumber ?? 0) - (lv.cost.lumber ?? 0) < reserveLumber) continue;
+        out.push({ type: "research", player: this.player, building: b.id, upgrade: up.id });
+        return;
+      }
     }
   }
 
