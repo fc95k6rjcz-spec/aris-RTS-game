@@ -128,12 +128,12 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     cost: { gold: 260, lumber: 160 },
     hp: 700,
     buildTime: 20 * 50,
-    trains: [],
+    trains: ["priest"],
     requires: ["townhall"],
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Heals nearby friendly units. Higher tiers heal faster and reach further.",
+    description: "Heals nearby friendly units and trains Priests. Higher tiers heal faster and reach further.",
   },
   oilrig: {
     id: "oilrig",
@@ -194,6 +194,21 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     supply: 0,
     coastal: false,
     description: "Trains Mages and reveals the ground around it. Tiers raise spell power.",
+  },
+  gryphonaviary: {
+    id: "gryphonaviary",
+    name: "Gryphon Aviary",
+    hotkey: "Y",
+    size: 3,
+    cost: { gold: 360, lumber: 260 },
+    hp: 850,
+    buildTime: 20 * 62,
+    trains: ["gryphon"],
+    requires: ["stables", "magetower"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Breeds and equips Gryphon Riders. Requires both cavalry craft and arcane training.",
   },
   foundry: {
     id: "foundry",
@@ -269,5 +284,5 @@ export function buildingName(def: string, faction: string): string {
  * tab away.
  */
 export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower"];
-export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "foundry", "oilrig", "refinery", "airfactory"];
+export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];
