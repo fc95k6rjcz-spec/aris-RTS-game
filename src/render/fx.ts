@@ -76,7 +76,7 @@ export class Fx {
   private strokes = new Map<EntityId, number>();
   private slashes: Slash[] = [];
   private puffs: Puff[] = [];
-  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; t0: number; drift: number }> = [];
+  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; heal: boolean; t0: number; drift: number }> = [];
   corpses: Corpse[] = [];
 
   /** Absorb one tick's worth of events. `tick` is the sim tick they happened on. */
@@ -100,6 +100,7 @@ export class Fx {
             y: e.y,
             text: String(e.amount),
             crit: e.crit,
+            heal: false,
             // Deterministic sideways drift, so simultaneous hits on one target
             // do not stack into an unreadable pile.
             drift: ((this.numbers.length * 37) % 21) - 10,
@@ -117,6 +118,18 @@ export class Fx {
             size: 0.028,
             spread: 0.34,
           });
+          break;
+        case "heal":
+          this.numbers.push({
+            x: e.x,
+            y: e.y,
+            text: `+${e.amount}`,
+            crit: false,
+            heal: true,
+            drift: ((this.numbers.length * 37) % 21) - 10,
+            t0: tick,
+          });
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 12, color: "#8ff0ad", n: 7, size: 0.04, spread: 0.42 });
           break;
         case "death":
           this.corpses.push({ ...e, t0: tick });
@@ -291,7 +304,7 @@ export class Fx {
       ctx.lineWidth = Math.max(2, size * 0.28);
       ctx.strokeStyle = "rgba(0,0,0,0.75)";
       ctx.strokeText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
-      ctx.fillStyle = n.crit ? "#ffd75e" : "#fff1f1";
+      ctx.fillStyle = n.heal ? "#8ff0ad" : n.crit ? "#ffd75e" : "#fff1f1";
       ctx.fillText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
     }
     ctx.globalAlpha = 1;
