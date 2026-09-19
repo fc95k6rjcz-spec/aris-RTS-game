@@ -537,16 +537,30 @@ export class Game {
     }
   }
 
-  /** Click or drag the minimap to move the camera. */
+  /** Left-drag the minimap to move the camera; right-click sends an order. */
   private bindMinimap(mm: HTMLCanvasElement): void {
-    const jump = (e: MouseEvent) => {
+    const point = (e: MouseEvent) => {
       const r = mm.getBoundingClientRect();
-      const fx = (e.clientX - r.left) / Math.max(1, r.width);
-      const fy = (e.clientY - r.top) / Math.max(1, r.height);
-      this.cam.centerOn(fx * this.world.map.width * SUB - this.cam.viewW / this.cam.zoom / 2 * SUB, fy * this.world.map.height * SUB - this.cam.viewH / this.cam.zoom / 2 * SUB);
+      const size = Math.min(r.width, r.height);
+      const ox = (r.width - size) / 2;
+      const oy = (r.height - size) / 2;
+      const fx = Math.max(0, Math.min(1, (e.clientX - r.left - ox) / Math.max(1, size)));
+      const fy = Math.max(0, Math.min(1, (e.clientY - r.top - oy) / Math.max(1, size)));
+      return { x: fx * this.world.map.width * SUB, y: fy * this.world.map.height * SUB };
     };
+    const jump = (e: MouseEvent) => {
+      const p = point(e);
+      this.cam.centerOn(p.x, p.y);
+    };
+    mm.addEventListener("contextmenu", (e) => e.preventDefault());
     mm.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      if (e.button === 2) {
+        const p = point(e);
+        this.contextOrder(p.x, p.y, e.shiftKey);
+        return;
+      }
+      if (e.button !== 0) return;
       jump(e);
       const move = (m: MouseEvent) => jump(m);
       const up = () => {
@@ -606,6 +620,9 @@ export class Game {
     });
     c.addEventListener("mousedown", (e) => this.onMouseDown(e));
     c.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 1) this.panDrag = null;
+    });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
       // On the front screen the wheel scrolls the realm list; there is no camera
