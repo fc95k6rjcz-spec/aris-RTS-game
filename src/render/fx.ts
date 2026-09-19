@@ -22,6 +22,8 @@ const STROKE = 11;
 const NUMBER = 26;
 /** Ticks a body takes to fall, fade and sink. */
 const FALL = 16;
+/** Buildings collapse quickly but leave readable rubble for several seconds. */
+const BUILDING_RUIN = 140;
 /** Ticks the dust ring under a finished building lasts. */
 const DUST = 22;
 
@@ -312,7 +314,8 @@ export class Fx {
 
   /** How far through its fall a corpse is, 0..1, or null once it is gone. */
   fallProgress(c: Corpse, tick: number): number | null {
-    const k = (tick - c.t0) / FALL;
+    const life = c.building ? BUILDING_RUIN : FALL;
+    const k = (tick - c.t0) / life;
     return k < 0 || k > 1 ? null : k;
   }
 
@@ -321,7 +324,7 @@ export class Fx {
     this.slashes = this.slashes.filter((s) => tick - s.t0 <= SLASH);
     this.puffs = this.puffs.filter((p) => tick - p.t0 <= p.life);
     this.numbers = this.numbers.filter((n) => tick - n.t0 <= NUMBER);
-    this.corpses = this.corpses.filter((c) => tick - c.t0 <= FALL);
+    this.corpses = this.corpses.filter((c) => tick - c.t0 <= (c.building ? BUILDING_RUIN : FALL));
     for (const [id, t0] of this.flashes) if (tick - t0 > FLASH) this.flashes.delete(id);
     for (const [id, l] of this.lunges) if (tick - l.t0 > LUNGE) this.lunges.delete(id);
     for (const [id, t0] of this.strokes) if (tick - t0 > STROKE) this.strokes.delete(id);
