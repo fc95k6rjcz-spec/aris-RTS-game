@@ -354,6 +354,45 @@ const shipyard: Drawer = (a) => {
   flag(a, 0.8, 0.12, 0.1, a.color);
 };
 
+/** Gryphon Aviary: a fortified blue-roofed roost with open launch platforms. */
+const gryphonaviary: Drawer = (a) => {
+  shadow(a, 0.08, 0.16, 0.84, 0.78);
+  // Stone lower hall.
+  stoneWall(a, 0.12, 0.55, 0.76, 0.34, "#85817a");
+  door(a, 0.43, 0.71, 0.14, 0.18);
+  // Twin roost towers.
+  for (const x of [0.16, 0.66]) {
+    stoneWall(a, x, 0.28, 0.18, 0.34, "#9a9489");
+    roof(a, x - 0.035, 0.12, 0.25, 0.2, shade(a.color, -0.05));
+    flag(a, x + 0.09, 0.04, 0.11, a.color);
+    // Open perch.
+    rect(a, x + 0.025, 0.39, 0.13, 0.075, "#241d18");
+    line(a, x - 0.02, 0.49, x + 0.2, 0.49, "#c9a469", 1.4);
+  }
+  // Central launch deck with timber braces.
+  gradRect(a, 0.3, 0.46, 0.4, 0.11, "#87643b", "#5d4229");
+  for (let i = 0; i < 5; i++) line(a, 0.31 + i * 0.095, 0.47, 0.31 + i * 0.095, 0.56, "rgba(30,20,12,0.45)", 0.6);
+  line(a, 0.32, 0.57, 0.26, 0.78, "#5a3d24", 1.5);
+  line(a, 0.68, 0.57, 0.74, 0.78, "#5a3d24", 1.5);
+  // Gold wing emblem over the doorway.
+  a.ctx.strokeStyle = "#d7b64d";
+  a.ctx.lineWidth = Math.max(1.2, a.w * 0.018);
+  a.ctx.beginPath();
+  a.ctx.moveTo(a.x + 0.5 * a.w, a.y + 0.65 * a.w);
+  a.ctx.quadraticCurveTo(a.x + 0.39 * a.w, a.y + 0.6 * a.w, a.x + 0.35 * a.w, a.y + 0.66 * a.w);
+  a.ctx.moveTo(a.x + 0.5 * a.w, a.y + 0.65 * a.w);
+  a.ctx.quadraticCurveTo(a.x + 0.61 * a.w, a.y + 0.6 * a.w, a.x + 0.65 * a.w, a.y + 0.66 * a.w);
+  a.ctx.stroke();
+  // Perch silhouettes.
+  for (const x of [0.24, 0.76]) {
+    a.ctx.fillStyle = "#4a3422";
+    a.ctx.beginPath();
+    a.ctx.arc(a.x + x * a.w, a.y + 0.25 * a.w, 0.032 * a.w, 0, Math.PI * 2);
+    a.ctx.fill();
+    line(a, x - 0.04, 0.29, x + 0.04, 0.29, "#4a3422", 1.2);
+  }
+};
+
 /** Legacy single-style drawers, kept for reference. */
 export const CLASSIC_ART: Record<string, Drawer> = { townhall, lumbermill, barracks, shipyard };
 
@@ -362,7 +401,10 @@ const styled =
   (def: string): Drawer =>
   (a) =>
     STYLED_BUILDINGS[def]!(a, STYLE_BY_ID[BUILDING_STYLE[def] ?? "A"] ?? STYLES[0]!);
-const HUMAN_ART: Record<string, Drawer> = Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)]));
+const HUMAN_ART: Record<string, Drawer> = {
+  ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
+  gryphonaviary,
+};
 
 /** Art sets per faction. A faction with no set of its own falls back to the Human one. */
 export const FACTION_ART: Record<string, Record<string, Drawer>> = {
@@ -379,29 +421,62 @@ export function artFor(faction: string, def: string): Drawer | undefined {
  */
 export function drawConstruction(a: ArtCtx): void {
   const c = a.ctx;
-  const p = a.progress;
-  // Foundation: cleared earth + stakes.
+  const p = Math.max(0, Math.min(1, a.progress));
+
+  // Stage 1 — cleared ground, footings and delivered material.
   gradRect(a, 0.02, 0.06, 0.96, 0.92, "#6a5236", "#4d3a25");
   for (let i = 0; i < 4; i++) {
     rect(a, 0.04 + i * 0.3, 0.06, 0.03, 0.06, "#c9a469");
     rect(a, 0.04 + i * 0.3, 0.92, 0.03, 0.06, "#c9a469");
   }
-  // Finished body clipped to the built fraction, rising from the ground.
-  if (p > 0.15) {
-    const built = (p - 0.15) / 0.85;
+  // Stone pallets and timber stacks disappear as the structure consumes them.
+  if (p < 0.78) {
+    const fade = 1 - p / 0.78;
+    c.save();
+    c.globalAlpha = 0.35 + fade * 0.65;
+    for (let i = 0; i < 4; i++) rect(a, 0.08 + i * 0.075, 0.82 - (i % 2) * 0.035, 0.06, 0.04, "#898176");
+    for (let i = 0; i < 3; i++) line(a, 0.7, 0.84 + i * 0.035, 0.92, 0.8 + i * 0.035, "#6b4a2b", 1.5);
+    c.restore();
+  }
+
+  // Stage 2/3/4 — the real finished design rises through the frame rather than
+  // being swapped in at the end, so every building visibly becomes itself.
+  if (p > 0.22) {
+    const built = Math.min(1, (p - 0.22) / 0.73);
     c.save();
     c.beginPath();
-    c.rect(a.x - 0.15 * a.w, a.y + (1 - built) * a.w - 0.02 * a.w, a.w * 1.3, built * a.w + 0.2 * a.w);
+    c.rect(a.x - 0.16 * a.w, a.y + (1 - built) * a.w - 0.04 * a.w, a.w * 1.32, built * a.w + 0.22 * a.w);
     c.clip();
     artFor(a.faction, a.def)?.({ ...a, progress: 1 });
     c.restore();
   }
-  // Scaffold: poles and cross braces over everything not yet built.
-  const pole = "#c9a469";
-  for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
-  for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
-  line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
-  line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
-  line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
-  line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+
+  // Timber structural frame becomes dominant in the middle of the build.
+  if (p > 0.08 && p < 0.9) {
+    const frameAlpha = p < 0.5 ? 0.95 : Math.max(0.2, 1 - (p - 0.5) / 0.5);
+    c.save();
+    c.globalAlpha = frameAlpha;
+    const beam = "#8b663d";
+    for (const fx of [0.12, 0.34, 0.56, 0.78, 0.94]) line(a, fx, 0.2, fx, 0.94, beam, 1.8);
+    line(a, 0.1, 0.52, 0.95, 0.52, beam, 1.5);
+    line(a, 0.1, 0.78, 0.95, 0.78, beam, 1.5);
+    line(a, 0.12, 0.22, 0.56, 0.52, beam, 1.1);
+    line(a, 0.56, 0.22, 0.94, 0.52, beam, 1.1);
+    c.restore();
+  }
+
+  // External scaffolding stays longest and comes down in the final 15%.
+  if (p < 0.95) {
+    const pole = "#c9a469";
+    const scaffoldAlpha = p < 0.75 ? 1 : Math.max(0.15, (0.95 - p) / 0.2);
+    c.save();
+    c.globalAlpha = scaffoldAlpha;
+    for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
+    for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
+    line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
+    line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
+    line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
+    line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+    c.restore();
+  }
 }

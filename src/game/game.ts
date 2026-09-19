@@ -801,6 +801,9 @@ export class Game {
     // Id is the tie-breaker, making repeated orders stable rather than shuffling.
     const role = (u: Unit): number => {
       const d = UNITS[u.def]!;
+      // Support stays furthest back; it should never be sorted into the melee
+      // line merely because its attack range is zero.
+      if ((d.heal ?? 0) > 0) return 5;
       if (d.domain === "air") return 3;
       if (d.range >= 4) return 3;
       if (d.range >= 2) return 2;

@@ -143,6 +143,7 @@ export interface WorldEvent {
 export type FxEvent =
   | { kind: "attack"; x: number; y: number; tx: number; ty: number; def: string; ranged: boolean }
   | { kind: "hit"; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
+  | { kind: "heal"; id: EntityId; x: number; y: number; amount: number }
   | { kind: "death"; x: number; y: number; def: string; owner: PlayerId; facing: number; building: boolean }
   | { kind: "built"; x: number; y: number; def: string }
   /** Ground broken: the moment a site is pegged out and the crew start. */
@@ -1092,16 +1093,10 @@ export class World {
         const table = LEVELLED[b.def];
         if (!table) break;
         if (b.research) {
-      if (--b.research.remaining <= 0) {
-        const up = UPGRADES[b.research.id]!;
-        const p = this.players.get(b.owner)!;
-        p.research[up.id] = b.research.toLevel;
-        this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
-        b.research = null;
-      }
-      return; // researching halts training, as upgrading does
-    }
-    if (b.upgrade) {
+          this.emit(c.player, "Already researching");
+          break;
+        }
+        if (b.upgrade) {
           this.emit(c.player, "Already upgrading");
           break;
         }
@@ -1350,11 +1345,62 @@ export class World {
     return e.kind === "unit" ? SUB * 0.35 : (e.size * SUB) / 2;
   }
 
-  /** A unit's damage, range and armour after its owner's researched upgrades. */
+  /** Strongest completed Mage Tower focus owned by a player. */
+  private spellPower(player: PlayerId): number {
+    let best = 0;
+    for (const b of this.buildings()) {
+      if (b.owner !== player || b.def !== "magetower" || !b.complete) continue;
+      best = Math.max(best, levelDef("magetower", b.level).spellPower ?? 0);
+    }
+    return best;
+  }
+
+  /** A unit's damage, range and armour after research and faction infrastructure. */
   stats(u: Unit): { damage: number; range: number; armour: number } {
     const d = UNITS[u.def]!;
     const b = researchBonus(u.def, this.players.get(u.owner)?.research ?? {});
-    return { damage: d.damage + b.damage, range: d.range + b.range, armour: d.armour + b.armour };
+    let damage = d.damage + b.damage;
+    let range = d.range + b.range;
+    if (u.def === "mage") {
+      const power = this.spellPower(u.owner);
+      damage *= 1 + power;
+      range += power * 0.45;
+    }
+    return { damage, range, armour: d.armour + b.armour };
+  }
+
+  /** Priest healing after Church research. */
+  private healingStats(u: Unit): { heal: number; range: number } {
+    const d = UNITS[u.def]!;
+    const b = researchBonus(u.def, this.players.get(u.owner)?.research ?? {});
+    return { heal: (d.heal ?? 0) + b.heal, range: (d.healRange ?? 0) + b.healRange };
+  }
+
+  /** Heal the most wounded ally in reach. Returns true if a heal was cast. */
+  private tryHeal(u: Unit): boolean {
+    const st = this.healingStats(u);
+    if (st.heal <= 0 || st.range <= 0 || u.cooldown > 0) return false;
+    let best: Unit | null = null;
+    let bestFrac = 2;
+    let bestD = Infinity;
+    const r = st.range * SUB;
+    for (const ally of this.units()) {
+      if (ally.owner !== u.owner || ally.id === u.id || ally.hp >= ally.maxHp) continue;
+      const d = Math.hypot(ally.pos.x - u.pos.x, ally.pos.y - u.pos.y);
+      if (d > r) continue;
+      const frac = ally.hp / Math.max(1, ally.maxHp);
+      if (frac < bestFrac || (frac === bestFrac && d < bestD) || (frac === bestFrac && d === bestD && best && ally.id < best.id)) {
+        best = ally;
+        bestFrac = frac;
+        bestD = d;
+      }
+    }
+    if (!best) return false;
+    const amount = Math.min(st.heal, best.maxHp - best.hp);
+    best.hp += amount;
+    u.cooldown = UNITS[u.def]!.cooldown;
+    this.fx.push({ kind: "heal", id: best.id, x: best.pos.x, y: best.pos.y, amount });
+    return true;
   }
 
   private hostile(a: Entity, b: Entity): boolean {
@@ -1423,8 +1469,7 @@ export class World {
    * lockstep play. A random source outside the sim would desync the game the
    * first time two players fought.
    */
-  private damage(target: Entity, amount: number, attacker: Unit): void {
-    const spread = UNITS[attacker.def]!.spread ?? 0.3;
+  private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3): void {
     const swing = 1 + spread * (this.rng.next() * 2 - 1);
     const crit = this.rng.next() < CRIT_CHANCE;
     const rolled = amount * swing * (crit ? CRIT_MULTIPLIER : 1);
@@ -1443,25 +1488,27 @@ export class World {
       facing: target.kind === "unit" ? target.facing : 6,
       building: target.kind === "building",
     });
-    // Meat. A hunted animal pays in food rather than in coin, which is what
-    // makes hunting an economy and not just a way to make the map safer.
     const meat = target.kind === "unit" ? UNITS[target.def]!.food : undefined;
     if (meat) {
-      const p = this.players.get(attacker.owner);
+      const p = this.players.get(attackerOwner);
       if (p) p.food += meat;
-      this.emit(attacker.owner, `${UNITS[target.def]!.name} taken — ${meat} food`, "info");
+      this.emit(attackerOwner, `${UNITS[target.def]!.name} taken — ${meat} food`, "info");
     }
     const bounty = target.kind === "unit" ? UNITS[target.def]!.bounty : undefined;
     if (bounty) {
-      const p = this.players.get(attacker.owner);
+      const p = this.players.get(attackerOwner);
       if (p) p.gold += bounty;
-      this.emit(attacker.owner, `${UNITS[target.def]!.name} killed — ${bounty} gold for the hide`, "info");
+      this.emit(attackerOwner, `${UNITS[target.def]!.name} killed — ${bounty} gold for the hide`, "info");
     }
     if (target.kind === "building") {
       this.emit(target.owner, `${BUILDINGS[target.def]!.name} destroyed`);
-      this.emit(attacker.owner, `${BUILDINGS[target.def]!.name} destroyed`, "info");
+      this.emit(attackerOwner, `${BUILDINGS[target.def]!.name} destroyed`, "info");
     }
     this.removeEntity(target.id);
+  }
+
+  private damage(target: Entity, amount: number, attacker: Unit): void {
+    this.dealDamage(target, amount, attacker.owner, UNITS[attacker.def]!.spread ?? 0.3);
   }
 
   /**
@@ -1500,7 +1547,22 @@ export class World {
     if (u.cooldown > 0) return true;
     u.cooldown = def.cooldown;
     this.fx.push({ kind: "attack", x: u.pos.x, y: u.pos.y, tx: p.x, ty: p.y, def: u.def, ranged: st.range > 1.5 });
+
+    // Mage bolts are the Human faction's crowd-control damage: the main target
+    // takes the full spell and nearby hostiles take a smaller arcane splash.
+    // Mage Tower spellPower grows both the main hit and the splash radius.
+    const splash =
+      u.def === "mage"
+        ? [...this.entities.values()].filter((e) => {
+            if (e.id === target.id || !this.hostile(u, e) || !this.canStrike(u, e)) return false;
+            const q = this.posOf(e);
+            const radius = (1.15 + this.spellPower(u.owner) * 0.28) * SUB;
+            return Math.hypot(q.x - p.x, q.y - p.y) <= radius;
+          })
+        : [];
     this.damage(target, st.damage, u);
+    for (const e of splash) if (this.entities.has(e.id)) this.damage(e, st.damage * 0.38, u);
+
     if (st.range > 1.5) {
       this.projectiles.push({
         from: { x: u.pos.x, y: u.pos.y },
@@ -1694,12 +1756,14 @@ export class World {
 
   private stepUnit(u: Unit): void {
     if (u.cooldown > 0) u.cooldown--;
+    const supportCast = this.tryHeal(u);
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) this.stepBeast(u);
     const t = u.task;
     switch (t.kind) {
       case "idle": {
-        // Standing units defend themselves and anything beside them.
+        // Priests hold the line while casting; combat units defend themselves.
+        if (supportCast) return;
         const foe = this.autoAcquire(u);
         if (foe) this.tryAttack(u, foe);
         return;
@@ -2079,6 +2143,38 @@ export class World {
     }
     // A completed Church mends friendly units standing within its radius.
     const lv = LEVELLED[b.def] ? levelDef(b.def, b.level) : null;
+
+    // Watch Towers become genuine defensive structures rather than expensive
+    // vision posts. Higher tiers shoot farther, harder and more frequently.
+    if (b.def === "tower") {
+      const level = Math.max(1, b.level);
+      const range = (4.5 + level * 0.55) * SUB;
+      const interval = Math.max(18, 44 - level * 2);
+      if (this.tick % interval === b.id % interval) {
+        const origin = centerOf(b);
+        let target: Entity | null = null;
+        let bestD = Infinity;
+        for (const e of this.entities.values()) {
+          // Only fire on another actual player. Wildlife remains wildlife rather
+          // than causing every border tower to spend the match shooting deer.
+          if (e.owner === b.owner || !this.players.has(e.owner)) continue;
+          if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
+          const p = this.posOf(e);
+          const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
+          if (d > range || d >= bestD) continue;
+          bestD = d;
+          target = e;
+        }
+        if (target) {
+          const p = this.posOf(target);
+          const damage = 8 + level * 4;
+          this.fx.push({ kind: "attack", x: origin.x, y: origin.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
+          this.projectiles.push({ from: origin, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
+          this.dealDamage(target, damage, b.owner, 0.18);
+        }
+      }
+    }
+
     if (lv?.heal && lv.radius) {
       const c = centerOf(b);
       const r2 = (lv.radius * SUB) ** 2;
