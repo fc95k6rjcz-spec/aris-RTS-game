@@ -587,6 +587,33 @@ export function drawConstruction(a: ArtCtx): void {
     line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
     line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
     line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+
+    // Moving hoist: every construction site has one visible piece of machinery
+    // in motion, so an unfinished building never reads like a static overlay.
+    const sway = Math.sin(a.tick * 0.12) * 0.035;
+    const lift = 0.22 + (Math.sin(a.tick * 0.09 + 1.7) + 1) * 0.12;
+    line(a, 0.84, 0.08, 0.62 + sway, 0.22, "#6b4a2b", 1.5);
+    line(a, 0.62 + sway, 0.22, 0.62 + sway, lift, "#ddd0b2", 0.75);
+    rect(a, 0.595 + sway, lift, 0.05, 0.035, "#75624b");
+
+    // Tiny hammer sparks during the middle stages.
+    if (p > 0.18 && p < 0.88) {
+      c.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        const k = ((a.tick * 0.08 + i * 0.31) % 1 + 1) % 1;
+        c.globalAlpha = scaffoldAlpha * (1 - k);
+        c.fillStyle = "#ffd36b";
+        c.beginPath();
+        c.arc(
+          a.x + (0.48 + Math.sin(i * 2.1) * 0.05) * a.w,
+          a.y + (0.69 - k * 0.13) * a.w,
+          Math.max(1, a.w * 0.008),
+          0,
+          Math.PI * 2,
+        );
+        c.fill();
+      }
+    }
     c.restore();
   }
 }
