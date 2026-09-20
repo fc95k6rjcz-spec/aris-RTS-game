@@ -28,6 +28,19 @@ try {
   await page.screenshot({ path: "test/artifacts/townhall-cards.png" });
   await page.evaluate(() => {
     const g = window.game;
+    const worker = g.world.units().find(u => u.owner === 1 && u.def === "worker");
+    g.selected = new Set([worker.id]);
+    g.tab = "advanced";
+  });
+  await page.waitForTimeout(300);
+  const advanced = await page.locator(".rv-tile").evaluateAll(nodes => nodes.map(n => ({
+    image: getComputedStyle(n).backgroundImage, label: n.textContent,
+  })));
+  assert.equal(advanced.length, 9);
+  assert(advanced.every(c => c.image !== "none"), "every Advanced card needs art");
+  await page.screenshot({ path: "test/artifacts/advanced-building-cards.png" });
+  await page.evaluate(() => {
+    const g = window.game;
     g.tick = () => {};
     g.world.fogEnabled = false;
     g.world.tick = 1200;
