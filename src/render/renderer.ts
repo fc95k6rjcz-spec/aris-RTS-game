@@ -18,6 +18,7 @@ import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { AnimationClock, anySheets, clipFor, frameAt, sheetFor, stateFor, type AnimState } from "./anim";
 import { motionFor } from "./motion";
+import { constructionSheet, drawFoundingHall } from "./construction";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
@@ -1074,7 +1075,7 @@ export class Renderer {
     const faction = this.world.players.get(b.owner)!.faction;
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level };
     if (!b.complete) {
-      drawConstruction(art);
+      if (!(faction === "human" && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress))) drawConstruction(art);
       this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
     } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
       artFor(faction, b.def)?.(art);
@@ -1489,6 +1490,13 @@ export class Renderer {
    */
   private indoors(u: Unit): boolean {
     const t = u.task;
+    // The construction sheet depicts the royal builder at the work site.
+    // Keep the real entity selectable but avoid drawing a second king.
+    if (t.kind === "build" && UNITS[u.def]!.royal && u.path.length === 0) {
+      const b = this.world.entities.get(t.building);
+      if (b?.kind === "building" && b.def === "townhall" && !b.complete && b.builders > 0
+        && this.world.players.get(u.owner)?.faction === "human" && constructionSheet()) return true;
+    }
     if (t.kind !== "gather") return false;
     // Down the shaft, or through the door with a load.
     return (t.phase === "harvest" && t.resource === "gold") || t.phase === "deposit";

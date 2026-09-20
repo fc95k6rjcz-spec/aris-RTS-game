@@ -26,6 +26,23 @@ try {
   assert(cards.some(c => c.text.includes("Worker")) && cards.some(c => c.text.includes("Prince")));
   mkdirSync("test/artifacts", { recursive: true });
   await page.screenshot({ path: "test/artifacts/townhall-cards.png" });
+  await page.evaluate(() => {
+    const g = window.game;
+    g.tick = () => {};
+    g.world.fogEnabled = false;
+    g.world.tick = 1200;
+    const b = g.world.buildings().find(b => b.owner === 1 && b.def === "townhall");
+    b.complete = false;
+    b.progress = window.rts.BUILDINGS.townhall.buildTime * 0.45;
+    b.builders = 1;
+    const king = g.world.units().find(u => u.owner === 1 && u.def === "king");
+    king.task = { kind: "build", building: b.id };
+    king.path = [];
+    g.cam.zoom = 52;
+    g.cam.centerOn((b.tx + 2) * 64, (b.ty + 2) * 64);
+  });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: "test/artifacts/king-building-townhall.png" });
   const audio = await page.evaluate(async () => {
     const g = window.game;
     const result = {};
