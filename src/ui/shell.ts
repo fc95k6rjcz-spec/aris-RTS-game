@@ -297,15 +297,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-tile.art::after { bottom: 0; height: 42%; background: linear-gradient(0deg, rgba(8,8,10,0.9) 0%, rgba(8,8,10,0.4) 60%, rgba(8,8,10,0) 100%); }
 .rv-tile.art .lb, .rv-tile.art .ft { position: relative; z-index: 1; }
 .rv-tile.art .lb { text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.rv-tile.unit-art { background-size: auto 100%; background-repeat: no-repeat; background-position: center; }
-.rv-tile.art.off { filter: grayscale(0.75) brightness(0.55); }
+.rv-tile.unit-art { background-size: cover; background-repeat: no-repeat; background-position: center 32%; }
+.rv-tile.art.off { filter: grayscale(0.45) brightness(0.85); }
 .rv-tile .lb { font-size: 11px; line-height: 1.25; letter-spacing: 0.04em; }
 .rv-tile .ft { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .rv-tile .ct { font-size: 9px; font-variant-numeric: tabular-nums; color: #b6ae9c; }
 .rv-tile .ky { font-size: 9px; font-weight: 600; color: var(--gold); }
 .rv-tile:hover { border-color: var(--gold); }
 .rv-tile.off {
-  background: rgba(255,255,255,0.025); border-color: rgba(255,255,255,0.08);
+  background-color: rgba(255,255,255,0.025); border-color: rgba(255,255,255,0.08);
   color: #8b8676; cursor: not-allowed;
 }
 .rv-tile.off .ct, .rv-tile.off .ky { color: var(--fainter); }
@@ -668,3 +668,4 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
     },
   };
 }
+

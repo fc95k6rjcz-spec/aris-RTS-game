@@ -10,6 +10,15 @@
  */
 
 import type { HudButton } from "./hud";
+import { artFor } from "../render/buildingArt";
+import church from "../assets/church_1.png";
+import stables from "../assets/stables_1.png";
+import shipyard from "../assets/shipyard_1.png";
+import magetower from "../assets/magetower_1.png";
+import foundry from "../assets/foundry_1.png";
+import oilrig from "../assets/oilrig_1.png";
+import refinery from "../assets/refinery_1.png";
+import airfactory from "../assets/airfactory_1.png";
 
 import townhall from "../assets/ui/townhall.jpg";
 import farm from "../assets/ui/farm.jpg";
@@ -24,7 +33,19 @@ import portraitWorker from "../assets/ui/portrait_worker.jpg";
 import portraitKing from "../assets/ui/portrait_king.jpg";
 import bannerHumanSrc from "../assets/ui/banner_human.jpg";
 
-const BUILDING: Record<string, string> = { townhall, farm, lumbermill, golddepot, barracks, tower };
+const BUILDING: Record<string, string> = { townhall, farm, lumbermill, golddepot, barracks, tower,
+  church, stables, shipyard, magetower, foundry, oilrig, refinery, airfactory };
+
+function buildingArt(def: string): string | null {
+  if (BUILDING[def]) return BUILDING[def]!;
+  const draw = artFor("human", def);
+  if (!draw) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+  draw({ ctx, faction: "human", def, x: 16, y: 12, w: 224, color: "#3b82f6", progress: 1, tick: 0, level: 1 });
+  return BUILDING[def] = canvas.toDataURL();
+}
 
 /** The picture for a command tile, or null for the ones not yet painted. */
 export function commandArt(a: HudButton["action"]): string | null {
@@ -32,7 +53,7 @@ export function commandArt(a: HudButton["action"]): string | null {
     case "train":
       return portraitArt(a.def);
     case "build":
-      return BUILDING[a.def] ?? null;
+      return buildingArt(a.def);
     case "attack":
       return orderAttack;
     case "stop":
