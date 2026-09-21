@@ -92,7 +92,7 @@ const HEIGHT: Record<string, number> = {
   knight: 1.72,
   mage: 1.55,
   priest: 1.55,
-  king: 1.68,
+  king: 1.4,
   prince: 1.62,
   ballista: 1.35,
   cannon: 1.4,
@@ -170,3 +170,4 @@ export function registerSheets(): void {
     });
   }
 }
+

@@ -14,7 +14,7 @@
  */
 
 /** How far a leg swings at the top of its arc, in radians. */
-export const LEG_SWING = 0.17;
+export const LEG_SWING = 0.055;
 
 export interface Gait {
   /** Pixels to raise the sprite. */
@@ -53,11 +53,11 @@ export function gait(phase: number, moving: boolean, s: number, heavy = false): 
   // Weight lands at the bottom of the rise, so squash is strongest there.
   const land = 1 - rise;
   return {
-    lift: rise * s * 0.055,
-    lean: sway * 0.045,
-    sx: 1 + land * 0.045,
-    sy: 1 - land * 0.05,
-    shadow: 1 - rise * 0.22,
+    lift: rise * s * 0.023,
+    lean: sway * 0.012,
+    sx: 1 + land * 0.01,
+    sy: 1 - land * 0.012,
+    shadow: 1 - rise * 0.1,
   };
 }
 
@@ -146,3 +146,4 @@ export function drawWalk(
     ctx.restore();
   }
 }
+

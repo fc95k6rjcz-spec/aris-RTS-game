@@ -51,6 +51,8 @@ function buildingArt(def: string): string | null {
 /** The picture for a command tile, or null for the ones not yet painted. */
 export function commandArt(a: HudButton["action"]): string | null {
   switch (a.type) {
+    case "battleRally":
+      return portraitKing;
     case "train":
       return portraitArt(a.def);
     case "build":
@@ -79,3 +81,4 @@ export function portraitArt(def: string): string | null {
 }
 
 export const bannerHuman = bannerHumanSrc;
+

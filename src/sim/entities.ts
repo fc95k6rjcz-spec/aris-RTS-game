@@ -37,6 +37,10 @@ export interface Unit {
   cooldown: number;
   /** What it is currently shooting at, for auto-acquired targets. */
   engaging: EntityId | null;
+  ralliedUntil?: number;
+  rallyReadyAt?: number;
+  patrolHome?: Vec;
+  patrolBand?: number;
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */
@@ -90,3 +94,4 @@ export type Entity = Unit | Building;
 export function centerOf(b: Building): Vec {
   return { x: (b.tx + b.size / 2) * 64, y: (b.ty + b.size / 2) * 64 };
 }
+

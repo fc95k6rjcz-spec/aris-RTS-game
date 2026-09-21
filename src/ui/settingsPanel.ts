@@ -151,7 +151,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     return sync;
   };
 
-  const check = (parent: HTMLElement, label: string, key: "muted" | "music" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
+  const check = (parent: HTMLElement, label: string, key: "voices" | "muted" | "music" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
     const r = row(parent, label);
     const input = el("input");
     input.type = "checkbox";
@@ -170,6 +170,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
 
   const audio = group("Audio");
   syncs.push(check(audio, "Mute", "muted"));
+  syncs.push(check(audio, "Character voices", "voices", "Occasional short callouts. At least 45 seconds between lines."));
   syncs.push(slider(audio, "Master volume", "volume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
   syncs.push(slider(audio, "Effects", "sfxVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
   syncs.push(check(audio, "Score", "music"));
@@ -362,3 +363,4 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
 
   return api;
 }
+

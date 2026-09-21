@@ -3,7 +3,7 @@ import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
 import { LEVELLED, levelDef } from "../data/levels";
 import type { Building, Unit } from "../sim/entities";
-import type { World } from "../sim/world";
+import { ROYAL_LICENCE, type World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
 import { buildingIcon } from "../render/sprites";
 import { WEAPON_OF } from "../sim/relic";
@@ -102,6 +102,7 @@ export interface HudButton {
     | { type: "train"; def: string }
     | { type: "cancelBuild" }
     | { type: "stop" }
+    | { type: "battleRally" }
     | { type: "cancelTrain"; index: number }
     | { type: "upgrade" }
     | { type: "cancelUpgrade" }
@@ -152,7 +153,8 @@ export function layoutButtons(world: World, player: PlayerId, selUnits: Unit[], 
     const list = page === "advanced" ? BUILD_ADVANCED : BUILD_BASIC;
     list.forEach((id, i) => {
       const d = BUILDINGS[id]!;
-      const missing = d.requires.find((r) => !world.hasBuilding(player, r));
+      const royal = builders.some(u => !!UNITS[u.def]!.royal);
+        const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
       const afford = world.canAfford(player, d.cost);
       const nm = buildingName(id, world.players.get(player)!.faction);
       const tip = `${nm} — ${cost(d.cost)} · ${d.description}${missing ? ` (requires ${buildingName(missing, world.players.get(player)!.faction)})` : ""}`;
@@ -572,6 +574,11 @@ function costLine(c: { gold: number; lumber: number; oil?: number; food?: number
 export function commandSets(world: World, player: PlayerId, selUnits: Unit[], selBuildings: Building[]): CommandSets {
   const faction = world.players.get(player)!.faction;
   const orders: CommandEntry[] = [];
+  const king = selUnits.find(u => u.def === "king" && u.owner === player);
+  if (king) {
+    const left = Math.max(0, Math.ceil(((king.rallyReadyAt ?? 0) - world.tick) / 20));
+    orders.push({ label: left ? 'Rally (' + left + 's)' : "Rally the Men", cost: null, hotkey: "R", enabled: !left, description: "Nearby troops gain 25% damage for 12 seconds. Range: 6 tiles. Cooldown: 60 seconds.", action: { type: "battleRally" } });
+  }
   const builders = selUnits.filter((u) => UNITS[u.def]!.canBuild);
 
   if (selUnits.length > 0) {
@@ -588,7 +595,8 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
     const list = (ids: readonly string[]): CommandEntry[] =>
       ids.map((id) => {
         const d = BUILDINGS[id]!;
-        const missing = d.requires.find((r) => !world.hasBuilding(player, r));
+        const royal = builders.some(u => !!UNITS[u.def]!.royal);
+        const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
         const afford = world.canAfford(player, d.cost);
         const nm = buildingName(id, faction);
         const why = missing
@@ -652,3 +660,4 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
 
   return { tabs: [{ id: "orders", label: "Orders" }], byTab: { build: [], advanced: [], orders } };
 }
+
