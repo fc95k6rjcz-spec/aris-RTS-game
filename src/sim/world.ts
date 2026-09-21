@@ -98,7 +98,7 @@ const FOLLOWERS_LATER = 3;
 const FOLLOWER_GAP = 20 * 40;
 
 /** What a King may raise without the usual chain of buildings behind it. */
-const ROYAL_LICENCE = new Set(["tower"]);
+export const ROYAL_LICENCE = new Set(["tower", "wall"]);
 
 /** The owner every wild animal belongs to. Hostile to all, wins nothing. */
 export const WILD: PlayerId = 9;
@@ -150,6 +150,7 @@ export type FxEvent =
   | { kind: "buildStart"; x: number; y: number; def: string }
   | { kind: "deposit"; x: number; y: number; resource: "gold" | "lumber" }
   | { kind: "chop"; id: EntityId; x: number; y: number }
+  | { kind: "battleRally"; x: number; y: number; owner: PlayerId }
   | { kind: "crowned"; x: number; y: number; owner: PlayerId };
 
 /**
@@ -285,6 +286,7 @@ export class World {
       h = Math.imul(h, 16777619) >>> 0;
     };
     mix(this.tick);
+    mix(this.patrolsEnabled ? 1 : 0);
     for (const id of [...this.entities.keys()].sort((a, b) => a - b)) {
       const e = this.entities.get(id)!;
       mix(id);
@@ -295,6 +297,9 @@ export class World {
         mix(e.hp);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
+        mix(e.ralliedUntil ?? 0);
+        mix(e.rallyReadyAt ?? 0);
+        mix(e.patrolBand ?? 0);
         mix(e.moveQueue.length);
         for (const q of e.moveQueue) {
           mix(q.x);
@@ -424,6 +429,46 @@ export class World {
    */
   private readonly grinding = new Map<number, number>();
   /** Where each wild animal was born, so it has somewhere to wander around. */
+  patrolsEnabled = false;
+
+  /** Safe camps, initially pairs, growing to bands of eight after nine minutes. */
+  private stepPatrols(): void {
+    const first = this.paced(90 * TICKS_PER_SECOND), gap = this.paced(150 * TICKS_PER_SECOND);
+    if (!this.patrolsEnabled || this.tick < first || (this.tick - first) % gap !== 0 || !this.players.has(WILD)) return;
+    const alive = this.units().filter(u => u.def === "barbarian").length;
+    const size = Math.min(8, 2 + Math.floor((this.tick - first) / gap) * 2, 24 - alive);
+    if (size <= 0) return;
+    for (let attempt = 0; attempt < 160; attempt++) {
+      const x = 4 + this.rng.int(this.map.width - 8), y = 4 + this.rng.int(this.map.height - 8);
+      if (this.map.starts.some(s => Math.hypot(s.x - x,s.y - y) < 20)) continue;
+      if (this.buildings().some(b => b.owner !== WILD && Math.hypot(b.tx - x,b.ty - y) < 12)) continue;
+      if ([...this.vision].some(([id,v]) => id !== WILD && v.at(x,y) === 2)) continue;
+      const spots: Array<{x:number;y:number}> = [];
+      for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) {
+        if(this.map.isWalkable(x+dx,y+dy,"land")) spots.push({x:(x+dx+.5)*SUB,y:(y+dy+.5)*SUB});
+      }
+      if(spots.length < size) continue;
+      for(let i=0;i<size;i++) {
+        const u=this.spawnUnit(WILD,"barbarian",spots[i]!);
+        u.patrolHome={x:(x+.5)*SUB,y:(y+.5)*SUB}; u.patrolBand=this.tick;
+      }
+      return;
+    }
+  }
+
+  isSheltered(u: Unit): boolean {
+    return this.buildings().some(b => b.owner === u.owner && b.def === "shelter" && b.complete
+      && Math.hypot(u.pos.x / SUB - b.tx - b.size/2, u.pos.y / SUB - b.ty - b.size/2) <= 3);
+  }
+
+  private stepShelters(): void {
+    if(this.tick % TICKS_PER_SECOND !== 0 || this.rain < .15) return;
+    for(const u of this.units()) if(u.task.kind === "idle" && !u.engaging && u.hp < u.maxHp && this.isSheltered(u)) {
+      u.hp = Math.min(u.maxHp,u.hp+1);
+      this.fx.push({kind:"heal",id:u.id,x:u.pos.x,y:u.pos.y,amount:1});
+    }
+  }
+
   private readonly lairs = new Map<EntityId, { x: number; y: number }>();
 
   /**
@@ -571,6 +616,7 @@ export class World {
    * and four cows are a reason to build a road.
    */
   spawnWildlife(count: number): void {
+    this.patrolsEnabled = true;
     const home: Array<{ x: number; y: number }> = [];
     for (let attempt = 0; attempt < count * 40 && home.length < count; attempt++) {
       const tx = 2 + this.rng.int(this.map.width - 4);
@@ -610,6 +656,7 @@ export class World {
    */
   private stepBeast(u: Unit): void {
     const def = UNITS[u.def]!;
+    if (u.def === "barbarian") { this.stepBarbarian(u); return; }
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
       const t = u.task.kind === "attack" ? this.entities.get(u.task.target) : null;
       if (t) return;
@@ -685,6 +732,20 @@ export class World {
     if (!this.map.isWalkable(tx, ty, "land")) return;
     this.pathTo(u, tx, ty, true);
     u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+  }
+
+  private stepBarbarian(u: Unit): void {
+    if ((this.tick + u.id) % 10 !== 0) return;
+    const home=u.patrolHome ?? u.pos;
+    const far=Math.hypot(u.pos.x-home.x,u.pos.y-home.y)>16*SUB;
+    const prey=far ? null : this.findTarget(u,5*SUB);
+    if(prey) { u.task={kind:"attack",target:prey.id}; return; }
+    if(!far && u.task.kind === "move" && u.path.length) return;
+    const phase=Math.floor(this.tick / 200) + (u.patrolBand ?? 0);
+    const angle=(phase % 8)*Math.PI/4;
+    const tx=Math.floor(home.x/SUB+Math.cos(angle)*7),ty=Math.floor(home.y/SUB+Math.sin(angle)*7);
+    if(!this.map.isWalkable(tx,ty,"land")) { u.task={kind:"idle"}; return; }
+    this.pathTo(u,tx,ty,true); u.task={kind:"move",target:{x:(tx+.5)*SUB,y:(ty+.5)*SUB}};
   }
 
   /** A duration in ticks, stretched by the match's pace. */
@@ -1046,6 +1107,19 @@ export class World {
         b.rally = { x: c.x, y: c.y };
         break;
       }
+      case "battleRally": {
+        for (const king of this.ownedUnits(c.player, c.units)) {
+          if (king.def !== "king" || (king.rallyReadyAt ?? 0) > this.tick) continue;
+          king.rallyReadyAt = this.tick + this.paced(60 * TICKS_PER_SECOND);
+          for (const ally of this.units()) {
+            if (ally.owner === king.owner && Math.hypot(ally.pos.x - king.pos.x, ally.pos.y - king.pos.y) <= 6 * SUB)
+              ally.ralliedUntil = this.tick + this.paced(12 * TICKS_PER_SECOND);
+          }
+          this.fx.push({ kind: "battleRally", x: king.pos.x, y: king.pos.y, owner: king.owner });
+          this.emit(king.owner, "For the King! Nearby troops gain 25% damage for 12 seconds.", "info");
+        }
+        break;
+      }
       case "train": {
         const b = this.entities.get(c.building);
         const d = UNITS[c.unit];
@@ -1232,6 +1306,8 @@ export class World {
     this.checkDiscovery();
     this.checkRelics();
     this.stepLatecomers();
+    this.stepPatrols();
+    this.stepShelters();
     this.decayPaths();
     this.stepMud();
     this.checkVictory();
@@ -1367,6 +1443,7 @@ export class World {
       damage *= 1 + power;
       range += power * 0.45;
     }
+    if ((u.ralliedUntil ?? 0) > this.tick) damage *= 1.25;
     return { damage, range, armour: d.armour + b.armour };
   }
 
@@ -1840,7 +1917,8 @@ export class World {
           if (!b.complete) {
             b.builders++;
             // Diminishing returns for extra builders: 1st = 100%, each extra = +50%.
-            const rate = (b.builders === 1 ? 1 : 0.5) / this.pace;
+            const royalCraft = u.def === "king" && ROYAL_LICENCE.has(b.def) ? 1.5 : 1;
+            const rate = royalCraft * (b.builders === 1 ? 1 : 0.5) / this.pace;
             b.progress = Math.min(d.buildTime, b.progress + rate);
             b.hp = Math.min(d.hp, b.hp + Math.ceil((d.hp * 0.9) / d.buildTime));
             if (b.progress >= d.buildTime) {
@@ -1854,7 +1932,7 @@ export class World {
               this.autoGatherAfterBuild(u, b);
             }
           } else if (t.kind === "repair" && b.hp < b.maxHp) {
-            b.hp = Math.min(b.maxHp, b.hp + 1);
+            b.hp = Math.min(b.maxHp, b.hp + (u.def === "king" && ROYAL_LICENCE.has(b.def) ? 2 : 1));
           } else {
             u.task = { kind: "idle" };
           }
@@ -2247,3 +2325,4 @@ export class World {
 }
 
 export { Faction };
+

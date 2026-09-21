@@ -734,6 +734,7 @@ const bear: UnitDrawer = (a) => {
 
 const HUMAN_UNITS: Record<string, UnitDrawer> = {
   bear,
+  barbarian: (a) => footman({ ...a, color: "#a05232" }),
   worker: peasant,
   footman,
   archer,
@@ -759,3 +760,4 @@ export const FACTION_UNIT_ART: Record<string, Record<string, UnitDrawer>> = {
 export function unitArtFor(faction: string, def: string): UnitDrawer | undefined {
   return (FACTION_UNIT_ART[faction] ?? HUMAN_UNITS)[def];
 }
+

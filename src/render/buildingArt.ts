@@ -362,6 +362,25 @@ const torch: Drawer = (a) => {
   const t = (level - 1) / 9;
   const c = a.ctx;
 
+  if (level === 1) {
+    const cx = a.x + a.w * .5, cy = a.y + a.w * .7;
+    c.save();
+    const halo = c.createRadialGradient(cx, cy, 0, cx, cy, a.w * .8);
+    halo.addColorStop(0, "rgba(255,164,48,.5)"); halo.addColorStop(1, "rgba(255,132,30,0)");
+    c.fillStyle = halo; c.fillRect(cx-a.w, cy-a.w, a.w*2, a.w*2);
+    for (let i=0;i<10;i++) {
+      const t=i*Math.PI/5; c.fillStyle=i%2 ? "#9b9586" : "#69685f";
+      c.beginPath(); c.ellipse(cx+Math.cos(t)*a.w*.31,cy+Math.sin(t)*a.w*.14,a.w*.085,a.w*.055,t*.2,0,Math.PI*2); c.fill();
+    }
+    c.strokeStyle="#54321b"; c.lineWidth=a.w*.10; c.lineCap="round";
+    for(const d of [-1,1]) { c.beginPath(); c.moveTo(cx-a.w*.24,cy-d*a.w*.07);c.lineTo(cx+a.w*.24,cy+d*a.w*.07);c.stroke(); }
+    for(let i=0;i<3;i++) {
+      const sway=Math.sin(a.tick*.24+i*2)*a.w*.035, fx=cx+(i-1)*a.w*.1;
+      c.fillStyle=["#ff7c18","#ffbd39","#fff0a0"][i]!;
+      c.beginPath();c.moveTo(fx-a.w*.12,cy);c.bezierCurveTo(fx-a.w*.18,cy-a.w*.19,fx+sway,cy-a.w*.46,fx+sway+a.w*.015,cy-a.w*.57+i*a.w*.07);c.bezierCurveTo(fx+a.w*.02,cy-a.w*.27,fx+a.w*.22,cy-a.w*.09,fx+a.w*.12,cy);c.fill();
+    }
+    c.restore(); return;
+  }
   // Ground shadow stays compact; the height grows above the one-tile footprint.
   c.save();
   c.globalAlpha = 0.28;
@@ -513,6 +532,17 @@ const styled =
 const HUMAN_ART: Record<string, Drawer> = {
   ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
   gryphonaviary,
+  wall: (a) => {
+    shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
+    for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
+  },
+  shelter: (a) => {
+    shadow(a,.05,.15,.9,.8); gradRect(a,.12,.67,.76,.24,"#735432","#443220");
+    for(const x of [.14,.78]) gradRect(a,x,.28,.06,.57,"#b08a50","#654321");
+    roof(a,.04,.15,.92,.46,"#9b7d4b");
+    for(let i=0;i<8;i++) line(a,.13+i*.1,.34,.13+i*.1,.54,"#d3b77a",.6);
+    gradRect(a,.22,.72,.5,.06,"#b08d57","#67482c"); flag(a,.8,.1,.13,a.color);
+  },
   torch,
 };
 
@@ -529,12 +559,14 @@ export function artFor(faction: string, def: string): Drawer | undefined {
  * Under construction: foundation → frame → the finished body rises out of the
  * scaffolding (clipped from the bottom by progress), with a progress bar above.
  */
-export function drawConstruction(a: ArtCtx): void {
+export function drawConstruction(a: ArtCtx, finished?: () => void): void {
   const c = a.ctx;
   const p = Math.max(0, Math.min(1, a.progress));
 
   // Stage 1 — cleared ground, footings and delivered material.
-  gradRect(a, 0.02, 0.06, 0.96, 0.92, "#6a5236", "#4d3a25");
+  c.fillStyle = "rgba(84,63,38,.68)";
+  c.beginPath(); c.ellipse(a.x+a.w*.5,a.y+a.w*.8,a.w*.47,a.w*.17,0,0,Math.PI*2); c.fill();
+  for(let i=0;i<7;i++) rect(a,.08+i*.12,.87,.1,.055,i%2 ? "#9c927d" : "#797565");
   for (let i = 0; i < 4; i++) {
     rect(a, 0.04 + i * 0.3, 0.06, 0.03, 0.06, "#c9a469");
     rect(a, 0.04 + i * 0.3, 0.92, 0.03, 0.06, "#c9a469");
@@ -551,13 +583,14 @@ export function drawConstruction(a: ArtCtx): void {
 
   // Stage 2/3/4 — the real finished design rises through the frame rather than
   // being swapped in at the end, so every building visibly becomes itself.
-  if (p > 0.22) {
-    const built = Math.min(1, (p - 0.22) / 0.73);
+  if (p > 0.05) {
+    const built = Math.min(1, (p - 0.05) / 0.9);
     c.save();
     c.beginPath();
     c.rect(a.x - 0.16 * a.w, a.y + (1 - built) * a.w - 0.04 * a.w, a.w * 1.32, built * a.w + 0.22 * a.w);
     c.clip();
-    artFor(a.faction, a.def)?.({ ...a, progress: 1 });
+    if (finished) finished();
+    else artFor(a.faction, a.def)?.({ ...a, progress: 1 });
     c.restore();
   }
 
@@ -617,3 +650,4 @@ export function drawConstruction(a: ArtCtx): void {
     c.restore();
   }
 }
+

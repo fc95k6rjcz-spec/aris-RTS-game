@@ -28,6 +28,8 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
+  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 15, lumber: 35 }, hp: 650, buildTime: 20 * 10, trains: [], requires: ["barracks"], dropOff: [], supply: 0, coastal: false, description: "Defensive stone wall. Kings build 50% faster and repair twice as quickly, without needing Barracks. Hold Shift to place more." },
+  shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 40, lumber: 70 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
   townhall: {
     id: "townhall",
     name: "Town Hall",
@@ -298,6 +300,7 @@ export function buildingName(def: string, faction: string): string {
  * things you build in any match; everything with a prerequisite behind it is a
  * tab away.
  */
-export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch"];
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch", "wall", "shelter"];
 export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];
+

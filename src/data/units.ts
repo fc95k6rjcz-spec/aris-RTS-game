@@ -110,6 +110,7 @@ export function unitName(def: string, faction: string): string {
 }
 
 export const UNITS: Record<string, UnitDef> = {
+  barbarian: { id:"barbarian",name:"Barbarian",hotkey:"",cost:{gold:0,lumber:0},hp:95,speed:6,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:11,range:1.1,cooldown:28,armour:1,sight:6,spread:0,beast:true,bounty:25,description:"Roaming raider. Travels with a band and attacks intruders." },
   worker: {
     id: "worker",
     name: "Worker",
@@ -603,3 +604,4 @@ export const UNITS: Record<string, UnitDef> = {
     description: "Grinds pack ice into open water, and can drive her bow up a beach. Opens a lane no other hull can take.",
   },
 };
+

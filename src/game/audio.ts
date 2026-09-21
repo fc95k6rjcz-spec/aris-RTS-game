@@ -561,6 +561,7 @@ export class Audio {
         case "heal":
           this.play("heal", vol * 0.7);
           break;
+        case "battleRally":
         case "crowned":
           this.play("crown", vol);
           break;
@@ -571,3 +572,4 @@ export class Audio {
     }
   }
 }
+

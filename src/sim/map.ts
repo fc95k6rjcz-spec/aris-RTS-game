@@ -503,6 +503,7 @@ export class GameMap {
           }
     };
     const mine = (tx: number, ty: number) => {
+      clear(tx + 1, ty + 1, 3);
       for (let y = 0; y < 3; y++)
         for (let x = 0; x < 3; x++) {
           m.set(tx + x, ty + y, Tile.Gold);
@@ -544,7 +545,11 @@ export class GameMap {
           const py = by + y;
           // Never flood the seat itself or the ground its first buildings need.
           if (Math.abs(px - seat.x) < 6 && Math.abs(py - seat.y) < 6) continue;
-          water(px, py);
+          let nearGold = false;
+          for (let gy = py - 2; gy <= py + 2; gy++)
+            for (let gx = px - 2; gx <= px + 2; gx++)
+              if (m.inBounds(gx, gy) && m.get(gx, gy) === Tile.Gold) nearGold = true;
+          if (!nearGold) water(px, py);
         }
     }
 
@@ -658,3 +663,4 @@ export class GameMap {
     return m;
   }
 }
+

@@ -61,7 +61,7 @@ try {
     const result = {};
     for (const muted of [false, true]) {
       g.settingsForTest.muted = muted;
-      for (const name of ["command", "crown", "magic", "heal", "timber"]) {
+      for (const name of ["command", "crown", "magic", "heal", "timber", "workstart"]) {
         const a = new g.audioForTest.constructor();
         const ctx = new OfflineAudioContext(1, 44100 * 3, 44100);
         a.ctx = ctx; a.ready = true;
@@ -83,3 +83,4 @@ try {
   assert.deepEqual(errors, []);
   console.log("PASS: Worker/Prince artwork, five sound cues, mute and unclipped audio", audio);
 } finally { await browser.close(); }
+

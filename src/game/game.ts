@@ -24,6 +24,7 @@ import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
 import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
+import { Callouts } from "./callouts";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
@@ -68,6 +69,7 @@ export class Game {
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
   private buildMode: string | null = null;
+  private callouts = new Callouts();
   /** Which page of the worker build menu is showing. */
   private menuPage: MenuPage = "basic";
   /** Next left-click issues an attack-move rather than a selection. */
@@ -427,6 +429,12 @@ export class Game {
       r: this.cam.viewW / this.cam.scale / 2,
     });
     for (const ev of this.world.events) if (ev.player === this.player) this.toast(ev.text, ev.level);
+    const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
+      if(u.owner !== this.player) return false;
+      const p=this.cam.toScreen(u.pos.x,u.pos.y);
+      return p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH;
+    }));
+    if(line) this.toast(line,"info");
     // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
     for (const [n, ids] of this.controlGroups) {
@@ -626,6 +634,7 @@ export class Game {
         this.runFront({ kind: "scroll", by: e.deltaY > 0 ? 1 : -1 });
         return;
       }
+      this.mouse.x = e.offsetX; this.mouse.y = e.offsetY; this.mouse.inside = true;
       this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.09 : 1 / 1.09);
     }, { passive: false });
     window.addEventListener("keydown", (e) => this.onKey(e));
@@ -960,13 +969,13 @@ export class Game {
     const w = this.cam.toWorld(this.mouse.x, this.mouse.y);
     const tx = Math.floor(w.x / SUB - d.size / 2 + 0.5);
     const ty = Math.floor(w.y / SUB - d.size / 2 + 0.5);
-    return { def: this.buildMode, owner: this.player, tx, ty, ok: this.world.placementError(this.player, this.buildMode, tx, ty) === null };
+    return { def: this.buildMode, owner: this.player, tx, ty, ok: this.world.placementError(this.player, this.buildMode, tx, ty, this.selectedUnits().some(u => !!UNITS[u.def]!.royal)) === null };
   }
 
   private tryPlace(): void {
     const g = this.ghost();
     if (!g) return;
-    const err = this.world.placementError(this.player, g.def, g.tx, g.ty);
+    const err = this.world.placementError(this.player, g.def, g.tx, g.ty, this.selectedUnits().some(u => !!UNITS[u.def]!.royal));
     if (err) {
       this.toast(err);
       return;
@@ -991,6 +1000,9 @@ export class Game {
   /** One place a command turns into something happening, whatever pressed it. */
   private runAction(a: HudButton["action"]): void {
     switch (a.type) {
+      case "battleRally":
+        this.issue({ type: "battleRally", player: this.player, units: this.selectedUnits().map(u => u.id) });
+        break;
       case "build":
         this.buildMode = a.def;
         break;
@@ -1614,3 +1626,4 @@ function eta(secs: number): string {
   const n = Math.max(0, Math.ceil(secs));
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 }
+

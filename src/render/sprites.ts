@@ -181,8 +181,20 @@ import lm8 from "../assets/lumbermill_8.png";
 import lm9 from "../assets/lumbermill_9.png";
 import lm10 from "../assets/lumbermill_10.png";
 
+import ga1 from "../assets/gryphonaviary_1.png";
+import ga2 from "../assets/gryphonaviary_2.png";
+import ga3 from "../assets/gryphonaviary_3.png";
+import ga4 from "../assets/gryphonaviary_4.png";
+import ga5 from "../assets/gryphonaviary_5.png";
+import ga6 from "../assets/gryphonaviary_6.png";
+import ga7 from "../assets/gryphonaviary_7.png";
+import ga8 from "../assets/gryphonaviary_8.png";
+import ga9 from "../assets/gryphonaviary_9.png";
+import ga10 from "../assets/gryphonaviary_10.png";
+
 /** Painted tier art, indexed by building id then level-1. */
 const TIERS: Record<string, string[]> = {
+  gryphonaviary: [ga1, ga2, ga3, ga4, ga5, ga6, ga7, ga8, ga9, ga10],
   townhall: [th1, th2, th3, th4, th5, th6, th7, th8, th9, th10],
   lumbermill: [lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10],
   barracks: [bk1, bk2, bk3, bk4, bk5, bk6, bk7, bk8, bk9, bk10],

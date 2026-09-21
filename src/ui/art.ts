@@ -19,6 +19,7 @@ import foundry from "../assets/foundry_1.png";
 import oilrig from "../assets/oilrig_1.png";
 import refinery from "../assets/refinery_1.png";
 import airfactory from "../assets/airfactory_1.png";
+import gryphonaviary from "../assets/gryphonaviary_1.png";
 
 import townhall from "../assets/ui/townhall.jpg";
 import farm from "../assets/ui/farm.jpg";
@@ -34,7 +35,7 @@ import portraitKing from "../assets/ui/portrait_king.jpg";
 import bannerHumanSrc from "../assets/ui/banner_human.jpg";
 
 const BUILDING: Record<string, string> = { townhall, farm, lumbermill, golddepot, barracks, tower,
-  church, stables, shipyard, magetower, foundry, oilrig, refinery, airfactory };
+  church, stables, shipyard, magetower, gryphonaviary, foundry, oilrig, refinery, airfactory };
 
 function buildingArt(def: string): string | null {
   if (BUILDING[def]) return BUILDING[def]!;
@@ -50,6 +51,8 @@ function buildingArt(def: string): string | null {
 /** The picture for a command tile, or null for the ones not yet painted. */
 export function commandArt(a: HudButton["action"]): string | null {
   switch (a.type) {
+    case "battleRally":
+      return portraitKing;
     case "train":
       return portraitArt(a.def);
     case "build":
@@ -78,3 +81,4 @@ export function portraitArt(def: string): string | null {
 }
 
 export const bannerHuman = bannerHumanSrc;
+

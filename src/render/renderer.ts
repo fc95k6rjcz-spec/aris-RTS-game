@@ -55,6 +55,7 @@ export class Renderer {
   /** Previous-tick unit positions for interpolation. */
   private prev = new Map<number, { x: number; y: number }>();
   private animationClock = new AnimationClock();
+  private travelDistance = new WeakMap<Unit, number>();
   /** Near-detail terrain, baked one chunk at a time and kept while it is used. */
   private chunks = new Map<number, { img: HTMLCanvasElement; used: number }>();
   /** The whole map at a coarse resolution, trees and all, for zoomed-out views. */
@@ -108,6 +109,11 @@ export class Renderer {
 
   /** Call once per sim tick, before stepping, to capture positions. */
   snapshot(): void {
+    for (const u of this.world.units()) {
+      const previous = this.prev.get(u.id);
+      if (previous) this.travelDistance.set(u, (this.travelDistance.get(u) ?? 0)
+        + Math.hypot(u.pos.x - previous.x, u.pos.y - previous.y));
+    }
     this.prev.clear();
     for (const u of this.world.units()) this.prev.set(u.id, { x: u.pos.x, y: u.pos.y });
   }
@@ -120,7 +126,10 @@ export class Renderer {
     ctx.beginPath();
     ctx.rect(0, 0, cam.viewW, viewH);
     ctx.clip();
+    ctx.save();
+    // Atmosphere is applied once below; avoid a full-screen filter every frame.
     this.drawTerrain();
+    ctx.restore();
     if (settings.animations) this.drawWaterMotion();
     // Tracks go on the ground, under everything that stands on it.
     this.drawPaths();
@@ -526,14 +535,14 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = "multiply";
-    ctx.globalAlpha = light.alpha;
+    ctx.globalAlpha = Math.min(0.22, light.alpha * 0.4);
     ctx.fillStyle = light.css;
     ctx.fillRect(0, 0, this.cam.viewW, viewH);
     ctx.restore();
     // A touch of the same colour laid on top, so a dawn actually glows rather
     // than merely failing to be dark.
     ctx.save();
-    ctx.globalAlpha = light.alpha * 0.28;
+    ctx.globalAlpha = light.alpha * 0.08;
     ctx.fillStyle = light.css;
     ctx.fillRect(0, 0, this.cam.viewW, viewH);
     ctx.restore();
@@ -910,7 +919,9 @@ export class Renderer {
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
       const pulse = 0.55 + 0.45 * Math.sin(t * 0.08);
 
-      const size = bucket(s * 2.6);
+      const relicImage = spriteImage(relicSword);
+      if (!relicImage) { this.missedArt = true; continue; }
+      const size = bucket(Math.max(72, s * 2.6));
       const art = stamp(`relic@${size}`, size, size, (c, w, h) => {
         const img = spriteImage(relicSword);
         if (!img) return;
@@ -1075,7 +1086,9 @@ export class Renderer {
     const faction = this.world.players.get(b.owner)!.faction;
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level };
     if (!b.complete) {
-      if (!(faction === "human" && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress))) drawConstruction(art);
+      if (!(faction === "human" && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+        if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
+      });
       this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
     } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
       artFor(faction, b.def)?.(art);
@@ -1463,7 +1476,7 @@ export class Renderer {
     // Per-tile validity overlay.
     for (let y = 0; y < d.size; y++)
       for (let x = 0; x < d.size; x++) {
-        const ok = this.world.map.isBuildable(g.tx + x, g.ty + y);
+        const ok = g.ok;
         ctx.fillStyle = ok ? "rgba(80,255,80,0.25)" : "rgba(255,60,60,0.45)";
         ctx.fillRect(p.x + x * s, p.y + y * s, s, s);
       }
@@ -1504,7 +1517,7 @@ export class Renderer {
 
   private drawUnit(u: Unit, alpha: number, selected: boolean): void {
     const ctx = this.ctx;
-    const person = UNITS[u.def]!.domain === "land" && !UNITS[u.def]!.skittish
+    const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
       && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
     const s = this.cam.zoom * (person ? 1.18 : 1);
     if (this.indoors(u)) {
@@ -1539,8 +1552,10 @@ export class Renderer {
     const def = UNITS[u.def]!;
     const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
     const moving = pv.x !== u.pos.x || pv.y !== u.pos.y;
-    // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
-    const phase = settings.animations ? (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1 : 0;
+    // Feet follow actual distance, so a slow crowd does not run in place.
+    const stepDistance = Math.hypot(u.pos.x - pv.x, u.pos.y - pv.y);
+    const distance = (this.travelDistance.get(u) ?? 0) + stepDistance * alpha;
+    const phase = settings.animations ? ((distance / (SUB * 0.95) + u.id * 0.37) % 1 + 1) % 1 : 0;
     const state = stateFor(u, moving);
     const seconds = (this.world.tick + alpha) / 20;
     const elapsed = this.animationClock.elapsed(u, state, seconds);
@@ -1555,6 +1570,11 @@ export class Renderer {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+    }
+    if ((u.ralliedUntil ?? 0) > this.world.tick || (this.world.rain > .15 && this.world.isSheltered(u))) {
+      ctx.save(); ctx.font = "bold 11px serif"; ctx.textAlign = "center";
+      ctx.fillStyle = (u.ralliedUntil ?? 0) > this.world.tick ? "#ffdc7a" : "#b9e1ea";
+      ctx.fillText((u.ralliedUntil ?? 0) > this.world.tick ? "+25%" : "SHELTERED", p.x, p.y - s * 1.15); ctx.restore();
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
@@ -1953,3 +1973,4 @@ export class Renderer {
     ctx.strokeRect(x + 0.5, y + 0.5, size, size);
   }
 }
+

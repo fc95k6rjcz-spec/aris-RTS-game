@@ -100,7 +100,7 @@ export class Fx {
           this.numbers.push({
             x: e.x,
             y: e.y,
-            text: String(e.amount),
+            text: e.crit ? `CRIT ${e.amount}` : String(e.amount),
             crit: e.crit,
             heal: false,
             // Deterministic sideways drift, so simultaneous hits on one target
@@ -342,3 +342,4 @@ export class Fx {
     this.pending.length = 0;
   }
 }
+
