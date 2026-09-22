@@ -69,6 +69,7 @@ export class Game {
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
   private buildMode: string | null = null;
+  private wallStart: {x:number;y:number}|null = null;
   private callouts = new Callouts();
   /** Which page of the worker build menu is showing. */
   private menuPage: MenuPage = "basic";
@@ -267,7 +268,9 @@ export class Game {
       if (found) return found;
     }
     // Random means random per match, not one map picked once at load.
-    return MAPS[Math.floor(Math.random() * MAPS.length)] ?? MAPS[0]!;
+    const template=MAPS[Math.floor(Math.random()*MAPS.length)] ?? MAPS[0]!;
+    const seed=crypto.getRandomValues(new Uint32Array(1))[0]! & 0x7fffffff;
+    return {...template, seed, name: "Uncharted " + template.name};
   }
 
   /** A fresh world on the given map, with both players seated at its starts. */
@@ -321,7 +324,7 @@ export class Game {
     this.controlGroups.clear();
     this.commandMarkers = [];
     this.pending = [];
-    this.buildMode = null;
+    this.buildMode = null; this.wallStart = null;
     // A fresh scheduler for a fresh match: turn numbers start again, and a
     // stale one would be waiting on orders from the last game.
     this.net.close();
@@ -461,7 +464,7 @@ export class Game {
     this.setPaused(false);
     this.surrenderRect = null;
     this.selected.clear();
-    this.buildMode = null;
+    this.buildMode = null; this.wallStart = null;
     this.menu = true;
   }
 
@@ -625,6 +628,7 @@ export class Game {
     c.addEventListener("mouseup", (e) => this.onMouseUp(e));
     window.addEventListener("mouseup", (e) => {
       if (e.button === 1) this.panDrag = null;
+      if(e.button===0 && e.target !== this.canvas) this.wallStart=null;
     });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -677,8 +681,9 @@ export class Game {
     if (e.button === 0) {
       if (!this.inViewport(x, y)) return;
       if (this.buildMode) {
+        if(this.buildMode === "wall"){const p=this.cam.toWorld(x,y);this.wallStart={x:Math.floor(p.x/SUB),y:Math.floor(p.y/SUB)};return;}
         this.tryPlace();
-        if (!e.shiftKey) this.buildMode = null;
+        if (!e.shiftKey) this.buildMode = null; this.wallStart = null;
         return;
       }
       if (this.attackMoveMode) {
@@ -699,7 +704,7 @@ export class Game {
       this.camVelocity.y = 0;
     } else if (e.button === 2) {
       if (this.buildMode) {
-        this.buildMode = null;
+        this.buildMode = null; this.wallStart = null;
         return;
       }
       if (!this.inViewport(x, y)) return;
@@ -709,6 +714,11 @@ export class Game {
   }
 
   private onMouseUp(e: MouseEvent): void {
+    if(e.button===0&&this.wallStart){
+      const tiles=this.wallTiles();this.wallStart=null;
+      this.issue({type:"buildWallLine",player:this.player,units:this.selectedUnits().filter(u=>UNITS[u.def]!.canBuild).map(u=>u.id),tiles:tiles.map(t=>({x:t.tx,y:t.ty}))});
+      if(!e.shiftKey)this.buildMode=null;return;
+    }
     if (e.button === 1) {
       this.panDrag = null;
       return;
@@ -963,8 +973,22 @@ export class Game {
     ctx.restore();
   }
 
+  private wallTiles(): Ghost[] {
+    if(!this.wallStart)return [];
+    const end=this.cam.toWorld(this.mouse.x,this.mouse.y),tx=Math.floor(end.x/SUB),ty=Math.floor(end.y/SUB);
+    const dx=tx-this.wallStart.x,dy=ty-this.wallStart.y,n=Math.min(63,Math.abs(dx)+Math.abs(dy));
+    const out:Ghost[]=[];let x=this.wallStart.x,y=this.wallStart.y;
+    const p=this.world.players.get(this.player)!,cost=BUILDINGS.wall!.cost;let gold=p.gold,lumber=p.lumber;
+    for(let i=0;i<=n;i++){
+      const ok=this.world.placementError(this.player,"wall",x,y,this.selectedUnits().some(u=>!!UNITS[u.def]!.royal))===null&&gold>=cost.gold&&lumber>=cost.lumber;
+      out.push({def:"wall",owner:this.player,tx:x,ty:y,ok});if(ok){gold-=cost.gold;lumber-=cost.lumber;}
+      if(x!==tx && (y===ty || Math.abs((x+Math.sign(dx)-this.wallStart.x)*dy-(y-this.wallStart.y)*dx)<=Math.abs((x-this.wallStart.x)*dy-(y+Math.sign(dy)-this.wallStart.y)*dx)))x+=Math.sign(dx);else y+=Math.sign(dy);
+    }return out;
+  }
+
   private ghost(): Ghost | null {
     if (!this.buildMode || !this.mouse.inside || !this.inViewport(this.mouse.x, this.mouse.y)) return null;
+    if(this.wallStart){const tiles=this.wallTiles();return {...tiles[0]!,segments:tiles};}
     const d = BUILDINGS[this.buildMode]!;
     const w = this.cam.toWorld(this.mouse.x, this.mouse.y);
     const tx = Math.floor(w.x / SUB - d.size / 2 + 0.5);
@@ -1151,7 +1175,7 @@ export class Game {
     }
     if (k === "escape") {
       if (this.attackMoveMode) this.attackMoveMode = false;
-      else if (this.buildMode) this.buildMode = null;
+      else if (this.buildMode) { this.buildMode = null; this.wallStart = null; }
       else {
         const b = this.selectedBuildings()[0];
         if (b && !b.complete) this.issue({ type: "cancelBuild", player: this.player, building: b.id });

@@ -133,6 +133,8 @@ const motion = await page.evaluate(() => {
   const sample = (tick, enabled) => {
     g.settingsForTest.animations = enabled;
     g.world.tick = tick;
+    // Work clips follow the actual harvesting stroke timer.
+    if (worker.task.kind === 'gather') worker.task.timer = tick;
     g.renderer.draw(0, new Set(), null, null, g.cam.viewH);
     return Array.from(ctx.getImageData(Math.floor(p.x - 16), Math.floor(p.y - 30), 32, 40).data);
   };
@@ -173,3 +175,4 @@ if (fail.length) {
   process.exit(1);
 }
 console.log("PASS: every registered unit/building renders through the animation system");
+

@@ -110,6 +110,9 @@ export function unitName(def: string, faction: string): string {
 }
 
 export const UNITS: Record<string, UnitDef> = {
+  grunt: {id:"grunt",name:"Grunt",hotkey:"",cost:{gold:0,lumber:0},hp:145,speed:6,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:16,range:1.1,cooldown:30,armour:2,sight:6,spread:.2,beast:true,bounty:40,description:"A brutal roaming enemy with a heavy axe."},
+  direwolf: {id:"direwolf",name:"Dire Wolf",hotkey:"",cost:{gold:0,lumber:0},hp:160,speed:9,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:18,range:1.1,cooldown:26,armour:1,sight:7,spread:.2,beast:true,bounty:45,description:"A fast woodland predator."},
+  dragon: {id:"dragon",name:"Dragon",hotkey:"",cost:{gold:0,lumber:0},hp:700,speed:8,trainTime:0,supply:0,domain:"air",canBuild:false,canGather:false,carry:0,damage:38,range:4,cooldown:40,armour:4,sight:9,spread:.15,beast:true,bounty:250,description:"A rare late-game roaming threat with burning breath."},
   barbarian: { id:"barbarian",name:"Barbarian",hotkey:"",cost:{gold:0,lumber:0},hp:95,speed:6,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:11,range:1.1,cooldown:28,armour:1,sight:6,spread:0,beast:true,bounty:25,description:"Roaming raider. Travels with a band and attacks intruders." },
   worker: {
     id: "worker",

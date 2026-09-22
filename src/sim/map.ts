@@ -512,7 +512,7 @@ export class GameMap {
     };
     // Seats sit a fixed fraction in from the corners, so they stay a sensible
     // distance apart whatever the board size.
-    const inset = Math.max(10, Math.round(width * 0.09));
+    const inset = Math.max(10, Math.round(width * (0.09 + ((seed >>> 4) % 10) / 100)));
     m.starts = [
       { x: inset, y: inset },
       { x: width - inset - 1, y: height - inset - 1 },
@@ -658,6 +658,16 @@ export class GameMap {
         }
       m.secret = { x: sx, y: sy, found: false };
       break;
+    }
+    const flipX=(seed & 1)!==0,flipY=(seed & 2)!==0;
+    if(flipX||flipY){
+      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.hidden]){
+        const source=grid.slice();
+        for(let y=0;y<height;y++)for(let x=0;x<width;x++)grid[(flipY?height-1-y:y)*width+(flipX?width-1-x:x)]=source[y*width+x]!;
+      }
+      for(const p of m.starts){if(flipX)p.x=width-1-p.x;if(flipY)p.y=height-1-p.y;}
+      if(m.secret){if(flipX)m.secret.x=width-2-m.secret.x;if(flipY)m.secret.y=height-2-m.secret.y;}
+      m.touched.clear();m.touchedOverflow=true;
     }
     m.version++;
     return m;

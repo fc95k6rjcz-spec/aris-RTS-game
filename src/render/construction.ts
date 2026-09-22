@@ -1,4 +1,4 @@
-import source from "../assets/anim/townhall-construction.png";
+import source from "../assets/anim/townhall-construction-clean.png";
 import { spriteImage } from "./sprites";
 
 let prepared: HTMLCanvasElement | null = null;
@@ -68,16 +68,6 @@ export function drawFoundingHall(ctx: CanvasRenderingContext2D, x: number, y: nu
   ctx.save();
   draw(first, 1 - mix);
   if (first < 7) draw(first + 1, mix);
-  if (tick > 0 && progress < .97) {
-    const anchors = [[.31,.59],[.53,.49],[.59,.48],[.79,.58],[.22,.68],[.33,.64],[.42,.70],[.29,.69]];
-    const hand = anchors[Math.round(frame)]!;
-    const hx = x + w * hand[0]!, hy = y + w * hand[1]!;
-    ctx.globalAlpha = .95; ctx.translate(hx,hy);
-    ctx.rotate(-.5 + Math.sin(tick * .3) * .65);
-    ctx.strokeStyle = "#b78b51"; ctx.lineWidth = Math.max(1.5,w*.012);
-    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-w*.075); ctx.stroke();
-    ctx.fillStyle="#b9bbc0"; ctx.fillRect(-w*.022,-w*.083,w*.044,w*.02);
-  }
   ctx.restore();
   return true;
 }

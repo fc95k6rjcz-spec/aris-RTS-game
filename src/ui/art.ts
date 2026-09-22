@@ -9,6 +9,9 @@
  * rather than as a bug.
  */
 
+import torch from "../assets/motion-v2/campfire.webp";
+import wall from "../assets/walls/10.webp";
+import shelter from "../assets/motion-v2/shelter-v2.webp";
 import type { HudButton } from "./hud";
 import { artFor } from "../render/buildingArt";
 import church from "../assets/church_1.png";
@@ -34,7 +37,7 @@ import portraitWorker from "../assets/ui/portrait_worker.jpg";
 import portraitKing from "../assets/ui/portrait_king.jpg";
 import bannerHumanSrc from "../assets/ui/banner_human.jpg";
 
-const BUILDING: Record<string, string> = { townhall, farm, lumbermill, golddepot, barracks, tower,
+const BUILDING: Record<string, string> = { torch, wall, shelter, townhall, farm, lumbermill, golddepot, barracks, tower,
   church, stables, shipyard, magetower, gryphonaviary, foundry, oilrig, refinery, airfactory };
 
 function buildingArt(def: string): string | null {
