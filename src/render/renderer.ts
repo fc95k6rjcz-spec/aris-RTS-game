@@ -6,6 +6,7 @@ import { SUB, Tile } from "../sim/types";
 import type { World } from "../sim/world";
 import type { Camera } from "./camera";
 import { artFor, drawConstruction } from "./buildingArt";
+import {wallMask} from './walls';
 import { unitArtFor } from "./unitArt";
 import { bakeRegion, CHUNK, T as TERRAIN_T, T_FAR } from "./terrain";
 import { bucket, stamp } from "./stamp";
@@ -18,7 +19,8 @@ import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
 import { AnimationClock, anySheets, clipFor, frameAt, sheetFor, stateFor, type AnimState } from "./anim";
 import { motionFor } from "./motion";
-import { constructionSheet, drawFoundingHall } from "./construction";
+import { drawCreature, drawDirectional, hasDirectional } from "./directional";
+import { drawFoundingHall } from "./construction";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
@@ -34,6 +36,7 @@ export interface Ghost {
   tx: number;
   ty: number;
   ok: boolean;
+  segments?: Ghost[];
 }
 
 const TILE_COLORS: Record<number, string> = {
@@ -1084,7 +1087,7 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level };
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'?this.wallConnections(b.tx,b.ty,b.owner):undefined };
     if (!b.complete) {
       if (!(faction === "human" && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
@@ -1463,7 +1466,17 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawGhost(g: Ghost): void {
+  private wallConnections(x:number,y:number,owner:number,pending:Ghost[]=[]):number {
+    return wallMask(x,y,(tx,ty)=>{
+      if(pending.some(g=>g.ok&&g.owner===owner&&g.tx===tx&&g.ty===ty))return true;
+      if(!this.world.map.inBounds(tx,ty))return false;
+      const b=this.world.entities.get(this.world.map.occupant[this.world.map.idx(tx,ty)]!);
+      return b?.kind==='building'&&b.def==='wall'&&b.owner===owner;
+    });
+  }
+
+  private drawGhost(g: Ghost,pending:Ghost[]=[]): void {
+    if(g.segments){for(const part of [...g.segments].sort((a,b)=>a.ty-b.ty||a.tx-b.tx))this.drawGhost(part,g.segments);const valid=g.segments.filter(s=>s.ok).length;this.ctx.save();this.ctx.font="bold 15px serif";this.ctx.fillStyle="#ffe0a0";this.ctx.fillText(valid+" wall sections · "+valid*15+" gold · "+valid*35+" lumber",20,30);this.ctx.restore();return;}
     const ctx = this.ctx;
     const s = this.cam.zoom;
     const d = BUILDINGS[g.def]!;
@@ -1471,7 +1484,7 @@ export class Renderer {
     const w = d.size * s;
     ctx.globalAlpha = 0.55;
     const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1 });
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1,wallMask:g.def==='wall'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
     ctx.globalAlpha = 1;
     // Per-tile validity overlay.
     for (let y = 0; y < d.size; y++)
@@ -1503,13 +1516,6 @@ export class Renderer {
    */
   private indoors(u: Unit): boolean {
     const t = u.task;
-    // The construction sheet depicts the royal builder at the work site.
-    // Keep the real entity selectable but avoid drawing a second king.
-    if (t.kind === "build" && UNITS[u.def]!.royal && u.path.length === 0) {
-      const b = this.world.entities.get(t.building);
-      if (b?.kind === "building" && b.def === "townhall" && !b.complete && b.builders > 0
-        && this.world.players.get(u.owner)?.faction === "human" && constructionSheet()) return true;
-    }
     if (t.kind !== "gather") return false;
     // Down the shaft, or through the door with a load.
     return (t.phase === "harvest" && t.resource === "gold") || t.phase === "deposit";
@@ -1582,7 +1588,7 @@ export class Renderer {
     // motion; procedural/still art receives the universal fallback pose.
     const flash = settings.animations ? this.fx.flashAt(u.id, this.world.tick + alpha) : 0;
     const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
-    const hasClip = sheet ? clipFor(sheet, state) !== null : false;
+    const hasClip = hasDirectional(u.def,state) || (sheet ? clipFor(sheet, state) !== null : false);
     const pose = settings.animations && !hasClip
       ? motionFor(u, state, seconds, flash)
       : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
@@ -1603,7 +1609,9 @@ export class Renderer {
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    const framed = anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null;
+    const direct = drawDirectional(ctx,u,state,ax,ay,s,phase,
+      u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
+    const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
       ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, afloat)
@@ -1727,6 +1735,10 @@ export class Renderer {
         continue;
       }
 
+      if(["grunt","direwolf","dragon"].includes(c.def)){
+        ctx.save();ctx.globalAlpha=1-k*k;
+        const drawn=drawCreature(ctx,c.def,c.facing,"die",p.x,p.y,s,0,now-c.t0,settings.animations);ctx.restore();if(drawn!==null)continue;
+      }
       const view = unitViewSprite(c.def, c.facing, player.color);
       ctx.save();
       ctx.globalAlpha = 1 - k * k;
@@ -1768,7 +1780,7 @@ export class Renderer {
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
     const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
-    const dw = w * scale;
+    const dw = w * scale * (b.def === "tower" ? 1.75 : 1);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
     this.ctx.drawImage(sprite, x + (w - dw) / 2, y + w + w * 0.06 - dh, dw, dh);

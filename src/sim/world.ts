@@ -300,6 +300,12 @@ export class World {
         mix(e.ralliedUntil ?? 0);
         mix(e.rallyReadyAt ?? 0);
         mix(e.patrolBand ?? 0);
+        for(const id of e.buildQueue ?? [])mix(id);
+        mix(e.constructionWork?.building ?? 0);
+        mix(e.constructionWork?.ticks ?? 0);
+        mix(e.constructionWork?.travel ?? 0);
+        mix(e.constructionWork?.target?.[0] ?? -1);
+        mix(e.constructionWork?.target?.[1] ?? -1);
         mix(e.moveQueue.length);
         for (const q of e.moveQueue) {
           mix(q.x);
@@ -435,7 +441,7 @@ export class World {
   private stepPatrols(): void {
     const first = this.paced(90 * TICKS_PER_SECOND), gap = this.paced(150 * TICKS_PER_SECOND);
     if (!this.patrolsEnabled || this.tick < first || (this.tick - first) % gap !== 0 || !this.players.has(WILD)) return;
-    const alive = this.units().filter(u => u.def === "barbarian").length;
+    const alive = this.units().filter(u => (u.def === "barbarian" || u.def === "grunt")).length;
     const size = Math.min(8, 2 + Math.floor((this.tick - first) / gap) * 2, 24 - alive);
     if (size <= 0) return;
     for (let attempt = 0; attempt < 160; attempt++) {
@@ -449,7 +455,7 @@ export class World {
       }
       if(spots.length < size) continue;
       for(let i=0;i<size;i++) {
-        const u=this.spawnUnit(WILD,"barbarian",spots[i]!);
+        const u=this.spawnUnit(WILD,this.tick > first && i % 3 === 0 ? "grunt" : "barbarian",spots[i]!);
         u.patrolHome={x:(x+.5)*SUB,y:(y+.5)*SUB}; u.patrolBand=this.tick;
       }
       return;
@@ -632,8 +638,8 @@ export class World {
       home.push({ x: tx, y: ty });
 
       const roll = this.rng.next();
-      const kind = roll < 0.34 ? "bear" : roll < 0.72 ? "deer" : "cow";
-      const herd = kind === "bear" ? 1 : 2 + this.rng.int(3);
+      const kind = roll < 0.12 ? "direwolf" : roll < 0.34 ? "bear" : roll < 0.72 ? "deer" : "cow";
+      const herd = kind === "bear" || kind === "direwolf" ? 1 : 2 + this.rng.int(3);
       for (let i = 0; i < herd; i++) {
         // Spread a herd over a few tiles rather than stacking it on one.
         const ox = i === 0 ? 0 : this.rng.int(5) - 2;
@@ -656,7 +662,7 @@ export class World {
    */
   private stepBeast(u: Unit): void {
     const def = UNITS[u.def]!;
-    if (u.def === "barbarian") { this.stepBarbarian(u); return; }
+    if (u.def === "barbarian" || u.def === "grunt") { this.stepBarbarian(u); return; }
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
       const t = u.task.kind === "attack" ? this.entities.get(u.task.target) : null;
       if (t) return;
@@ -1002,7 +1008,18 @@ export class World {
   }
 
   private applyCommand(c: Command): void {
+    if ("units" in c && c.type !== "battleRally") for(const u of this.ownedUnits(c.player,c.units)) u.buildQueue=[];
     switch (c.type) {
+      case "buildWallLine": {
+        const workers=this.ownedUnits(c.player,c.units).filter(u=>UNITS[u.def]!.canBuild);if(!workers.length)break;
+        const royal=workers.some(u=>!!UNITS[u.def]!.royal),ids: number[]=[];
+        for(const tile of c.tiles.slice(0,64)){
+          if(!Number.isInteger(tile.x)||!Number.isInteger(tile.y)||this.placementError(c.player,"wall",tile.x,tile.y,royal))continue;
+          this.spend(c.player,BUILDINGS.wall!.cost);const b=this.placeBuilding(c.player,"wall",tile.x,tile.y)!;ids.push(b.id);
+        }
+        if(ids.length){for(const u of workers){u.buildQueue=[...ids];this.nextQueuedBuild(u);}const first=this.entities.get(ids[0]!)!;const at=this.posOf(first);this.fx.push({kind:"buildStart",x:at.x,y:at.y,def:"wall"});}
+        break;
+      }
       case "move": {
         const target = { x: c.x, y: c.y };
         for (const u of this.ownedUnits(c.player, c.units)) {
@@ -1330,11 +1347,11 @@ export class World {
     if (!this.fogEnabled) return;
     if (this.tick % VISION_INTERVAL !== 0) return;
     for (const [id, v] of this.vision) {
-      const watchers: Array<{ x: number; y: number; r: number }> = [];
+      const watchers: Array<{ x: number; y: number; r: number; elevated?: boolean }> = [];
       for (const e of this.entities.values()) {
         if (e.owner !== id) continue;
         if (e.kind === "unit") {
-          watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6 });
+          watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6, elevated: UNITS[e.def]!.domain === "air" });
         } else {
           // Towers and Torches use their tier radius; ordinary buildings
           // keep a modest footprint-based sight range.
@@ -1345,7 +1362,7 @@ export class World {
           watchers.push({ x: c.x, y: c.y, r });
         }
       }
-      v.update(watchers);
+      v.update(watchers, (x,y) => this.map.get(x,y) === Tile.Tree);
     }
   }
 
@@ -1838,6 +1855,7 @@ export class World {
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) this.stepBeast(u);
     const t = u.task;
+    if(t.kind !== "build" && t.kind !== "repair") u.constructionWork = undefined;
     switch (t.kind) {
       case "idle": {
         // Priests hold the line while casting; combat units defend themselves.
@@ -1903,11 +1921,29 @@ export class World {
       case "repair": {
         const b = this.entities.get(t.building);
         if (!b || b.kind !== "building") {
-          u.task = { kind: "idle" };
+          if(!this.nextQueuedBuild(u)) u.task = { kind: "idle" };
+          return;
+        }
+        if(b.complete && (t.kind === "build" || b.hp >= b.maxHp)) {
+          u.constructionWork=undefined;u.path=[];
+          if(!this.nextQueuedBuild(u)) u.task={kind:"idle"};
+          return;
+        }
+        if(u.constructionWork?.building !== b.id) u.constructionWork={building:b.id,ticks:60+u.id%16,travel:0};
+        const work=u.constructionWork;
+        if(work.target) {
+          // Use normal locomotion/collision handling, never teleport between poses.
+          const arrived=this.followPath(u);
+          if(arrived || --work.travel <= 0) {work.target=undefined;work.ticks=60+u.id%16;u.path=[];}
           return;
         }
         if (this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
           u.path = [];
+          if(--work.ticks <= 0) {
+            work.ticks=60+u.id%16;
+            if(this.nextConstructionSpot(u,b)) return;
+          }
+          u.facing=Math.round((Math.atan2((b.ty+b.size/2)*SUB-u.pos.y,(b.tx+b.size/2)*SUB-u.pos.x)+Math.PI)/(Math.PI*2)*8)%8;
           const d = BUILDINGS[b.def]!;
           // A stroke a second, which is what makes a man at a building site look
           // like he is working on it. Gathering has had this since the start;
@@ -1929,12 +1965,12 @@ export class World {
               this.emit(b.owner, `${d.name} complete`, "info");
               u.task = { kind: "idle" };
               // Workers auto-return to gathering if the finished building is a drop-off.
-              this.autoGatherAfterBuild(u, b);
+              if(!this.nextQueuedBuild(u)) this.autoGatherAfterBuild(u, b);
             }
           } else if (t.kind === "repair" && b.hp < b.maxHp) {
             b.hp = Math.min(b.maxHp, b.hp + (u.def === "king" && ROYAL_LICENCE.has(b.def) ? 2 : 1));
           } else {
-            u.task = { kind: "idle" };
+            if(!this.nextQueuedBuild(u)) u.task = { kind: "idle" };
           }
           return;
         }
@@ -1992,6 +2028,7 @@ export class World {
             return;
           }
           case "harvest": {
+            u.facing = Math.round((Math.atan2((t.ty+.5)*SUB-u.pos.y,(t.tx+.5)*SUB-u.pos.x)+Math.PI)/(Math.PI*2)*8)%8;
             // One stroke a second while the trip lasts: the swing the renderer
             // animates and the sound plays on, distinct from the load landing.
             if (t.timer % 20 === 0) this.fx.push({ kind: "chop", id: u.id, x: u.pos.x, y: u.pos.y });
@@ -2053,6 +2090,34 @@ export class World {
         }
       }
     }
+  }
+
+  private nextQueuedBuild(u: Unit): boolean {
+    while(u.buildQueue?.length){const b=this.entities.get(u.buildQueue.shift()!);if(b?.kind!=="building"||b.complete)continue;
+      u.task={kind:"build",building:b.id};u.moveQueue=[];this.pathTo(u,b.tx,b.ty,true);return true;
+    }return false;
+  }
+
+  /** Walk clockwise around the site, skipping blocked or occupied work spots. */
+  private nextConstructionSpot(u: Unit,b: Building): boolean {
+    const ring:Array<[number,number]>=[];
+    for(let x=b.tx-1;x<=b.tx+b.size;x++)ring.push([x,b.ty-1]);
+    for(let y=b.ty;y<=b.ty+b.size;y++)ring.push([b.tx+b.size,y]);
+    for(let x=b.tx+b.size-1;x>=b.tx-1;x--)ring.push([x,b.ty+b.size]);
+    for(let y=b.ty+b.size-1;y>=b.ty;y--)ring.push([b.tx-1,y]);
+    let nearest=0,best=Infinity;
+    ring.forEach(([x,y],i)=>{const d=Math.hypot((x+.5)*SUB-u.pos.x,(y+.5)*SUB-u.pos.y);if(d<best){best=d;nearest=i;}});
+    for(let offset=1;offset<=3;offset++) {
+      const [x,y]=ring[(nearest+offset)%ring.length]!;
+      if(!this.map.isWalkable(x,y,UNITS[u.def]!.domain)||this.map.get(x,y)===Tile.Tree)continue;
+      if(this.units().some(other=>other.id!==u.id && (Math.hypot(other.pos.x-(x+.5)*SUB,other.pos.y-(y+.5)*SUB)<SUB*.7 || (other.constructionWork?.target?.[0]===x&&other.constructionWork?.target?.[1]===y))))continue;
+      const path=findPath(this.map,Math.floor(u.pos.x/SUB),Math.floor(u.pos.y/SUB),x,y,UNITS[u.def]!.domain);
+      const last=path[path.length-1];
+      if(!last||last[0]!==x||last[1]!==y||path.length>5)continue;
+      u.path=path;u.repathIn=0;u.constructionWork!.target=[x,y];u.constructionWork!.travel=100;
+      return true;
+    }
+    return false;
   }
 
   private autoGatherAfterBuild(u: Unit, b: Building): void {
@@ -2183,6 +2248,15 @@ export class World {
       const tx0 = Math.floor(u.pos.x / SUB);
       const ty0 = Math.floor(u.pos.y / SUB);
       if (this.map.inBounds(tx0, ty0) && this.map.get(tx0, ty0) === Tile.Ice) return false;
+    }
+    for(let n=Math.min(3,u.path.length-1);n>0;n--) {
+      const p=u.path[n]!,gx=(p[0]+.5)*SUB,gy=(p[1]+.5)*SUB;
+      const steps=Math.ceil(Math.hypot(gx-u.pos.x,gy-u.pos.y)/(SUB*.15));let clear=true;
+      for(let j=1;j<=steps&&clear;j++) {
+        const x=(u.pos.x+(gx-u.pos.x)*j/steps)/SUB,y=(u.pos.y+(gy-u.pos.y)*j/steps)/SUB;
+        for(const ox of [-.18,.18])for(const oy of [-.18,.18])if(!this.map.isWalkable(Math.floor(x+ox),Math.floor(y+oy),def.domain))clear=false;
+      }
+      if(clear){u.path.splice(0,n);break;}
     }
     const [tx, ty] = u.path[0]!;
     const goal = { x: tx * SUB + SUB / 2, y: ty * SUB + SUB / 2 };

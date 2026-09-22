@@ -5,6 +5,7 @@ import type { EntityId, PlayerId } from "./types";
  * They are serialisable so they can later be sent over the wire for lockstep play.
  */
 export type Command =
+  | { type: "buildWallLine"; player: PlayerId; units: EntityId[]; tiles: Array<{x:number;y:number}> }
   | { type: "battleRally"; player: PlayerId; units: EntityId[] }
   | { type: "move"; player: PlayerId; units: EntityId[]; x: number; y: number; queue?: boolean }
   | { type: "gather"; player: PlayerId; units: EntityId[]; tx: number; ty: number }

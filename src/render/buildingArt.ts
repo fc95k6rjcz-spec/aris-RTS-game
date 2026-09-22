@@ -10,6 +10,10 @@
  *   - player-colour trim (banner, flag, awning) so ownership reads at a glance
  */
 
+import campfire from "../assets/motion-v2/campfire.webp";
+import {drawJoinedWall} from './walls';
+import shelterArt from "../assets/motion-v2/shelter-v2.webp";
+import { spriteImage } from "./sprites";
 import { BUILDING_STYLE } from "../data/styleChoice";
 import { STYLED_BUILDINGS, STYLES, STYLE_BY_ID } from "./buildingStyles";
 
@@ -25,11 +29,17 @@ export interface ArtCtx {
   progress: number;
   /** Upgrade tier when this building has one. */
   level?: number;
+  wallMask?: number;
   /** Game tick, for subtle animation (smoke, water). */
   tick: number;
 }
 
 type Drawer = (a: ArtCtx) => void;
+function paintedCamp(a:ArtCtx,src:string,scale:number):boolean {
+ const img=spriteImage(src);if(!img)return false;
+ const w=a.w*scale,h=w*img.naturalHeight/img.naturalWidth;
+ a.ctx.drawImage(img,a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
+}
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -362,6 +372,7 @@ const torch: Drawer = (a) => {
   const t = (level - 1) / 9;
   const c = a.ctx;
 
+  if (level === 1 && paintedCamp(a,campfire,1.35)) return;
   if (level === 1) {
     const cx = a.x + a.w * .5, cy = a.y + a.w * .7;
     c.save();
@@ -533,10 +544,12 @@ const HUMAN_ART: Record<string, Drawer> = {
   ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
   gryphonaviary,
   wall: (a) => {
+    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
     for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
   },
   shelter: (a) => {
+    if(paintedCamp(a,shelterArt,1.4))return;
     shadow(a,.05,.15,.9,.8); gradRect(a,.12,.67,.76,.24,"#735432","#443220");
     for(const x of [.14,.78]) gradRect(a,x,.28,.06,.57,"#b08a50","#654321");
     roof(a,.04,.15,.92,.46,"#9b7d4b");

@@ -41,6 +41,9 @@ export interface Unit {
   rallyReadyAt?: number;
   patrolHome?: Vec;
   patrolBand?: number;
+  buildQueue?: EntityId[];
+  /** A work pause followed by a short walk to the next part of the structure. */
+  constructionWork?: { building: EntityId; ticks: number; travel: number; target?: [number, number] };
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */
