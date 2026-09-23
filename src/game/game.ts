@@ -43,6 +43,10 @@ const EDGE_SPEED = 14;
  * The local player's commands are queued and applied on the next tick,
  * exactly as they would be in a lockstep session.
  */
+/** Faction colours. The painted Orc art is red already; Humans wear blue. */
+const HUMAN_BLUE = "#3b82f6";
+const ORC_RED = "#dc2626";
+
 export class Game {
   world: World;
   cam: Camera;
@@ -278,8 +282,13 @@ export class Game {
     const n = def.size ?? 64;
     const m = this.setup;
     const w = new World(n, n, seedOverride ?? m?.seed ?? def.seed, def.kind, m?.pace ?? settings.pace, m?.stockade ?? settings.stockade);
-    w.addPlayer(1, Faction.Human, "#3b82f6");
-    w.addPlayer(2, Faction.Human, "#ef4444");
+    // Each side wears its faction's colour: Humans blue, Orcs red. A network
+    // game has no faction pick yet, so it stays Human against Human.
+    const mine = m ? Faction.Human : settings.faction === "orc" ? Faction.Orc : Faction.Human;
+    const theirs = m ? Faction.Human : mine === Faction.Orc ? Faction.Human : Faction.Orc;
+    const colourOf = (f: Faction, fallback: string) => (m ? fallback : f === Faction.Orc ? ORC_RED : HUMAN_BLUE);
+    w.addPlayer(1, mine, colourOf(mine, HUMAN_BLUE));
+    w.addPlayer(2, theirs, colourOf(theirs, "#ef4444"));
     // The country itself, and whatever lives in it.
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
     // Seats come from the map, not from two hard-coded corners, so a layout can
@@ -1225,6 +1234,10 @@ export class Game {
   private runFront(a: FrontAction): void {
     switch (a.kind) {
       case "begin":
+        if (a.faction) {
+          settings.faction = a.faction;
+          saveSettings();
+        }
         this.start(this.difficulty);
         break;
       case "pane":

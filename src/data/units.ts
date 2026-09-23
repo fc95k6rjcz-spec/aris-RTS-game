@@ -608,3 +608,30 @@ export const UNITS: Record<string, UnitDef> = {
   },
 };
 
+/** What the Orcs call their own. Same roster and stats as the Humans for now. */
+const ORC_UNIT_NAMES: Record<string, string> = {
+  worker: "Peon",
+  footman: "Grunt",
+  archer: "Axe Thrower",
+  knight: "Wolf Rider",
+  mage: "Shaman",
+  priest: "Witch Doctor",
+  ballista: "Catapult",
+  king: "Warchief",
+  prince: "Chieftain",
+  cannon: "Bone Cannon",
+  scout: "Wind Rider",
+  bomber: "Goblin Zeppelin",
+  gryphon: "Dragon",
+  longboat: "War Canoe",
+  transport: "Troop Barge",
+  submarine: "Turtle",
+  battleship: "Juggernaut",
+  tanker: "Oil Barge",
+  icebreaker: "Ram Ship",
+};
+for (const [id, nm] of Object.entries(ORC_UNIT_NAMES)) {
+  const d = UNITS[id];
+  if (d) d.names = { ...d.names, orc: nm };
+}
+

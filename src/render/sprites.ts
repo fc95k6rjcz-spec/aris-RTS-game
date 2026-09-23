@@ -318,9 +318,28 @@ function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
  * Human set, so Orc sheets can be dropped in one building at a time rather than
  * needing the whole roster before anything renders.
  */
+const ORC_FILES = import.meta.glob<string>("../assets/orc_*_*.png", { eager: true, query: "?url", import: "default" });
+
+/** `../assets/orc_barracks_7.png` → ORC_TIERS.barracks[6]. Cut by tools/extract_dark_progression.py. */
+const ORC_TIERS: Record<string, string[]> = {};
+for (const [path, src] of Object.entries(ORC_FILES)) {
+  const m = /orc_([a-z]+)_(\d+)\.png$/.exec(path);
+  if (!m) continue;
+  (ORC_TIERS[m[1]!] ??= [])[Number(m[2]) - 1] = src;
+}
+for (const set of Object.values(ORC_TIERS)) for (const t of set) if (t) load(t);
+
 const FACTION_TIERS: Record<string, Record<string, string[]>> = {
   human: TIERS,
+  orc: ORC_TIERS,
 };
+
+/**
+ * Painted Orc art carries its own colours -- red war-banners, purple on the
+ * Shadow Hut, blue spirit-fire on the spire -- so it is drawn as painted, never
+ * re-hued. The blue band tint() looks for would turn the spire's lightning red.
+ */
+const NATIVE_COLOUR = new Set<string>(Object.values(ORC_TIERS).flat());
 
 /** Painted sprite for a levelled building at a tier, tinted to the player colour. */
 export function tierSprite(def: string, level: number, color: string, faction = "human"): HTMLCanvasElement | null {
@@ -332,9 +351,55 @@ export function tierSprite(def: string, level: number, color: string, faction = 
   if (cached) return cached;
   const img = load(src);
   if (!img.complete || img.naturalWidth === 0) return null;
-  const c = tint(img, color);
+  const c = NATIVE_COLOUR.has(src) ? untinted(img) : tint(img, color);
   tinted.set(key, c);
   return c;
+}
+
+/**
+ * Orc art as painted, except that purple is the Orcs' old colour: the Shadow
+ * Hut and the spire's shadow-fire are re-hued to the war-banner red so the whole
+ * faction reads as one side. Blues, golds and greens are left alone.
+ */
+function untinted(img: HTMLImageElement): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, c.width, c.height);
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3]! < 8) continue;
+    const r = d[i]! / 255;
+    const g = d[i + 1]! / 255;
+    const b = d[i + 2]! / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max - min < 0.1) continue;
+    const [h, s, l] = rgbToHsl(r, g, b);
+    // Violet through magenta: 252°–335°.
+    if (h < 0.7 || h > 0.93) continue;
+    const [nr, ng, nb] = hslToRgb(0.995, Math.min(1, s * 1.05), l * 0.95);
+    d[i] = nr;
+    d[i + 1] = ng;
+    d[i + 2] = nb;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h, s, l];
 }
 
 /** Returns a drawable (tinted canvas) or null while the image is still loading. */

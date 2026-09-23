@@ -39,6 +39,8 @@ export interface Settings {
   difficulty: "easy" | "normal" | "hard" | "none" | "peaceful";
   /** Map id from the catalogue, or "random" for a fresh one every match. */
   mapId: string;
+  /** Which side you play. The skirmish opponent takes the other one. */
+  faction: "human" | "orc";
   /** Start with workers and no buildings, and site the Town Hall yourself. */
   nomad: boolean;
   /** Ring every base in forest, so the first job is cutting a way out. */
@@ -76,6 +78,7 @@ export const DEFAULTS: Settings = {
   scrollSpeed: 1,
   difficulty: "normal",
   mapId: "random",
+  faction: "human",
   nomad: false,
   stockade: true,
   crowning: true,
@@ -136,6 +139,7 @@ export function loadSettings(): void {
     const d = o.difficulty;
     settings.difficulty = d === "easy" || d === "hard" || d === "none" || d === "peaceful" ? d : DEFAULTS.difficulty;
     settings.mapId = typeof o.mapId === "string" ? o.mapId : DEFAULTS.mapId;
+    settings.faction = o.faction === "orc" ? "orc" : "human";
     settings.nomad = o.nomad === true;
     settings.stockade = o.stockade !== false;
     settings.crowning = o.crowning !== false;
