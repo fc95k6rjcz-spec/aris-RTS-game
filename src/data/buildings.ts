@@ -274,6 +274,27 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   },
 };
 
+/** What the Orcs call their buildings. The painted sheet each one uses is noted. */
+const ORC_BUILDING_NAMES: Record<string, string> = {
+  townhall: "Shadow Hut", // orc_shadow_hut
+  barracks: "War Camp", // orc_barracks
+  foundry: "Blacksmith", // orc_blacksmith
+  lumbermill: "Lumber Camp", // orc_lumber_mill
+  stables: "Beast Pen", // orc_stables
+  magetower: "Spirit Spire", // orc_shadow_sphere
+  gryphonaviary: "Wind Rider Roost", // orc_flight
+  airfactory: "Orc Workshop", // orc_workshop
+  farm: "Pig Farm",
+  church: "Altar of Storms",
+  shipyard: "Orc Shipyard",
+  tower: "Guard Tower",
+  golddepot: "Gold Pit",
+};
+for (const [id, nm] of Object.entries(ORC_BUILDING_NAMES)) {
+  const d = BUILDINGS[id];
+  if (d) d.names = { ...d.names, orc: nm };
+}
+
 /** Display name for a building in a given faction's language. */
 export function buildingName(def: string, faction: string): string {
   const d = BUILDINGS[def];
