@@ -51,6 +51,8 @@ export interface Cost {
 export const enum Faction {
   /** Humans — stone keeps, timber halls. */
   Human = "human",
+  /** Orcs — bone, hide and red war-banners. */
+  Orc = "orc",
   /** Dwarves — deep halls, powder and iron. */
   Dwarf = "dwarf",
   /** Barbarians — no walls worth the name, and no patience either. */
