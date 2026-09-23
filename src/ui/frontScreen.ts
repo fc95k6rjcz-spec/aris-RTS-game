@@ -30,10 +30,10 @@ const EPIGRAPH = "Eight kingdoms, one winter. Choose where the war begins.";
 const VERSION = "0.1.0";
 
 /** Which list of rows the column is showing. */
-export type FrontPane = "splash" | "menu" | "credits" | "multiplayer" | "host" | "join";
+export type FrontPane = "splash" | "menu" | "faction" | "credits" | "multiplayer" | "host" | "join";
 
 export type FrontAction =
-  | { kind: "begin" }
+  | { kind: "begin"; faction?: "human" | "orc" }
   | { kind: "host" }
   | { kind: "join" }
   | { kind: "leaveRoom" }
@@ -303,6 +303,30 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
       ];
       return { rows, note: state.net.status || "Type the four letters your friend gave you.", heading: "JOIN A GAME" };
     }
+    case "faction": {
+      const rows: Row[] = [
+        {
+          numeral: numeral(0),
+          label: "The Humans",
+          hint: "Blue",
+          enabled: true,
+          marked: false,
+          action: { kind: "begin", faction: "human" },
+          note: "Stone keeps and timber halls. A sword waits in the ground for your king.",
+        },
+        {
+          numeral: numeral(1),
+          label: "The Orcs",
+          hint: "Red",
+          enabled: true,
+          marked: false,
+          action: { kind: "begin", faction: "orc" },
+          note: "Bone, hide and red war-banners. A war axe waits in the ground for your warchief.",
+        },
+        { numeral: "", label: "Back", hint: "Esc", enabled: true, marked: false, action: { kind: "pane", pane: "menu" } },
+      ];
+      return { rows, note: "Choose your side. The enemy takes the other.", heading: "CHOOSE YOUR SIDE" };
+    }
     case "credits": {
       const rows: Row[] = [
         { numeral: "", label: "Made By", hint: "Ari Caruana, 8 years old", enabled: false, marked: false, action: { kind: "pane", pane: "credits" } },
@@ -321,7 +345,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           hint: "Enter",
           enabled: true,
           marked: false,
-          action: { kind: "begin" },
+          action: { kind: "pane", pane: "faction" },
           note: "One man, one weapon in the ground. Find it, raise a hall, hold the valley.",
         },
         {
