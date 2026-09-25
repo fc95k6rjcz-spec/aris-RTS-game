@@ -10,6 +10,7 @@
 
 import { resetSettings, setSetting, settings, type Settings } from "../game/settings";
 import { KIND_BLURB, MAPS, MAP_BY_ID } from "../data/maps";
+import royalHall from '../assets/royal/hall-10.webp';
 
 export interface SettingsPanel {
   toggle(): void;
@@ -102,6 +103,19 @@ const CSS = `
 .rts-panel :focus-visible { outline:2px solid #ffe2a0; outline-offset:4px; }
 @media(max-width:520px) { .rts-panel h2{font-size:27px} .rts-settings-body{padding:18px} .rts-row{gap:8px;font-size:12px} .rts-foot{padding:14px 18px}.rts-foot::before{display:none}.rts-navigation{padding:0 14px} }
 @media(prefers-reduced-motion:reduce) { .rts-panel *{transition:none!important} }
+.rts-settings-hero { position:relative; isolation:isolate; flex:none; padding:5px 0 8px; min-height:143px; background:linear-gradient(110deg,#243238aa,#12191f66); border-bottom:1px solid #b58b4355; }
+.rts-settings-hero::after { content:''; position:absolute; z-index:-1; inset:0 10px 0 45%; background:linear-gradient(90deg,#192126,transparent 45%),url('${royalHall}') right 48%/auto 185px no-repeat; opacity:.6; }
+.rts-settings-hero h2 { text-shadow:0 2px 8px #000; }
+.rts-settings-hero .rts-hint { color:#c4bba6; max-width:65%; }
+.rts-panel { border-color:#c7a465; box-shadow:0 32px 100px #000e,0 0 45px #bd92431a,inset 0 0 0 4px #080b0e,inset 0 0 0 5px #a17b4055; }
+.rts-navigation { padding:10px 20px 0; gap:9px; background:#080c10aa; }
+.rts-navigation button { border:1px solid #76613c66; border-bottom:2px solid transparent; border-radius:3px 3px 0 0; padding:11px 5px; font:12px Georgia,serif; }
+.rts-navigation button[aria-pressed=true] { border-color:#8e713e; border-bottom-color:#eccb80; box-shadow:inset 0 1px #dfbd6255; }
+.rts-category-symbol { display:block; font:22px/1 Georgia,serif; margin-bottom:7px; color:#c5a461; }
+.rts-group>h3 { padding:0 0 12px; border-bottom:1px solid #84693877; color:#f0d596; }
+.rts-row:hover { background:linear-gradient(90deg,#b5944911,transparent); }
+.rts-foot button.rts-primary { box-shadow:inset 0 0 0 2px #f8e1a744,0 3px 12px #0008; }
+@media(max-width:520px) { .rts-settings-hero::after{opacity:.32;right:-50px;left:30%}.rts-settings-hero .rts-hint{max-width:85%}.rts-navigation{gap:5px;padding:8px 12px 0}.rts-category-symbol{font-size:18px}.rts-navigation button{letter-spacing:0} }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -135,10 +149,11 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   scrim.appendChild(panel);
   document.body.appendChild(scrim);
 
-  panel.appendChild(el("p", "rts-kicker", "REALMS OF VALOR  /  OPTIONS"));
-  const title=el("h2", undefined, "Shape your realm");title.id='rts-settings-title';panel.appendChild(title);
+  const hero=el('header','rts-settings-hero');panel.appendChild(hero);
+  hero.appendChild(el("p", "rts-kicker", "REALMS OF VALOR  /  OPTIONS"));
+  const title=el("h2", undefined, "Shape your realm");title.id='rts-settings-title';hero.appendChild(title);
   panel.setAttribute('aria-labelledby',title.id);
-  panel.appendChild(el("p", "rts-hint", "The game is paused while this is open."));
+  hero.appendChild(el("p", "rts-hint", "The game is paused while this is open."));
   const navigation=el('nav','rts-navigation');navigation.setAttribute('aria-label','Settings categories');panel.appendChild(navigation);
   const body=el('div','rts-settings-body');panel.appendChild(body);
   const groups:Array<{button:HTMLButtonElement;group:HTMLDivElement}>=[];
@@ -147,6 +162,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     const g = el("div", "rts-group");
     g.appendChild(el("h3", undefined, title));
     const button=el('button',undefined,title);button.type='button';button.setAttribute('aria-pressed',String(groups.length===0));
+    const symbol=el('span','rts-category-symbol',({Audio:'♫',Display:'◈',Controls:'✥',Game:'♜'} as Record<string,string>)[title]);symbol.setAttribute('aria-hidden','true');button.prepend(symbol);
     g.hidden=groups.length>0;g.id='rts-settings-'+title.toLowerCase();button.setAttribute('aria-controls',g.id);
     button.addEventListener('click',()=>{for(const item of groups){item.group.hidden=item.group!==g;item.button.setAttribute('aria-pressed',String(item.group===g));}body.scrollTop=0;});
     groups.push({button,group:g});navigation.appendChild(button);body.appendChild(g);
@@ -249,7 +265,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     const r = row(play, "Map");
     const sel = el("select");
     sel.style.maxWidth = "230px";
-    const rand = el("option", undefined, "Random — a new one each match");
+    const rand = el("option", undefined, "Random each match");
     rand.value = "random";
     sel.appendChild(rand);
     // Grouped by layout: a hundred names in one flat list is a wall, and the
