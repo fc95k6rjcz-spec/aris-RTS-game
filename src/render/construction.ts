@@ -1,4 +1,4 @@
-import source from "../assets/anim/townhall-construction-clean.png";
+import source from "../assets/royal/construction-1.webp";
 import { spriteImage } from "./sprites";
 
 let prepared: HTMLCanvasElement | null = null;
@@ -59,11 +59,11 @@ export function drawFoundingHall(ctx: CanvasRenderingContext2D, x: number, y: nu
   const fraction = frame - first;
   const mix = fraction * fraction * (3 - 2 * fraction);
   const sw = sheet.width / 4, sh = sheet.height / 2;
-  const size = w * 1.08;
+  const size = w * 1.28;
   const draw = (i: number, opacity: number) => {
     ctx.globalAlpha = opacity;
     ctx.drawImage(sheet, (i % 4) * sw, Math.floor(i / 4) * sh, sw, sh,
-      x - w * 0.04, y + w * 1.07 - size, size, size);
+      x - w * 0.14, y + w * 1.06 - size, size, size);
   };
   ctx.save();
   draw(first, 1 - mix);
@@ -71,4 +71,3 @@ export function drawFoundingHall(ctx: CanvasRenderingContext2D, x: number, y: nu
   ctx.restore();
   return true;
 }
-

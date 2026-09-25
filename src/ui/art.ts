@@ -13,6 +13,9 @@ import torch from "../assets/motion-v2/campfire.webp";
 import wall from "../assets/walls/10.webp";
 import shelter from "../assets/motion-v2/shelter-v2.webp";
 import type { HudButton } from "./hud";
+import type { Building } from "../sim/entities";
+import { tierArtSource } from "../render/sprites";
+import { redesignedArt } from "../render/redesign";
 import { artFor } from "../render/buildingArt";
 import church from "../assets/church_1.png";
 import stables from "../assets/stables_1.png";
@@ -24,12 +27,12 @@ import refinery from "../assets/refinery_1.png";
 import airfactory from "../assets/airfactory_1.png";
 import gryphonaviary from "../assets/gryphonaviary_1.png";
 
-import townhall from "../assets/ui/townhall.jpg";
+import townhall from "../assets/royal/hall-1.webp";
 import farm from "../assets/ui/farm.jpg";
 import lumbermill from "../assets/ui/lumbermill.jpg";
 import golddepot from "../assets/ui/golddepot.jpg";
 import barracks from "../assets/ui/barracks.jpg";
-import tower from "../assets/ui/tower.jpg";
+import tower from "../assets/royal/outpost-1.webp";
 import orderAttack from "../assets/ui/order_attack.jpg";
 import orderStop from "../assets/ui/order_stop.jpg";
 import orderHarvest from "../assets/ui/order_harvest.jpg";
@@ -41,6 +44,8 @@ const BUILDING: Record<string, string> = { torch, wall, shelter, townhall, farm,
   church, stables, shipyard, magetower, gryphonaviary, foundry, oilrig, refinery, airfactory };
 
 function buildingArt(def: string): string | null {
+  const redesigned = redesignedArt(def,'level',1);
+  if(redesigned)return redesigned;
   if (BUILDING[def]) return BUILDING[def]!;
   const draw = artFor("human", def);
   if (!draw) return null;
@@ -52,8 +57,11 @@ function buildingArt(def: string): string | null {
 }
 
 /** The picture for a command tile, or null for the ones not yet painted. */
-export function commandArt(a: HudButton["action"]): string | null {
+export function commandArt(a: HudButton["action"], building?: Building, faction = "human"): string | null {
   switch (a.type) {
+    case "upgrade":
+    case "cancelUpgrade":
+      return building ? tierArtSource(building.def, building.upgrade?.toLevel ?? building.level + 1, faction) ?? buildingArt(building.def) : null;
     case "battleRally":
       return portraitKing;
     case "train":
@@ -84,4 +92,3 @@ export function portraitArt(def: string): string | null {
 }
 
 export const bannerHuman = bannerHumanSrc;
-

@@ -41,6 +41,8 @@ export interface Unit {
   rallyReadyAt?: number;
   patrolHome?: Vec;
   patrolBand?: number;
+  /** Unaligned travellers who join a king that reaches their band. */
+  recruitBand?: number;
   buildQueue?: EntityId[];
   /** A work pause followed by a short walk to the next part of the structure. */
   constructionWork?: { building: EntityId; ticks: number; travel: number; target?: [number, number] };
@@ -97,4 +99,3 @@ export type Entity = Unit | Building;
 export function centerOf(b: Building): Vec {
   return { x: (b.tx + b.size / 2) * 64, y: (b.ty + b.size / 2) * 64 };
 }
-

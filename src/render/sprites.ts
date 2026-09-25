@@ -4,6 +4,7 @@
  * owner's colour so the same art serves every player.
  */
 import classicF from "../assets/peasant_classic_front.png";
+import { redesignedTiers } from "./redesign";
 import classicB from "../assets/peasant_classic_back.png";
 import villagerF from "../assets/peasant_villager_front.png";
 import villagerB from "../assets/peasant_villager_back.png";
@@ -193,14 +194,16 @@ import ga9 from "../assets/gryphonaviary_9.png";
 import ga10 from "../assets/gryphonaviary_10.png";
 
 /** Painted tier art, indexed by building id then level-1. */
+const royalHalls=import.meta.glob('../assets/royal/hall-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
+import outpost from '../assets/royal/outpost-1.webp';
 const TIERS: Record<string, string[]> = {
   gryphonaviary: [ga1, ga2, ga3, ga4, ga5, ga6, ga7, ga8, ga9, ga10],
-  townhall: [th1, th2, th3, th4, th5, th6, th7, th8, th9, th10],
+  townhall: Array.from({length:10},(_,i)=>royalHalls[`../assets/royal/hall-${i+1}.webp`]!),
   lumbermill: [lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10],
   barracks: [bk1, bk2, bk3, bk4, bk5, bk6, bk7, bk8, bk9, bk10],
   shipyard: [sy1, sy2, sy3, sy4, sy5, sy6, sy7, sy8, sy9, sy10],
   church: [ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10],
-  tower: [tw1, tw2, tw3, tw4, tw5, tw6, tw7, tw8, tw9, tw10],
+  tower: [outpost],
   airfactory: [af1, af2, af3, af4, af5, af6, af7, af8, af9, af10],
   foundry: [fd1, fd2, fd3, fd4, fd5, fd6, fd7, fd8, fd9, fd10],
   oilrig: [or1, or2, or3, or4, or5, or6, or7, or8, or9, or10],
@@ -323,8 +326,13 @@ const FACTION_TIERS: Record<string, Record<string, string[]>> = {
 };
 
 /** Painted sprite for a levelled building at a tier, tinted to the player colour. */
+export function tierArtSource(def: string, level: number, faction = "human"): string | null {
+  const set = (faction === "human" ? redesignedTiers(def) : null) ?? FACTION_TIERS[faction]?.[def] ?? TIERS[def];
+  return set?.[Math.max(0, Math.min(set.length - 1, level - 1))] ?? null;
+}
+
 export function tierSprite(def: string, level: number, color: string, faction = "human"): HTMLCanvasElement | null {
-  const set = FACTION_TIERS[faction]?.[def] ?? TIERS[def];
+  const set = (faction === "human" ? redesignedTiers(def) : null) ?? FACTION_TIERS[faction]?.[def] ?? TIERS[def];
   if (!set) return null;
   const src = set[Math.max(0, Math.min(set.length - 1, level - 1))]!;
   const key = src + "|" + color;

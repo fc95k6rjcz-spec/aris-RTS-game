@@ -176,4 +176,3 @@ export function sfxGain(): number {
 export function musicGain(): number {
   return settings.muted || !settings.music ? 0 : settings.volume * settings.musicVolume;
 }
-

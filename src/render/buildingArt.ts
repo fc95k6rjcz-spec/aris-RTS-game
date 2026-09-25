@@ -11,9 +11,12 @@
  */
 
 import campfire from "../assets/motion-v2/campfire.webp";
+import grandHall from '../assets/royal/hall-1.webp';
+import outpost from '../assets/royal/outpost-1.webp';
 import {drawJoinedWall} from './walls';
 import shelterArt from "../assets/motion-v2/shelter-v2.webp";
 import { spriteImage } from "./sprites";
+import { redesignedArt } from "./redesign";
 import { BUILDING_STYLE } from "../data/styleChoice";
 import { STYLED_BUILDINGS, STYLES, STYLE_BY_ID } from "./buildingStyles";
 
@@ -543,6 +546,8 @@ const styled =
 const HUMAN_ART: Record<string, Drawer> = {
   ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
   gryphonaviary,
+  townhall: a => {if(!paintedCamp(a,grandHall,1.28))townhall(a);},
+  tower: a => {paintedCamp(a,outpost,1.05);},
   wall: (a) => {
     if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
@@ -565,6 +570,8 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
 };
 
 export function artFor(faction: string, def: string): Drawer | undefined {
+  const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
+  if(redesigned)return a=>{paintedCamp(a,redesigned,1);};
   return (FACTION_ART[faction] ?? HUMAN_ART)[def];
 }
 
@@ -663,4 +670,3 @@ export function drawConstruction(a: ArtCtx, finished?: () => void): void {
     c.restore();
   }
 }
-
