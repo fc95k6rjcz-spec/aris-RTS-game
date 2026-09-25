@@ -635,7 +635,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         if(b.upgrade) out.push({label:"Cancel Upgrade",cost:null,hotkey:"U",enabled:true,description:"Cancel the current building upgrade.",action:{type:"cancelUpgrade"}});
         else if(next) out.push({label:"Upgrade to Level "+next.level,cost:costLine(next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:next.name+" — "+next.blurb,action:{type:"upgrade"}});
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
-      }
+      } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
       for (const uid of d.trains) {
         const u = UNITS[uid]!;
         out.push({
@@ -666,4 +666,3 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
 
   return { tabs: [{ id: "orders", label: "Orders" }], byTab: { build: [], advanced: [], orders } };
 }
-

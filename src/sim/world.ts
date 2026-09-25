@@ -18,12 +18,12 @@ export const TICKS_PER_SECOND = 20;
 /**
  * What every player starts with: exactly one Town Hall, and nothing else.
  *
- * A Hall is 400 gold and 250 lumber. The purse holds that and a little over, so
+ * The purse covers the current Hall cost and one worker, so
  * the first decision of the match -- where the King puts his hall -- is the only
  * thing the money can buy, and everything after it has to be earned. A fat purse
  * made the opening a shopping trip; this makes it a decision.
  */
-export const START_PURSE = { gold: 450, lumber: 300, oil: 0, food: 400 };
+export const START_PURSE = { gold: BUILDINGS.townhall!.cost.gold + UNITS.worker!.cost.gold, lumber: BUILDINGS.townhall!.cost.lumber, oil: 0, food: 400 };
 /**
  * Everything moves at this fraction of its listed speed.
  *
@@ -300,6 +300,7 @@ export class World {
         mix(e.ralliedUntil ?? 0);
         mix(e.rallyReadyAt ?? 0);
         mix(e.patrolBand ?? 0);
+        mix(e.recruitBand ?? 0);
         for(const id of e.buildQueue ?? [])mix(id);
         mix(e.constructionWork?.building ?? 0);
         mix(e.constructionWork?.ticks ?? 0);
@@ -437,9 +438,9 @@ export class World {
   /** Where each wild animal was born, so it has somewhere to wander around. */
   patrolsEnabled = false;
 
-  /** Safe camps, initially pairs, growing to bands of eight after nine minutes. */
+  /** Patrols arrive after one minute and grow every ninety seconds, capped at 24. */
   private stepPatrols(): void {
-    const first = this.paced(90 * TICKS_PER_SECOND), gap = this.paced(150 * TICKS_PER_SECOND);
+    const first = 60 * TICKS_PER_SECOND, gap = 90 * TICKS_PER_SECOND;
     if (!this.patrolsEnabled || this.tick < first || (this.tick - first) % gap !== 0 || !this.players.has(WILD)) return;
     const alive = this.units().filter(u => (u.def === "barbarian" || u.def === "grunt")).length;
     const size = Math.min(8, 2 + Math.floor((this.tick - first) / gap) * 2, 24 - alive);
@@ -455,7 +456,7 @@ export class World {
       }
       if(spots.length < size) continue;
       for(let i=0;i<size;i++) {
-        const u=this.spawnUnit(WILD,this.tick > first && i % 3 === 0 ? "grunt" : "barbarian",spots[i]!);
+        const u=this.spawnUnit(WILD,i % 3 === 0 ? "grunt" : "barbarian",spots[i]!);
         u.patrolHome={x:(x+.5)*SUB,y:(y+.5)*SUB}; u.patrolBand=this.tick;
       }
       return;
@@ -465,6 +466,62 @@ export class World {
   isSheltered(u: Unit): boolean {
     return this.buildings().some(b => b.owner === u.owner && b.def === "shelter" && b.complete
       && Math.hypot(u.pos.x / SUB - b.tx - b.size/2, u.pos.y / SUB - b.ty - b.size/2) <= 3);
+  }
+
+  /** A reachable band outside each starting settlement rewards early exploration. */
+  spawnWanderers(): void {
+    if (!this.players.has(WILD)) return;
+    for (const start of this.map.starts) {
+      const traveller = this.units().filter(u => u.owner !== WILD && this.map.isWalkable(Math.floor(u.pos.x / SUB), Math.floor(u.pos.y / SUB), "land"))
+        .sort((a, b) => Math.hypot(a.pos.x / SUB - start.x, a.pos.y / SUB - start.y) - Math.hypot(b.pos.x / SUB - start.x, b.pos.y / SUB - start.y))[0];
+      const fromX = traveller ? Math.floor(traveller.pos.x / SUB) : start.x;
+      const fromY = traveller ? Math.floor(traveller.pos.y / SUB) : start.y;
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const angle = this.rng.next() * Math.PI * 2;
+        const distance = 12 + this.rng.int(9);
+        const x = Math.round(start.x + Math.cos(angle) * distance);
+        const y = Math.round(start.y + Math.sin(angle) * distance);
+        if (!this.map.isWalkable(x, y, "land") || !this.map.isWalkable(x + 1, y, "land") || !this.map.isWalkable(x, y + 1, "land")) continue;
+        if (!this.map.connected(fromX, fromY, x, y, "land")) continue;
+        const band = this.nextId;
+        for (const [i, def] of ["footman", "archer", "worker"].entries()) {
+          const u = this.spawnUnit(WILD, def, { x: (x + (i === 1 ? 1 : 0) + .5) * SUB, y: (y + (i === 2 ? 1 : 0) + .5) * SUB });
+          u.recruitBand = band;
+          u.patrolHome = { ...u.pos };
+        }
+        break;
+      }
+    }
+  }
+
+  private stepWanderers(): void {
+    if (this.tick % 20 !== 0) return;
+    const kings = this.units().filter(u => u.def === "king" && u.owner !== WILD && u.hp > 0);
+    for (const u of this.units()) {
+      if (u.recruitBand === undefined) continue;
+      const king = kings.find(k => Math.hypot(k.pos.x - u.pos.x, k.pos.y - u.pos.y) <= 3 * SUB
+        && this.map.connected(Math.floor(k.pos.x / SUB), Math.floor(k.pos.y / SUB), Math.floor(u.pos.x / SUB), Math.floor(u.pos.y / SUB), "land"));
+      if (king) {
+        const members = this.units().filter(m => m.recruitBand === u.recruitBand);
+        for (const member of members) {
+          member.owner = king.owner;
+          member.recruitBand = undefined;
+          member.patrolHome = undefined;
+          member.path = [];
+          member.task = { kind: "idle" };
+          member.engaging = null;
+        }
+        this.emit(king.owner, `${members.length} wanderers swear allegiance! A swordsman, archer and worker join your empire.`, "info");
+        this.fx.push({ kind: "battleRally", x: king.pos.x, y: king.pos.y, owner: king.owner });
+      } else if (this.tick % 100 === 0 && u.task.kind === "idle") {
+        const home = u.patrolHome!;
+        const x = Math.floor(home.x / SUB) + this.rng.int(7) - 3;
+        const y = Math.floor(home.y / SUB) + this.rng.int(7) - 3;
+        if (!this.map.isWalkable(x, y, "land")) continue;
+        this.pathTo(u, x, y, true);
+        u.task = { kind: "move", target: { x: (x + .5) * SUB, y: (y + .5) * SUB } };
+      }
+    }
   }
 
   private stepShelters(): void {
@@ -638,7 +695,7 @@ export class World {
       home.push({ x: tx, y: ty });
 
       const roll = this.rng.next();
-      const kind = roll < 0.12 ? "direwolf" : roll < 0.34 ? "bear" : roll < 0.72 ? "deer" : "cow";
+      const kind = roll < 0.24 ? "direwolf" : roll < 0.40 ? "bear" : roll < 0.76 ? "deer" : "cow";
       const herd = kind === "bear" || kind === "direwolf" ? 1 : 2 + this.rng.int(3);
       for (let i = 0; i < herd; i++) {
         // Spread a herd over a few tiles rather than stacking it on one.
@@ -1324,6 +1381,7 @@ export class World {
     this.checkRelics();
     this.stepLatecomers();
     this.stepPatrols();
+    this.stepWanderers();
     this.stepShelters();
     this.decayPaths();
     this.stepMud();
@@ -1499,6 +1557,7 @@ export class World {
   }
 
   private hostile(a: Entity, b: Entity): boolean {
+    if ((a.kind === "unit" && a.recruitBand !== undefined) || (b.kind === "unit" && b.recruitBand !== undefined)) return false;
     return a.owner !== b.owner;
   }
 
@@ -2034,7 +2093,9 @@ export class World {
             if (t.timer % 20 === 0) this.fx.push({ kind: "chop", id: u.id, x: u.pos.x, y: u.pos.y });
             if (--t.timer > 0) return;
             const i = this.map.idx(t.tx, t.ty);
-            const take = Math.min(def.carry, this.map.amount[i]!);
+            const capacity = def.carryByResource?.[t.resource] ?? def.carry;
+            const held = u.carrying?.resource === t.resource ? u.carrying.amount : 0;
+            const take = Math.min(capacity - held, this.map.amount[i]!);
             this.map.amount[i]! -= take;
             if (this.map.amount[i]! <= 0) {
               // Trees are felled; gold mines become rock when exhausted.
@@ -2042,7 +2103,16 @@ export class World {
               // Leave the stump, so the wood shows where it has been worked.
               if (t.resource === "lumber") this.map.felled[i] = 1;
             }
-            u.carrying = { resource: t.resource, amount: take };
+            u.carrying = { resource: t.resource, amount: held + take };
+            // A tree contains 40 wood: finish the load from another tree instead
+            // of returning with a partial load whenever one is nearby.
+            if (held + take < capacity) {
+              const alt = this.findResourceNear(t.tx, t.ty, t.resource === "gold" ? Tile.Gold : Tile.Tree);
+              if (alt) {
+                [t.tx,t.ty] = alt; t.phase = "toNode";
+                this.pathTo(u,t.tx,t.ty); return;
+              }
+            }
             t.phase = "toDrop";
             const drop = this.nearestDropOff(u, t.resource);
             if (!drop) {
@@ -2310,7 +2380,7 @@ export class World {
         for (const e of this.entities.values()) {
           // Only fire on another actual player. Wildlife remains wildlife rather
           // than causing every border tower to spend the match shooting deer.
-          if (e.owner === b.owner || !this.players.has(e.owner)) continue;
+          if (!this.hostile(b, e) || !this.players.has(e.owner)) continue;
           if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
           const p = this.posOf(e);
           const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
@@ -2399,4 +2469,3 @@ export class World {
 }
 
 export { Faction };
-

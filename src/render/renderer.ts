@@ -21,6 +21,7 @@ import { AnimationClock, anySheets, clipFor, frameAt, sheetFor, stateFor, type A
 import { motionFor } from "./motion";
 import { drawCreature, drawDirectional, hasDirectional } from "./directional";
 import { drawFoundingHall } from "./construction";
+import { redesignedArt } from "./redesign";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { lightAt } from "../sim/weather";
@@ -101,6 +102,8 @@ export class Renderer {
   /** Fog baked at one pixel per tile, redrawn only when vision changes. */
   private fogTile: HTMLCanvasElement | null = null;
   private fogTileTick = -1;
+  private forestBackdrop: HTMLCanvasElement | null = null;
+  private forestMask: HTMLCanvasElement | null = null;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -158,6 +161,15 @@ export class Renderer {
     this.drawDaylight(viewH);
     this.drawLocalLights(viewH);
     this.drawWeather(viewH);
+    // Preserve the already lit/fogged forest so canopy occlusion cannot expose
+    // unexplored terrain or brighten rectangular patches around a person.
+    this.forestBackdrop ??= document.createElement("canvas");
+    if (this.forestBackdrop.width !== this.canvas.width || this.forestBackdrop.height !== this.canvas.height) {
+      this.forestBackdrop.width = this.canvas.width; this.forestBackdrop.height = this.canvas.height;
+    }
+    const backdrop = this.forestBackdrop.getContext("2d")!;
+    backdrop.clearRect(0,0,this.canvas.width,this.canvas.height);
+    backdrop.drawImage(this.canvas,0,0);
     // Keep visible people readable over the atmospheric terrain wash. The
     // visibility filter above still hides enemies outside our actual sight.
     for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
@@ -412,7 +424,7 @@ export class Renderer {
    * resampling a large image per trunk per frame, which was 31 ms a frame on a
    * wooded 160x160 board -- the single biggest thing making the game stutter.
    */
-  private drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number): void {
+  private drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number, mask = false): void {
     const map = this.world.map;
     if (map.isHidden(x, y)) return;
     if (map.get(x, y) !== Tile.Tree) {
@@ -447,9 +459,10 @@ export class Renderer {
       c.fill();
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
-    const live = ctx === this.ctx && settings.animations;
+    const live = (ctx === this.ctx || mask) && settings.animations;
     const sway = live ? Math.sin((this.world.tick + x * 7 + y * 11) / 18) * s * 0.028 : 0;
-    ctx.drawImage(canopy, Math.round(cx + jx + sway - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+    if(mask) ctx.drawImage(img, Math.round(cx+jx+sway-w/2), Math.round(cy+jy+s*.34-th-shadowH*.45), w, th);
+    else ctx.drawImage(canopy, Math.round(cx + jx + sway - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
   }
 
   /**
@@ -1082,21 +1095,22 @@ export class Renderer {
     const s = this.cam.zoom;
     const p = this.cam.toScreen(b.tx * SUB, b.ty * SUB);
     const w = b.size * s;
-    if (p.x + w < 0 || p.y + w < 0 || p.x > this.cam.viewW || p.y > this.cam.viewH) return;
+    const overhang=b.def==='tower'?w*3:b.def==='townhall'?w*2:w;
+    if (p.x + w*2 < 0 || p.y + w < 0 || p.x-w > this.cam.viewW || p.y-overhang > this.cam.viewH) return;
     const color = this.world.players.get(b.owner)!.color;
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'?this.wallConnections(b.tx,b.ty,b.owner):undefined };
     if (!b.complete) {
-      if (!(faction === "human" && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
       });
       this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
     } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
       artFor(faction, b.def)?.(art);
     }
-    if (b.complete && settings.animations) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
+    if (b.complete && settings.animations && !redesignedArt(b.def,'level',1)) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
       // the painted art, which deliberately overhangs its tiles.
@@ -1194,10 +1208,8 @@ export class Renderer {
 
     ctx.save();
     switch (b.def) {
-      case "townhall":
       case "barracks":
       case "stables":
-      case "tower":
       case "gryphonaviary":
         pennant(cx, y + w * 0.06, w * 0.26);
         break;
@@ -1476,7 +1488,7 @@ export class Renderer {
   }
 
   private drawGhost(g: Ghost,pending:Ghost[]=[]): void {
-    if(g.segments){for(const part of [...g.segments].sort((a,b)=>a.ty-b.ty||a.tx-b.tx))this.drawGhost(part,g.segments);const valid=g.segments.filter(s=>s.ok).length;this.ctx.save();this.ctx.font="bold 15px serif";this.ctx.fillStyle="#ffe0a0";this.ctx.fillText(valid+" wall sections · "+valid*15+" gold · "+valid*35+" lumber",20,30);this.ctx.restore();return;}
+    if(g.segments){for(const part of [...g.segments].sort((a,b)=>a.ty-b.ty||a.tx-b.tx))this.drawGhost(part,g.segments);const valid=g.segments.filter(s=>s.ok).length;this.ctx.save();this.ctx.font="bold 15px serif";this.ctx.fillStyle="#ffe0a0";this.ctx.fillText(valid+" wall sections · "+valid*BUILDINGS.wall!.cost.gold+" gold · "+valid*BUILDINGS.wall!.cost.lumber+" lumber",20,30);this.ctx.restore();return;}
     const ctx = this.ctx;
     const s = this.cam.zoom;
     const d = BUILDINGS[g.def]!;
@@ -1555,6 +1567,18 @@ export class Renderer {
       p.y += off.y;
     }
     const player = this.world.players.get(u.owner)!;
+    if (u.recruitBand !== undefined && u.id === u.recruitBand) {
+      ctx.save();
+      ctx.font = "bold 12px serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffe6a0";
+      ctx.strokeStyle = "#171b18";
+      ctx.lineWidth = 3;
+      const label = "Wandering band · bring your king";
+      ctx.strokeText(label, p.x, p.y - s * 1.15);
+      ctx.fillText(label, p.x, p.y - s * 1.15);
+      ctx.restore();
+    }
     const def = UNITS[u.def]!;
     const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
     const moving = pv.x !== u.pos.x || pv.y !== u.pos.y;
@@ -1632,6 +1656,7 @@ export class Renderer {
     }
     ctx.restore();
     if (flash > 0) ctx.restore();
+    if (def.domain !== "air") this.occludeWithForest(wx, wy, p.x, p.y, selected);
     // A crown, so the King is never lost in a crowd of his own footmen. Gold for
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
@@ -1668,6 +1693,25 @@ export class Renderer {
    * everything needed to draw it -- what it was, whose it was, which way it faced
    * -- travelled in the death event.
    */
+  private occludeWithForest(wx:number, wy:number, px:number, py:number, selected:boolean):void {
+    if(!this.forestBackdrop)return;
+    const s=this.cam.zoom,map=this.world.map,tx=Math.floor(wx/SUB),ty=Math.floor(wy/SUB);
+    const trees:Array<[number,number]>=[];
+    for(let y=ty;y<=ty+4;y++)for(let x=tx-2;x<=tx+2;x++){
+      const h=((x*73856093)^(y*19349663))>>>0;
+      const base=y+.5+(((h>>4)&15)/15-.5)*.18;
+      if(base>wy/SUB && map.get(x,y)===Tile.Tree && !map.isHidden(x,y))trees.push([x,y]);
+    }
+    if(!trees.length)return;
+    const size=Math.ceil(s*5),left=Math.floor(px-size/2),top=Math.floor(py-s*3);
+    this.forestMask??=document.createElement("canvas");
+    const c=this.forestMask;if(c.width!==size||c.height!==size){c.width=size;c.height=size;}
+    const m=c.getContext("2d")!;m.clearRect(0,0,size,size);m.save();m.translate(-left,-top);
+    for(const [x,y] of trees){const p=this.cam.toScreen((x+.5)*SUB,(y+.5)*SUB);this.drawTree(m,x,y,s,p.x,p.y,true);}
+    m.restore();m.globalCompositeOperation="source-in";m.drawImage(this.forestBackdrop,-left,-top);m.globalCompositeOperation="source-over";
+    this.ctx.save();this.ctx.globalAlpha=selected?.82:.94;this.ctx.drawImage(c,left,top);this.ctx.restore();
+  }
+
   private drawCorpses(): void {
     const ctx = this.ctx;
     const s = this.cam.zoom;
@@ -1735,7 +1779,7 @@ export class Renderer {
         continue;
       }
 
-      if(["grunt","direwolf","dragon"].includes(c.def)){
+      if(["knight","grunt","direwolf","dragon"].includes(c.def)){
         ctx.save();ctx.globalAlpha=1-k*k;
         const drawn=drawCreature(ctx,c.def,c.facing,"die",p.x,p.y,s,0,now-c.t0,settings.animations);ctx.restore();if(drawn!==null)continue;
       }
@@ -1774,16 +1818,35 @@ export class Renderer {
    * footprint, so it is anchored to the FRONT-BOTTOM of the footprint and allowed
    * to overhang upward — higher Town Hall tiers visibly sprawl past their base.
    */
+  private drawRedesignedConstruction(def:string,x:number,y:number,w:number,progress:number):boolean {
+    const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
+    const src=redesignedArt(def,'build',stage);if(!src)return false;
+    const image=spriteImage(src);if(!image)return false;
+    const draw=(img:HTMLImageElement)=>{const height=w*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(img,x,y+w*1.06-height,w,height);};
+    draw(image);
+    const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
+    if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}
+    return true;
+  }
+
   private drawPaintedBuilding(b: Building, x: number, y: number, w: number, color: string): boolean {
     const faction = this.world.players.get(b.owner)!.faction;
     const sprite = tierSprite(b.def, b.level, color, faction);
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
     const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
-    const dw = w * scale * (b.def === "tower" ? 1.75 : 1);
+    const dw = w * scale * (b.def === "townhall" ? 1.28 : b.def === "tower" ? 1.05 : 1);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
     this.ctx.drawImage(sprite, x + (w - dw) / 2, y + w + w * 0.06 - dh, dw, dh);
+    if(b.upgrade){
+      const next=tierSprite(b.def,b.upgrade.toLevel,color,faction);
+      if(next){const progress=1-b.upgrade.remaining/b.upgrade.total;
+        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*(b.def==='townhall'?1.28:b.def==='tower'?1.05:1),nextH=next.height/next.width*nextW;
+        this.ctx.save();this.ctx.beginPath();this.ctx.rect(x+(w-nextW)/2,y+w*1.06-nextH*progress,nextW,nextH*progress);this.ctx.clip();
+        this.ctx.drawImage(next,x+(w-nextW)/2,y+w*1.06-nextH,nextW,nextH);this.ctx.restore();
+      }
+    }
     return true;
   }
 
@@ -1985,4 +2048,3 @@ export class Renderer {
     ctx.strokeRect(x + 0.5, y + 0.5, size, size);
   }
 }
-

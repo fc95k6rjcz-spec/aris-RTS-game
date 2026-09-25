@@ -303,6 +303,7 @@ export class Game {
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
+    w.spawnWanderers();
     return w;
   }
 
@@ -1620,7 +1621,7 @@ export class Game {
       production,
       tabs: sets.tabs,
       activeTab: this.tab,
-      commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action) })) as ShellCommand[],
+      commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action, b, p.faction) })) as ShellCommand[],
       banner: netBanner ?? (objective || !banner ? null : banner),
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
@@ -1650,4 +1651,3 @@ function eta(secs: number): string {
   const n = Math.max(0, Math.ceil(secs));
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 }
-
