@@ -69,6 +69,39 @@ const CSS = `
 .rts-foot button:hover { background: #253040; }
 .rts-foot button.rts-primary { background: #3b62a8; border-color: #4c7fd6; }
 .rts-foot button.rts-primary:hover { background: #4c7fd6; }
+.rts-scrim { background:rgba(3,5,8,.82); backdrop-filter:blur(7px); padding:16px; box-sizing:border-box; }
+.rts-panel { width:min(690px,100%); max-height:calc(100dvh - 32px); overflow:hidden; display:flex; flex-direction:column; padding:0; border:1px solid #9c7942; border-radius:4px; color:#e7ddc7; background:radial-gradient(ellipse at 15% 0%,#39301e55,transparent 55%),#101317; box-shadow:0 28px 100px #000c,inset 0 0 0 4px #080b0e,inset 0 0 0 5px #6c573b55; font:14px/1.55 system-ui,sans-serif; }
+.rts-panel h2 { padding:0 30px; margin:0; color:#f5dfad; font:32px/1.2 Georgia,serif; letter-spacing:.02em; }
+.rts-kicker { margin:24px 30px 8px; color:#b8975b; font:10px/1.4 monospace; letter-spacing:.24em; }
+.rts-panel .rts-hint { margin:8px 30px 22px; color:#a59c8a; }
+.rts-navigation { display:grid; grid-template-columns:repeat(4,1fr); padding:0 24px; border-bottom:1px solid #75603a66; gap:4px; }
+.rts-navigation button { border:0; border-bottom:2px solid transparent; padding:12px 5px; background:transparent; color:#a59c8a; font:12px/1.4 Georgia,serif; letter-spacing:.1em; cursor:pointer; }
+.rts-navigation button:hover { color:#ffe8b2; background:#b8954720; }
+.rts-navigation button[aria-pressed=true] { color:#f5d892; border-color:#d4ad5e; background:linear-gradient(0deg,#bd924327,transparent); }
+.rts-settings-body { overflow-y:auto; scrollbar-width:thin; scrollbar-color:#79603a #12161b; padding:24px 30px; min-height:0; height:min(440px,55vh); }
+.rts-group { border:0; margin:0; padding:0; }
+.rts-group[hidden] { display:none; }
+.rts-group > h3 { color:#d5b77d; font:18px/1.4 Georgia,serif; text-transform:none; letter-spacing:.02em; margin:0 0 16px; }
+.rts-row { padding:12px 0; gap:14px; border-bottom:1px solid #b1935930; }
+.rts-row label { cursor:pointer; }
+.rts-row select { max-width:58%; min-width:0; padding:8px 10px; background:#20231f; border:1px solid #766342; border-radius:2px; color:#eee0c3; color-scheme:dark; }
+.rts-row .rts-val { color:#d6b879; font:12px monospace; }
+.rts-row input[type=range] { appearance:none; height:5px; border-radius:3px; background:#65573e; width:180px; max-width:34%; accent-color:#d8b76e; cursor:pointer; }
+.rts-row input[type=range]::-webkit-slider-thumb { appearance:none; width:15px; height:15px; border-radius:3px; background:#e2c37e; border:2px solid #3a2e19; box-shadow:0 0 0 1px #bf9954; }
+.rts-row input[type=checkbox] { appearance:none; flex:none; width:38px; height:21px; border:1px solid #6e644d; border-radius:12px; background:#252827; position:relative; cursor:pointer; transition:background .15s; }
+.rts-row input[type=checkbox]::before { content:''; position:absolute; width:13px; height:13px; top:3px; left:3px; border-radius:50%; background:#9b978b; transition:transform .15s; }
+.rts-row input[type=checkbox]:checked { background:#82662e; border-color:#dbb967; }
+.rts-row input[type=checkbox]:checked::before { transform:translateX(17px); background:#fff0b9; }
+.rts-note { color:#a59d8b; font-size:12px; line-height:1.6; margin:7px 0 13px; }
+.rts-foot { flex:none; align-items:center; border-top:1px solid #75603a66; background:#080b0e77; padding:17px 30px; margin:0; }
+.rts-foot::before { content:'Changes saved automatically'; margin-right:auto; color:#8e8879; font-size:11px; }
+.rts-foot button { border-radius:2px; border-color:#75603a; background:#181b1b; color:#d4c4a6; padding:9px 15px; }
+.rts-foot button:hover { background:#343026; }
+.rts-foot button.rts-primary { color:#1d180e; background:linear-gradient(#e7cc8e,#b98f42); border-color:#f2d391; font-weight:700; min-width:90px; }
+.rts-foot button.rts-primary:hover { background:#f0d493; }
+.rts-panel :focus-visible { outline:2px solid #ffe2a0; outline-offset:4px; }
+@media(max-width:520px) { .rts-panel h2{font-size:27px} .rts-settings-body{padding:18px} .rts-row{gap:8px;font-size:12px} .rts-foot{padding:14px 18px}.rts-foot::before{display:none}.rts-navigation{padding:0 14px} }
+@media(prefers-reduced-motion:reduce) { .rts-panel *{transition:none!important} }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -102,13 +135,21 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   scrim.appendChild(panel);
   document.body.appendChild(scrim);
 
-  panel.appendChild(el("h2", undefined, "Settings"));
+  panel.appendChild(el("p", "rts-kicker", "REALMS OF VALOR  /  OPTIONS"));
+  const title=el("h2", undefined, "Shape your realm");title.id='rts-settings-title';panel.appendChild(title);
+  panel.setAttribute('aria-labelledby',title.id);
   panel.appendChild(el("p", "rts-hint", "The game is paused while this is open."));
+  const navigation=el('nav','rts-navigation');navigation.setAttribute('aria-label','Settings categories');panel.appendChild(navigation);
+  const body=el('div','rts-settings-body');panel.appendChild(body);
+  const groups:Array<{button:HTMLButtonElement;group:HTMLDivElement}>=[];
 
   const group = (title: string): HTMLDivElement => {
     const g = el("div", "rts-group");
     g.appendChild(el("h3", undefined, title));
-    panel.appendChild(g);
+    const button=el('button',undefined,title);button.type='button';button.setAttribute('aria-pressed',String(groups.length===0));
+    g.hidden=groups.length>0;g.id='rts-settings-'+title.toLowerCase();button.setAttribute('aria-controls',g.id);
+    button.addEventListener('click',()=>{for(const item of groups){item.group.hidden=item.group!==g;item.button.setAttribute('aria-pressed',String(item.group===g));}body.scrollTop=0;});
+    groups.push({button,group:g});navigation.appendChild(button);body.appendChild(g);
     return g;
   };
 
@@ -315,6 +356,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   foot.appendChild(reset);
   foot.appendChild(done);
   panel.appendChild(foot);
+  panel.querySelectorAll('.rts-row').forEach((r,i)=>{const input=r.querySelector('input,select');const label=r.querySelector('label');if(input&&label){input.id='rts-setting-'+i;label.htmlFor=input.id;}});
 
   let open = false;
   const api: SettingsPanel = {
@@ -326,7 +368,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
       scrim.hidden = !open;
       if (open) {
         for (const s of syncs) s();
-        done.focus();
+        groups.find(g=>!g.group.hidden)?.button.focus();
       }
       onChange(settings);
     },
@@ -334,6 +376,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
       if (!open) return;
       open = false;
       scrim.hidden = true;
+      gear.focus();
       onChange(settings);
     },
   };
@@ -353,6 +396,12 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   window.addEventListener(
     "keydown",
     (e) => {
+      if(open&&e.key==='Tab'){
+        const controls=Array.from(panel.querySelectorAll<HTMLElement>('button,input,select')).filter(n=>n.getClientRects().length>0);
+        const first=controls[0],last=controls[controls.length-1];
+        if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+        else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+      }
       if (open && e.key === "Escape") {
         e.stopPropagation();
         api.close();
@@ -363,4 +412,3 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
 
   return api;
 }
-
