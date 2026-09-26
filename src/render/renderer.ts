@@ -1,3 +1,4 @@
+import { constructionFrame } from './constructionFrame';
 import { BUILDINGS } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
 import { UNITS } from "../data/units";
@@ -1537,7 +1538,7 @@ export class Renderer {
     const ctx = this.ctx;
     const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
       && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
-    const s = this.cam.zoom * (person ? 1.18 : 1);
+    const s = this.cam.zoom * (person ? 1.18 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
       if (selected) {
@@ -1604,7 +1605,7 @@ export class Renderer {
     if ((u.ralliedUntil ?? 0) > this.world.tick || (this.world.rain > .15 && this.world.isSheltered(u))) {
       ctx.save(); ctx.font = "bold 11px serif"; ctx.textAlign = "center";
       ctx.fillStyle = (u.ralliedUntil ?? 0) > this.world.tick ? "#ffdc7a" : "#b9e1ea";
-      ctx.fillText((u.ralliedUntil ?? 0) > this.world.tick ? "+25%" : "SHELTERED", p.x, p.y - s * 1.15); ctx.restore();
+      ctx.fillText((u.ralliedUntil ?? 0) > this.world.tick ? "RALLIED +50%" : "SHELTERED", p.x, p.y - s * 1.15); ctx.restore();
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
@@ -1612,7 +1613,7 @@ export class Renderer {
     // motion; procedural/still art receives the universal fallback pose.
     const flash = settings.animations ? this.fx.flashAt(u.id, this.world.tick + alpha) : 0;
     const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
-    const hasClip = hasDirectional(u.def,state) || (sheet ? clipFor(sheet, state) !== null : false);
+    const hasClip = hasDirectional(u.def,state) || (sheet ? !!sheet.clips[state]?.srcs.length : false);
     const pose = settings.animations && !hasClip
       ? motionFor(u, state, seconds, flash)
       : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
@@ -1822,7 +1823,7 @@ export class Renderer {
     const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
     const src=redesignedArt(def,'build',stage);if(!src)return false;
     const image=spriteImage(src);if(!image)return false;
-    const draw=(img:HTMLImageElement)=>{const height=w*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(img,x,y+w*1.06-height,w,height);};
+    const draw=(img:HTMLImageElement)=>{const height=w*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x,y+w*1.06-height,w,height);};
     draw(image);
     const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
     if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}

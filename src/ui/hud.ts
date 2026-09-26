@@ -577,7 +577,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
   const king = selUnits.find(u => u.def === "king" && u.owner === player);
   if (king) {
     const left = Math.max(0, Math.ceil(((king.rallyReadyAt ?? 0) - world.tick) / 20));
-    orders.push({ label: left ? 'Rally (' + left + 's)' : "Rally the Men", cost: null, hotkey: "R", enabled: !left, description: "Nearby troops gain 25% damage for 12 seconds. Range: 6 tiles. Cooldown: 60 seconds.", action: { type: "battleRally" } });
+    orders.push({ label: left ? 'Rally (' + left + 's)' : "Rally the Men", cost: null, hotkey: "R", enabled: !left, description: "Nearby allied troops grow 20% larger, recover 25% of maximum health, and gain 50% damage and 3 armour for 12 seconds. Range: 6 tiles. Cooldown: 60 seconds. Does not stack.", action: { type: "battleRally" } });
   }
   const builders = selUnits.filter((u) => UNITS[u.def]!.canBuild);
 

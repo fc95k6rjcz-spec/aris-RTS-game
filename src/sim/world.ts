@@ -1219,11 +1219,14 @@ export class World {
           if (king.def !== "king" || (king.rallyReadyAt ?? 0) > this.tick) continue;
           king.rallyReadyAt = this.tick + this.paced(60 * TICKS_PER_SECOND);
           for (const ally of this.units()) {
-            if (ally.owner === king.owner && Math.hypot(ally.pos.x - king.pos.x, ally.pos.y - king.pos.y) <= 6 * SUB)
-              ally.ralliedUntil = this.tick + this.paced(12 * TICKS_PER_SECOND);
+            if (this.allied(ally.owner,king.owner) && !UNITS[ally.def]!.beast && UNITS[ally.def]!.domain === 'land' && Math.hypot(ally.pos.x-king.pos.x,ally.pos.y-king.pos.y)<=6*SUB) {
+              const alreadyRallied=(ally.ralliedUntil??0)>this.tick;
+              ally.ralliedUntil=this.tick+this.paced(12*TICKS_PER_SECOND);
+              if(!alreadyRallied){const healed=Math.min(ally.maxHp-ally.hp,Math.ceil(ally.maxHp*.25));ally.hp+=healed;if(healed>0)this.fx.push({kind:'heal',id:ally.id,x:ally.pos.x,y:ally.pos.y,amount:healed});}
+            }
           }
           this.fx.push({ kind: "battleRally", x: king.pos.x, y: king.pos.y, owner: king.owner });
-          this.emit(king.owner, "For the King! Nearby troops gain 25% damage for 12 seconds.", "info");
+          this.emit(king.owner, "For the King! Troops grow stronger: 25% health restored, +50% damage and +3 armour for 12 seconds.", "info");
         }
         break;
       }
@@ -1551,8 +1554,9 @@ export class World {
       damage *= 1 + power;
       range += power * 0.45;
     }
-    if ((u.ralliedUntil ?? 0) > this.tick) damage *= 1.25;
-    return { damage, range, armour: d.armour + b.armour };
+    const rallied=(u.ralliedUntil??0)>this.tick;
+    if (rallied) damage *= 1.5;
+    return { damage, range, armour: d.armour + b.armour + (rallied?3:0) };
   }
 
   /** Priest healing after Church research. */

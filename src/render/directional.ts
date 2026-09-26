@@ -29,7 +29,7 @@ export function directionRow(facing:number):{row:number;mirror:boolean} {
 }
 export function hasDirectional(def:string,state:AnimState):boolean {
  if(["scout","bomber","knight","grunt","direwolf","dragon","cow"].includes(def))return true;
- return def==="worker" ? ["idle","walk","run","carry","flee","chop"].includes(state)
+ return def==="worker" ? ["idle","walk","run","carry","flee","chop","attack"].includes(state)
  : ["king","prince","footman"].includes(def)&&["idle","walk","run"].includes(state);
 }
 export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimState,x:number,y:number,s:number,phase:number,tick:number,enabled:boolean):number|null {
@@ -41,11 +41,11 @@ export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimSt
    ctx.drawImage(img,col*sw,row*sh,sw,sh,x-size/2,y-size*.65,size,size);return size*.8;
  }
  if(["knight","grunt","direwolf","dragon","cow"].includes(u.def))return drawCreature(ctx,u.def,u.facing,state,x,y,s,phase,tick,enabled);
- const cutting=state==="chop",worker=u.def==="worker",src=worker?(cutting?chop:walk):soldier;
+ const cutting=state==="chop"||(u.def==="worker"&&state==="attack"),worker=u.def==="worker",src=worker?(cutting?chop:walk):soldier;
  const natural=worker&&!cutting;
  const img=atlas(src,worker,3,natural?7:6);if(!img)return null;
  const {row,mirror}=directionRow(u.facing),sw=img.width/(natural?7:6),sh=img.height/3;
- const cycle=cutting ? ((tick%20)+20)%20/20 : phase;
+ const cycle=state==="attack" ? Math.min(.999,Math.max(0,tick)/18) : cutting ? ((tick%20)+20)%20/20 : phase;
  const index=!enabled||state==="idle"?0:(natural?1:0)+Math.min(5,Math.floor(cycle*6));
  const scale=s*1.4/(natural?sh*.91:worker?265:325),dw=sw*scale,dh=sh*scale;
  const baseline=natural?.975:(worker?(row===0?326:row===1?334:311):330)/341;

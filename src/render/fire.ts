@@ -1,97 +1,48 @@
-/**
- * Buildings burn.
- *
- * Nothing in the simulation changes for this: a building's health already says
- * how badly it is hurt, so fire is drawn straight from hp and needs no state, no
- * events and no bookkeeping. Damage a building and it smoulders; keep at it and
- * it is an inferno; repair it and the flames go out on their own.
- *
- * The flicker is deterministic, seeded from the building's id and the tick, so
- * two players watching the same siege see the same fire, and a paused frame does
- * not reshuffle itself every time the renderer redraws.
- */
-
-/** Health fraction below which a building starts to smoke. */
+/** Render-only damage fire. All motion follows simulation time, including pause. */
 export const BURN_AT = 0.65;
-
-/** Cheap deterministic hash, 0..1. */
-function noise(a: number, b: number): number {
-  let t = (a * 374761393 + b * 668265263) >>> 0;
-  t = Math.imul(t ^ (t >>> 13), 1274126177) >>> 0;
-  return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
+function noise(a:number,b:number):number {
+  let t=(a*374761393+b*668265263)>>>0;t=Math.imul(t^(t>>>13),1274126177)>>>0;
+  return ((t^(t>>>16))>>>0)/4294967296;
 }
-
-/**
- * Draw fire over a building.
- *
- * @param x,y   top-left of the building's footprint on screen
- * @param w     footprint width in pixels
- * @param frac  current health fraction, 0..1
- * @param tick  sim tick plus interpolation, for the flicker
- * @param seed  the building's id, so neighbouring fires differ
- */
-export function drawFire(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  frac: number,
-  tick: number,
-  seed: number,
-): void {
-  if (frac >= BURN_AT) return;
-  // 0 at the first singe, 1 at the point of collapse.
-  const heat = Math.min(1, (BURN_AT - frac) / BURN_AT);
-  const plumes = 1 + Math.round(heat * 5);
-
-  ctx.save();
-  for (let i = 0; i < plumes; i++) {
-    // Fires sit across the building's roofline, not its floor.
-    const fx = x + w * (0.18 + noise(seed, i) * 0.64);
-    const fy = y + w * (0.30 + noise(seed, i + 90) * 0.34);
-    const size = w * (0.14 + heat * 0.2) * (0.7 + noise(seed, i + 40) * 0.6);
-    // Each plume runs on its own clock, so they do not pulse in unison.
-    const phase = tick * (0.22 + noise(seed, i + 7) * 0.12) + i * 2.4;
-    const lick = 0.75 + Math.sin(phase) * 0.25 + Math.sin(phase * 2.7) * 0.1;
-
-    // Body of the flame, added rather than painted over, so overlapping plumes
-    // brighten into a core the way real fire does.
-    ctx.globalCompositeOperation = "lighter";
-    const h = size * 2.1 * lick;
-    const grad = ctx.createLinearGradient(fx, fy, fx, fy - h);
-    grad.addColorStop(0, "rgba(255,96,16,0.85)");
-    grad.addColorStop(0.45, "rgba(255,168,42,0.6)");
-    grad.addColorStop(1, "rgba(255,236,150,0)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(fx - size * 0.5, fy);
-    // A tongue: wide at the base, whipping sideways as it rises to a point.
-    ctx.quadraticCurveTo(fx - size * 0.55, fy - h * 0.55, fx + Math.sin(phase * 1.6) * size * 0.35, fy - h);
-    ctx.quadraticCurveTo(fx + size * 0.55, fy - h * 0.55, fx + size * 0.5, fy);
-    ctx.closePath();
-    ctx.fill();
-
-    // A hot white-yellow heart, only once the fire has really taken.
-    if (heat > 0.35) {
-      ctx.fillStyle = "rgba(255,230,140,0.5)";
-      ctx.beginPath();
-      ctx.ellipse(fx, fy - h * 0.2, size * 0.22, h * 0.26, 0, 0, Math.PI * 2);
-      ctx.fill();
+export function drawFire(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,frac:number,tick:number,seed:number):void {
+  if(frac>=BURN_AT)return;
+  const heat=Math.min(1,(BURN_AT-frac)/BURN_AT),fires=1+Math.floor(heat*4);
+  ctx.save();ctx.globalCompositeOperation='source-over';
+  for(let i=0;i<fires;i++){
+    const fx=x+w*(.2+noise(seed,i)*.6),fy=y+w*(.34+noise(seed,i+90)*.24);
+    const size=w*(.032+heat*.045),phase=tick*.3+i*2.4;
+    // Soft drifting smoke appears behind the flames, without solid circle edges.
+    for(let puff=0;puff<5;puff++){
+      const k=(tick*.008+noise(seed,i*19+puff+200))%1;
+      const px=fx+w*k*.12+Math.sin(k*5+i)*size*.4,py=fy-size*2-k*w*.38;
+      const radius=size*(.8+k*2.6),alpha=Math.sin(k*Math.PI)*(.1+heat*.1);
+      const smoke=ctx.createRadialGradient(px,py,0,px,py,radius);
+      smoke.addColorStop(0,`rgba(45,39,33,${alpha})`);smoke.addColorStop(.5,`rgba(64,59,51,${alpha*.65})`);smoke.addColorStop(1,'rgba(64,59,51,0)');
+      ctx.fillStyle=smoke;ctx.fillRect(px-radius,py-radius,radius*2,radius*2);
     }
-
-    // Smoke, drawn normally: it must darken the sky, not brighten it.
-    ctx.globalCompositeOperation = "source-over";
-    const puffs = 2 + Math.round(heat * 2);
-    for (let p = 0; p < puffs; p++) {
-      const k = ((tick * 0.02 + noise(seed, i * 13 + p) * 1) % 1 + 1) % 1;
-      const drift = Math.sin(phase * 0.5 + p) * size * 0.8;
-      ctx.globalAlpha = (1 - k) * 0.3 * (0.4 + heat * 0.6);
-      ctx.fillStyle = "#3a3a3c";
-      ctx.beginPath();
-      ctx.arc(fx + drift * k, fy - h - k * w * 0.8, size * (0.35 + k * 0.9), 0, Math.PI * 2);
-      ctx.fill();
+    const glow=ctx.createRadialGradient(fx,fy-size*.4,0,fx,fy-size*.4,size*2.2);
+    glow.addColorStop(0,'rgba(246,97,14,.22)');glow.addColorStop(1,'rgba(246,97,14,0)');
+    ctx.fillStyle=glow;ctx.fillRect(fx-size*2.2,fy-size*2.6,size*4.4,size*4.4);
+    if(heat>.06)for(let tongue=0;tongue<3;tongue++){
+      const base=fx+(tongue-1)*size*.48,t=phase+tongue*2.1;
+      const height=size*(1.7+.8*Math.sin(t)+.3*Math.sin(t*2.3));
+      const width=size*(.3+.08*Math.cos(t*1.4)),tip=base+Math.sin(t*.8)*size*.5;
+      const flame=ctx.createLinearGradient(base,fy,tip,fy-height);
+      flame.addColorStop(0,'rgba(205,57,6,.8)');flame.addColorStop(.28,'rgba(255,126,15,.88)');flame.addColorStop(.62,'rgba(255,188,53,.78)');flame.addColorStop(1,'rgba(233,87,10,0)');
+      ctx.fillStyle=flame;ctx.beginPath();ctx.moveTo(base-width,fy);
+      ctx.bezierCurveTo(base-width*1.2,fy-height*.35,tip-width*.6,fy-height*.65,tip,fy-height);
+      ctx.bezierCurveTo(tip+width*.3,fy-height*.55,base+width*1.4,fy-height*.28,base+width,fy);ctx.closePath();ctx.fill();
+      const core=ctx.createLinearGradient(base,fy,base,fy-height*.55);
+      core.addColorStop(0,'rgba(255,226,123,.9)');core.addColorStop(1,'rgba(255,194,62,0)');ctx.fillStyle=core;
+      ctx.beginPath();ctx.moveTo(base-width*.35,fy);ctx.quadraticCurveTo(base-width*.2,fy-height*.3,tip,fy-height*.55);ctx.quadraticCurveTo(base+width*.35,fy-height*.2,base+width*.35,fy);ctx.fill();
     }
-    ctx.globalAlpha = 1;
+    // A few tiny embers rise separately; the whole roof never washes out yellow.
+    for(let ember=0;ember<3;ember++){
+      const k=(tick*.018+noise(seed,i*7+ember+450))%1;
+      ctx.fillStyle=`rgba(255,171,51,${(1-k)*heat*.8})`;
+      const ex=fx+Math.sin(k*5+ember)*size+k*w*.07,ey=fy-k*w*.34;
+      ctx.fillRect(ex,ey,Math.max(1,w*.006),Math.max(1,w*.009)*(1-k));
+    }
   }
   ctx.restore();
 }

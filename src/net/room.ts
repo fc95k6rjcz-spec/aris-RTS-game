@@ -238,7 +238,7 @@ export async function host(setup: MatchSetup, on: (e: RoomEvent) => void, signal
   });
 }
 
-const ROOM_VERSION='save-6';
+const ROOM_VERSION='rally-7';
 
 /** Reserve the second seat, then wait for the host to explicitly start. */
 export async function join(code: string, on: (e: RoomEvent) => void, signal?: AbortSignal): Promise<Room> {
