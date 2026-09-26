@@ -142,7 +142,7 @@ export interface WorldEvent {
  */
 export type FxEvent =
   | { kind: "attack"; x: number; y: number; tx: number; ty: number; def: string; ranged: boolean }
-  | { kind: "hit"; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
+  | { kind: "hit"; owner?: PlayerId; attackerOwner?: PlayerId; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
   | { kind: "heal"; id: EntityId; x: number; y: number; amount: number }
   | { kind: "death"; x: number; y: number; def: string; owner: PlayerId; facing: number; building: boolean }
   | { kind: "built"; x: number; y: number; def: string }
@@ -173,6 +173,26 @@ export class World {
   projectiles: Projectile[] = [];
   /** Set once one side has lost every building. */
   winner: PlayerId | null = null;
+  readonly teams = new Map<PlayerId, number>();
+
+  allied(a: PlayerId, b: PlayerId): boolean {
+    return a === b || (this.teams.has(a) && this.teams.get(a) === this.teams.get(b));
+  }
+
+  /** Two human camps share the first clearing; the AI holds the opposite seat. */
+  prepareCoop(): void {
+    this.teams.set(1, 1); this.teams.set(2, 1); this.teams.set(3, 3);
+    const home = this.map.starts[0]!, enemy = this.map.starts[1]!;
+    for (let y=home.y-9; y<=home.y+9; y++) for (let x=home.x-9; x<=home.x+9; x++) {
+      if (!this.map.inBounds(x,y)) continue;
+      this.map.set(x,y,Tile.Grass);
+      const i=this.map.idx(x,y); this.map.amount[i]=0; this.map.hidden[i]=0;
+    }
+    for (let y=home.y-8; y<=home.y-6; y++) for (let x=home.x-1; x<=home.x+1; x++) {
+      this.map.set(x,y,Tile.Gold); this.map.amount[this.map.idx(x,y)]=4000;
+    }
+    this.map.starts=[{x:home.x-4,y:home.y},{x:home.x+4,y:home.y},{...enemy}];
+  }
   /**
    * What each player can see and remember. Part of the simulation, not the
    * renderer: it decides what may be targeted, so it has to be computed the same
@@ -286,6 +306,7 @@ export class World {
       h = Math.imul(h, 16777619) >>> 0;
     };
     mix(this.tick);
+    for (const [player, team] of this.teams) { mix(player); mix(team); }
     mix(this.patrolsEnabled ? 1 : 0);
     for (const id of [...this.entities.keys()].sort((a, b) => a - b)) {
       const e = this.entities.get(id)!;
@@ -297,6 +318,8 @@ export class World {
         mix(e.hp);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
+        mix(e.guardOrigin?.x ?? -1);
+        mix(e.guardOrigin?.y ?? -1);
         mix(e.ralliedUntil ?? 0);
         mix(e.rallyReadyAt ?? 0);
         mix(e.patrolBand ?? 0);
@@ -315,6 +338,7 @@ export class World {
       } else {
         mix(e.tx);
         mix(e.ty);
+        mix(e.attackTarget ?? 0);
         mix(e.hp);
         mix(Math.round(e.progress));
         mix(e.complete ? 1 : 0);
@@ -1092,9 +1116,18 @@ export class World {
         }
         break;
       }
+      case "towerAttack": {
+        const b=this.entities.get(c.building),target=this.entities.get(c.target);
+        if (!b || b.kind!=='building' || b.def!=='tower' || !b.complete || b.owner!==c.player || !target || !this.hostile(b,target) || !this.canSeeEntity(c.player,target)) break;
+        if (target.kind==='unit' && UNITS[target.def]!.submerged) { this.emit(c.player,'Watch towers cannot attack submerged units.'); break; }
+        const origin=centerOf(b),at=this.posOf(target);
+        if (Math.hypot(at.x-origin.x,at.y-origin.y)-this.radiusOf(target) > (4.5+Math.max(1,b.level)*.55)*SUB) { this.emit(c.player,'That enemy is outside the watchtower’s attack range.'); break; }
+        b.attackTarget=target.id;
+        break;
+      }
       case "attack": {
         const target = this.entities.get(c.target);
-        if (!target || target.owner === c.player) break;
+        if (!target || this.allied(target.owner, c.player)) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (UNITS[u.def]!.damage <= 0) continue;
           u.moveQueue = [];
@@ -1401,13 +1434,13 @@ export class World {
    * only the moment an enemy slips out of sight is blurred by a fifth of a
    * second, which no one can perceive.
    */
-  private updateVision(): void {
+  updateVision(force = false): void {
     if (!this.fogEnabled) return;
-    if (this.tick % VISION_INTERVAL !== 0) return;
+    if (!force && this.tick % VISION_INTERVAL !== 0) return;
     for (const [id, v] of this.vision) {
       const watchers: Array<{ x: number; y: number; r: number; elevated?: boolean }> = [];
       for (const e of this.entities.values()) {
-        if (e.owner !== id) continue;
+        if (!this.allied(e.owner, id)) continue;
         if (e.kind === "unit") {
           watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6, elevated: UNITS[e.def]!.domain === "air" });
         } else {
@@ -1415,9 +1448,9 @@ export class World {
           // keep a modest footprint-based sight range.
           const c = centerOf(e);
           const lv = LEVELLED[e.def] ? levelDef(e.def, e.level) : null;
-          const tierSight = (e.def === "tower" || e.def === "torch") ? lv?.radius : undefined;
+          const tierSight = (e.def === "tower" && e.complete || e.def === "torch") ? lv?.radius : undefined;
           const r = tierSight ?? Math.max(5, e.size + 3);
-          watchers.push({ x: c.x, y: c.y, r });
+          watchers.push({ x: c.x, y: c.y, r, elevated: e.def === "tower" && e.complete });
         }
       }
       v.update(watchers, (x,y) => this.map.get(x,y) === Tile.Tree);
@@ -1432,7 +1465,7 @@ export class World {
 
   /** Whether a player can currently see an entity. */
   canSeeEntity(player: PlayerId, e: Entity): boolean {
-    if (!this.fogEnabled || e.owner === player) return true;
+    if (!this.fogEnabled || this.allied(e.owner, player)) return true;
     const p = this.posOf(e);
     return this.canSee(player, p.x, p.y);
   }
@@ -1558,7 +1591,7 @@ export class World {
 
   private hostile(a: Entity, b: Entity): boolean {
     if ((a.kind === "unit" && a.recruitBand !== undefined) || (b.kind === "unit" && b.recruitBand !== undefined)) return false;
-    return a.owner !== b.owner;
+    return !this.allied(a.owner, b.owner);
   }
 
   /** Nearest enemy within `range` sub-units of a unit, or null. */
@@ -1624,6 +1657,7 @@ export class World {
    * first time two players fought.
    */
   private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3): void {
+    if (this.allied(target.owner, attackerOwner)) return;
     const swing = 1 + spread * (this.rng.next() * 2 - 1);
     const crit = this.rng.next() < CRIT_CHANCE;
     const rolled = amount * swing * (crit ? CRIT_MULTIPLIER : 1);
@@ -1631,7 +1665,7 @@ export class World {
     const dealt = Math.max(1, Math.round(rolled - armour));
     target.hp -= dealt;
     const at = this.posOf(target);
-    this.fx.push({ kind: "hit", id: target.id, x: at.x, y: at.y, building: target.kind === "building", amount: dealt, crit });
+    this.fx.push({ kind: "hit", owner: target.owner, attackerOwner, id: target.id, x: at.x, y: at.y, building: target.kind === "building", amount: dealt, crit });
     if (target.hp > 0) return;
     this.fx.push({
       kind: "death",
@@ -1663,6 +1697,15 @@ export class World {
 
   private damage(target: Entity, amount: number, attacker: Unit): void {
     this.dealDamage(target, amount, attacker.owner, UNITS[attacker.def]!.spread ?? 0.3);
+    // Idle soldiers answer nearby allies; workers keep their jobs and direct orders win.
+    for (const ally of this.units()) {
+      const def = UNITS[ally.def]!;
+      if (!this.allied(ally.owner, target.owner) || ally.task.kind !== 'idle' || def.canGather || def.beast || def.damage <= 0 || !this.canStrike(ally, attacker)) continue;
+      const at = this.posOf(target);
+      if (Math.hypot(ally.pos.x-at.x,ally.pos.y-at.y) > 8*SUB) continue;
+      ally.guardOrigin ??= {...ally.pos};
+      if (Math.hypot(attacker.pos.x-ally.guardOrigin.x,attacker.pos.y-ally.guardOrigin.y) <= 8*SUB) ally.engaging=attacker.id;
+    }
   }
 
   /**
@@ -1727,6 +1770,38 @@ export class World {
       });
     }
     return true;
+  }
+
+  /** Idle soldiers intercept visible threats, then return to their guard position. */
+  private defendPosition(u: Unit): void {
+    const origin = u.guardOrigin ?? u.pos;
+    const valid = (e: Entity): boolean => e.kind === 'unit' && this.hostile(u,e) && UNITS[e.def]!.damage > 0 && this.canStrike(u,e) && this.canSeeEntity(u.owner,e) && Math.hypot(e.pos.x-origin.x,e.pos.y-origin.y) <= 8*SUB;
+    let foe = u.engaging === null ? undefined : this.entities.get(u.engaging);
+    if (!foe || !valid(foe)) {
+      foe = undefined;
+      let nearest = Math.max(7,this.stats(u).range)*SUB;
+      for (const enemy of this.units()) {
+        if (!valid(enemy)) continue;
+        const distance = Math.hypot(enemy.pos.x-u.pos.x,enemy.pos.y-u.pos.y);
+        if (distance < nearest) { nearest=distance; foe=enemy; }
+      }
+    }
+    if (foe) {
+      u.guardOrigin ??= {...u.pos};
+      u.engaging=foe.id;
+      if (!this.tryAttack(u,foe)) {
+        const at=this.posOf(foe);
+        if (!u.path.length || this.tick%20===0) this.pathTo(u,Math.floor(at.x/SUB),Math.floor(at.y/SUB));
+        this.followPath(u);
+      }
+      return;
+    }
+    if (u.engaging !== null) u.path=[];
+    u.engaging=null;
+    if (u.guardOrigin) {
+      if (Math.hypot(u.pos.x-origin.x,u.pos.y-origin.y) < SUB*.5) { u.guardOrigin=undefined;u.path=[]; }
+      else { if(!u.path.length || this.tick%20===0)this.pathTo(u,Math.floor(origin.x/SUB),Math.floor(origin.y/SUB),true);this.followPath(u); }
+    }
   }
 
   /** Idle and passing units shoot back at anything that comes close. */
@@ -1905,7 +1980,7 @@ export class World {
       if (!has && this.sendHeir(p)) has = true;
       if (has) alive.push(p);
     }
-    if (alive.length === 1) this.winner = alive[0]!;
+    if (alive.length && alive.every(p => this.allied(p, alive[0]!))) this.winner = alive[0]!;
   }
 
   private stepUnit(u: Unit): void {
@@ -1914,11 +1989,13 @@ export class World {
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) this.stepBeast(u);
     const t = u.task;
+    if (t.kind !== "idle") u.guardOrigin = undefined;
     if(t.kind !== "build" && t.kind !== "repair") u.constructionWork = undefined;
     switch (t.kind) {
       case "idle": {
         // Priests hold the line while casting; combat units defend themselves.
         if (supportCast) return;
+        if (!UNITS[u.def]!.canGather && !UNITS[u.def]!.beast && UNITS[u.def]!.damage > 0) { this.defendPosition(u); return; }
         const foe = this.autoAcquire(u);
         if (foe) this.tryAttack(u, foe);
         return;
@@ -2380,11 +2457,14 @@ export class World {
         for (const e of this.entities.values()) {
           // Only fire on another actual player. Wildlife remains wildlife rather
           // than causing every border tower to spend the match shooting deer.
-          if (!this.hostile(b, e) || !this.players.has(e.owner)) continue;
+          if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner,e)) continue;
+          if (e.kind === "unit" && UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) continue;
           if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
           const p = this.posOf(e);
           const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
-          if (d > range || d >= bestD) continue;
+          if (d > range) continue;
+          if (e.id === b.attackTarget) { target=e; break; }
+          if (d >= bestD) continue;
           bestD = d;
           target = e;
         }

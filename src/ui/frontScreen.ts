@@ -35,6 +35,7 @@ export type FrontPane = "splash" | "menu" | "credits" | "multiplayer" | "host" |
 export type FrontAction =
   | { kind: "begin" }
   | { kind: "host" }
+  | { kind: "startRoom" }
   | { kind: "join" }
   | { kind: "leaveRoom" }
   | { kind: "pane"; pane: FrontPane }
@@ -61,7 +62,7 @@ export interface FrontState {
    * `status` is whatever the last thing that happened was -- all of it is just
    * text on the screen, so it lives here rather than anywhere cleverer.
    */
-  net: { code: string; typed: string; status: string; busy: boolean };
+  net: { code: string; typed: string; status: string; busy: boolean; ready?: boolean };
   /** Highlighted row, for the keyboard. The mouse highlights whatever it is over. */
   cursor: number;
   /** First visible row in a list long enough to scroll. */
@@ -262,12 +263,12 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
       const rows: Row[] = [
         {
           numeral: numeral(0),
-          label: "Host a Game",
-          hint: "Get a code",
+          label: "Create a Game",
+          hint: "Your rules",
           enabled: !state.net.busy,
           marked: false,
           action: { kind: "host" },
-          note: "Opens a room and gives you a four-letter code to read out.",
+          note: "Choose your map and rules, then invite a friend with a room code.",
         },
         {
           numeral: numeral(1),
@@ -284,7 +285,8 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
     }
     case "host": {
       const rows: Row[] = [
-        { numeral: "", label: "Give Up Waiting", hint: "Esc", enabled: true, marked: false, action: { kind: "leaveRoom" } },
+        { numeral: "", label: "Start Game", hint: state.net.ready ? "2 / 2 ready" : "Waiting for player 2", enabled: !!state.net.ready, marked: false, action: { kind: "startRoom" } },
+        { numeral: "", label: "Close Room", hint: "Esc", enabled: true, marked: false, action: { kind: "leaveRoom" } },
       ];
       return { rows, note: state.net.status, heading: "YOUR ROOM" };
     }
@@ -292,7 +294,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
       const rows: Row[] = [
         {
           numeral: "",
-          label: "Knock",
+          label: "Join Game",
           hint: "Enter",
           enabled: state.net.typed.length === 4 && !state.net.busy,
           marked: false,
@@ -460,13 +462,15 @@ export function drawFrontScreen(
   const { rows, note, heading } = rowsFor(state, difficulty, mapId);
 
   // ── masthead ──
-  let y = Math.max(58, H * 0.10);
+  const lobby = state.pane === 'host' || state.pane === 'join';
+  const compactLobby = lobby && H < 680;
+  let y = compactLobby ? 30 : Math.max(58, H * 0.10);
   ctx.fillStyle = MUTED;
   ctx.font = "11px system-ui, sans-serif";
   tracked(ctx, heading ?? EYEBROW, x, y, 3.4);
 
-  y += Math.round(Math.max(44, Math.min(64, H * 0.075)));
-  const titleSize = Math.round(Math.max(34, Math.min(62, H * 0.074)));
+  y += compactLobby ? 34 : Math.round(Math.max(44, Math.min(64, H * 0.075)));
+  const titleSize = compactLobby ? 28 : Math.round(Math.max(34, Math.min(62, H * 0.074)));
   ctx.font = `${titleSize}px Georgia, 'Times New Roman', serif`;
   ctx.fillStyle = CREAM;
   tracked(ctx, TITLE_A, x, y, 2);
@@ -496,7 +500,7 @@ export function drawFrontScreen(
     const box = Math.round(Math.min(66, colW / 5.2));
     const gap = Math.round(box * 0.22);
     const bx = x;
-    const by = y + 34;
+    const by = y + (compactLobby ? 16 : 34);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (let i = 0; i < 4; i++) {
@@ -527,15 +531,15 @@ export function drawFrontScreen(
     ctx.font = "10px system-ui, sans-serif";
     ctx.fillStyle = MUTED;
     tracked(ctx, state.pane === "host" ? "READ THIS OUT TO YOUR FRIEND" : "TYPE THE FOUR LETTERS", x, by + box + 30, 3);
-    y = by + box + 44;
+    y = by + box + (compactLobby ? 34 : 44);
   }
 
   // ── rows ──
   const footerH = 96;
-  const top = y + Math.max(30, H * 0.05);
+  const top = y + (compactLobby ? 12 : Math.max(30, H * 0.05));
   const space = H - top - footerH;
   const rowH = Math.round(Math.max(34, Math.min(58, space / Math.max(6, Math.min(rows.length, 9)))));
-  const perPage = Math.max(3, Math.floor(space / rowH));
+  const perPage = Math.min(rows.length, Math.max(1, Math.floor(space / rowH)));
 
   // Keep the highlighted row on screen without the caller having to think about it.
   const maxScroll = Math.max(0, rows.length - perPage);
@@ -606,9 +610,9 @@ export function drawFrontScreen(
 
   // ── the line under the column ──
   const shown = hovered ?? cursored;
-  const blurb = shown?.note ?? note;
+  const blurb = lobby && state.net.status ? state.net.status : shown?.note ?? note;
   if (blurb) {
-    const by = top + perPage * rowH + 26;
+    const by = top + perPage * rowH + 20;
     ctx.font = `italic ${Math.round(Math.max(13, Math.min(16, H * 0.021)))}px Georgia, serif`;
     const lines = wrap(ctx, blurb, colW - 18);
     ctx.fillStyle = "rgba(200,162,74,0.5)";
@@ -620,7 +624,7 @@ export function drawFrontScreen(
   // ── footer ──
   ctx.font = "10px system-ui, sans-serif";
   ctx.fillStyle = DIM;
-  tracked(ctx, `BUILD ${VERSION}    ARROWS TO MOVE    ENTER TO SELECT`, x, H - 28, 2.6);
+  tracked(ctx, lobby ? 'ESC TO LEAVE  ·  ENTER TO SELECT' : `BUILD ${VERSION}    ARROWS TO MOVE    ENTER TO SELECT`, x, H - 20, narrow ? 1 : 2.6);
 
   ctx.restore();
   return hits;

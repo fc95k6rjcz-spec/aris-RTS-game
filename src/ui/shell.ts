@@ -450,7 +450,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const cmd = el("div", "rv-pane rv-cmd");
   const tabRow = el("div", "rv-tabs");
   const hints = el("div", "rv-hints");
-  hints.append(el("span", undefined, "Right-click to order"), el("span", undefined, "A + click to attack-move"));
+  hints.append(el("span", undefined, "Click a person · right-click to order"), el("span", undefined, "Home to find your people"));
   const grid = el("div", "rv-grid");
   const desc = el("div", "rv-desc", IDLE_HINT);
   cmd.append(tabRow, grid, desc);

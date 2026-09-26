@@ -17,7 +17,10 @@
     "test:human": "node test/humanFaction.mjs",
     "verify:human": "npm run build && npm run test:human",
     "test:animation": "node test/animationLogic.mjs && node test/animationCoverage.mjs",
-    "verify:animation": "npm run build && npm run test:animation"
+    "verify:animation": "npm run build && npm run test:animation",
+    "test:rooms": "node test/customRooms.mjs",
+    "test:tower-vision": "node test/towerVision.mjs",
+    "test:custom-game": "node test/customGameUi.mjs"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

@@ -1,0 +1,18 @@
+import {build} from 'esbuild';
+import assert from 'node:assert/strict';
+const channels=new Set();
+globalThis.__roomTestClient={channel(name){const c={name,handlers:[],active:false,on(_,filter,fn){this.handlers.push([filter.event,fn]);return this;},subscribe(fn){this.active=true;queueMicrotask(()=>fn('SUBSCRIBED'));return this;},async send({event,payload}){for(const other of channels)if(other!==this&&other.active&&other.name===name)for(const [kind,fn] of other.handlers)if(kind===event)queueMicrotask(()=>{if(other.active)fn({payload});});return 'ok';}};channels.add(c);return c;},async removeChannel(c){c.active=false;channels.delete(c);}};
+const out=await build({entryPoints:['src/net/room.ts'],bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'memory-rooms',setup(b){b.onResolve({filter:/^@supabase\/supabase-js$/},()=>({path:'memory',namespace:'test'}));b.onLoad({filter:/.*/,namespace:'test'},()=>({contents:'export const createClient=()=>globalThis.__roomTestClient;'}));}}]});
+const {host,join}=await import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));
+const tick=()=>new Promise(r=>setTimeout(r,10));
+const setup={seed:42,mapId:'plains-7925',pace:4,stockade:true,crowning:false,nomad:true,wildlife:false};
+let code,start,hostStarted=false,guestStarted=false;
+const hp=host(setup,e=>{if(e.kind==='waiting')code=e.code;if(e.kind==='ready')start=e.start;}).then(r=>{hostStarted=true;return r;});
+await tick();assert.match(code,/^[BCDFGHJKLMNPQRSTVWXYZ23456789]{4}$/);
+const gp=join(code,()=>{}).then(r=>{guestStarted=true;return r;});await tick();
+assert.equal(typeof start,'function');assert(!hostStarted&&!guestStarted,'joining must not auto-start');
+const thirdAbort=new AbortController();let thirdStarted=false;const third=join(code,()=>{},thirdAbort.signal).then(()=>thirdStarted=true,()=>{});await tick();
+start();const [h,g]=await Promise.all([hp,gp]);assert.deepEqual(g.setup,setup);assert.equal(h.slot,0);assert.equal(g.slot,1);assert(!thirdStarted,'room admits only one guest');thirdAbort.abort();await third;h.transport.close();g.transport.close();
+let code2;const abortHost=new AbortController();const cancelled=host(setup,e=>{if(e.kind==='waiting')code2=e.code;},abortHost.signal).then(()=>assert.fail('cancelled host started'),()=>{});await tick();abortHost.abort();await cancelled;assert.equal(channels.size,0);
+let code3,readyCount=0;const a=new AbortController(),b=new AbortController();const pendingHost=host(setup,e=>{if(e.kind==='waiting')code3=e.code;if(e.kind==='ready')readyCount++;},a.signal).catch(()=>{});await tick();const pendingGuest=join(code3,()=>{},b.signal).catch(()=>{});await tick();assert.equal(readyCount,1);b.abort();await pendingGuest;a.abort();await pendingHost;assert.equal(channels.size,0);
+console.log('PASS: custom rules, manual host start, two seats, host/guest cancellation, channel cleanup.');

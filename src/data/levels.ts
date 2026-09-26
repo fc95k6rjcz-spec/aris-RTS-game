@@ -39,15 +39,15 @@ export interface LevelDef {
 
 export const TOWNHALL_LEVELS: LevelDef[] = [
   { level: 1, name: "Meeting Hall", blurb: "A humble wooden meeting hall for a small village.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 1200, supply: 12, scale: 1.0 },
-  { level: 2, name: "Timber Hall", blurb: "A larger timber hall with a stone foundation.", cost: { gold: 450, lumber: 300 }, time: 20 * 45, hp: 1500, supply: 16, scale: 1.06 },
-  { level: 3, name: "Reinforced Hall", blurb: "Reinforced with stone and better protection.", cost: { gold: 675, lumber: 450 }, time: 20 * 55, hp: 1900, supply: 20, scale: 1.12 },
-  { level: 4, name: "Guarded Hall", blurb: "A strong and solid hall with guard towers.", cost: { gold: 975, lumber: 630 }, time: 20 * 70, hp: 2400, supply: 25, scale: 1.18 },
-  { level: 5, name: "Grand Hall", blurb: "A grand hall with multiple sections and upgraded defenses.", cost: { gold: 1350, lumber: 840 }, time: 20 * 85, hp: 3000, supply: 30, scale: 1.24 },
-  { level: 6, name: "Stronghold", blurb: "An impressive stronghold with advanced architecture.", cost: { gold: 1800, lumber: 1080 }, time: 20 * 100, hp: 3700, supply: 36, scale: 1.3 },
-  { level: 7, name: "Mighty Keep", blurb: "A mighty keep with expanded walls and watchtowers.", cost: { gold: 2325, lumber: 1350 }, time: 20 * 115, hp: 4500, supply: 42, scale: 1.36 },
-  { level: 8, name: "City Heart", blurb: "The heart of a prosperous city. Tall, proud and formidable.", cost: { gold: 2925, lumber: 1650 }, time: 20 * 130, hp: 5400, supply: 48, scale: 1.42 },
-  { level: 9, name: "Legendary Fortress", blurb: "A legendary fortress. Built to withstand any siege.", cost: { gold: 3600, lumber: 2025 }, time: 20 * 150, hp: 6400, supply: 55, scale: 1.48 },
-  { level: 10, name: "Seat of Power", blurb: "The ultimate symbol of power and leadership. Unmatched.", cost: { gold: 4500, lumber: 2475 }, time: 20 * 175, hp: 7500, supply: 64, scale: 1.55 },
+  { level: 2, name: "Timber Hall", blurb: "A larger timber hall with a stone foundation.", cost: { gold: 675, lumber: 450 }, time: 20 * 45, hp: 1500, supply: 16, scale: 1.06 },
+  { level: 3, name: "Reinforced Hall", blurb: "Reinforced with stone and better protection.", cost: { gold: 1013, lumber: 675 }, time: 20 * 55, hp: 1900, supply: 20, scale: 1.12 },
+  { level: 4, name: "Guarded Hall", blurb: "A strong and solid hall with guard towers.", cost: { gold: 1463, lumber: 945 }, time: 20 * 70, hp: 2400, supply: 25, scale: 1.18 },
+  { level: 5, name: "Grand Hall", blurb: "A grand hall with multiple sections and upgraded defenses.", cost: { gold: 2025, lumber: 1260 }, time: 20 * 85, hp: 3000, supply: 30, scale: 1.24 },
+  { level: 6, name: "Stronghold", blurb: "An impressive stronghold with advanced architecture.", cost: { gold: 2700, lumber: 1620 }, time: 20 * 100, hp: 3700, supply: 36, scale: 1.3 },
+  { level: 7, name: "Mighty Keep", blurb: "A mighty keep with expanded walls and watchtowers.", cost: { gold: 3488, lumber: 2025 }, time: 20 * 115, hp: 4500, supply: 42, scale: 1.36 },
+  { level: 8, name: "City Heart", blurb: "The heart of a prosperous city. Tall, proud and formidable.", cost: { gold: 4388, lumber: 2475 }, time: 20 * 130, hp: 5400, supply: 48, scale: 1.42 },
+  { level: 9, name: "Legendary Fortress", blurb: "A legendary fortress. Built to withstand any siege.", cost: { gold: 5400, lumber: 3038 }, time: 20 * 150, hp: 6400, supply: 55, scale: 1.48 },
+  { level: 10, name: "Seat of Power", blurb: "The ultimate symbol of power and leadership. Unmatched.", cost: { gold: 6750, lumber: 3713 }, time: 20 * 175, hp: 7500, supply: 64, scale: 1.55 },
 ];
 
 /**
@@ -56,15 +56,15 @@ export const TOWNHALL_LEVELS: LevelDef[] = [
  */
 export const LUMBERMILL_LEVELS: LevelDef[] = [
   { level: 1, name: "Basic Sawmill", blurb: "A basic sawmill. Crude but functional.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 600, supply: 0, scale: 1.0, bonusCarry: 0 },
-  { level: 2, name: "Upgraded Sawmill", blurb: "Upgraded tools and a stronger roof improve production.", cost: { gold: 225, lumber: 150 }, time: 20 * 35, hp: 750, supply: 0, scale: 1.06, bonusCarry: 2 },
-  { level: 3, name: "Reinforced Mill", blurb: "Reinforced structure with better equipment and storage.", cost: { gold: 360, lumber: 240 }, time: 20 * 45, hp: 950, supply: 0, scale: 1.12, bonusCarry: 4 },
-  { level: 4, name: "Sawing Works", blurb: "Increased capacity and efficiency with advanced sawing technology.", cost: { gold: 540, lumber: 360 }, time: 20 * 55, hp: 1200, supply: 0, scale: 1.18, bonusCarry: 6 },
-  { level: 5, name: "Established Mill", blurb: "A well-established mill with improved log handling.", cost: { gold: 750, lumber: 510 }, time: 20 * 65, hp: 1500, supply: 0, scale: 1.24, bonusCarry: 8 },
-  { level: 6, name: "Machined Mill", blurb: "Stronger machinery and expanded storage for higher output.", cost: { gold: 1020, lumber: 675 }, time: 20 * 80, hp: 1850, supply: 0, scale: 1.3, bonusCarry: 10 },
-  { level: 7, name: "Engineered Mill", blurb: "Advanced engineering allows for faster processing.", cost: { gold: 1320, lumber: 870 }, time: 20 * 95, hp: 2250, supply: 0, scale: 1.36, bonusCarry: 12 },
-  { level: 8, name: "Master Mill", blurb: "A masterfully built mill with maximum sawing efficiency.", cost: { gold: 1680, lumber: 1095 }, time: 20 * 110, hp: 2700, supply: 0, scale: 1.42, bonusCarry: 15 },
-  { level: 9, name: "Mechanised Mill", blurb: "Top-tier mill with mechanized systems and high capacity.", cost: { gold: 2100, lumber: 1350 }, time: 20 * 125, hp: 3200, supply: 0, scale: 1.48, bonusCarry: 18 },
-  { level: 10, name: "Grand Lumberworks", blurb: "The finest lumber mill. Built for unmatched productivity.", cost: { gold: 2625, lumber: 1650 }, time: 20 * 145, hp: 3800, supply: 0, scale: 1.55, bonusCarry: 22 },
+  { level: 2, name: "Upgraded Sawmill", blurb: "Upgraded tools and a stronger roof improve production.", cost: { gold: 338, lumber: 225 }, time: 20 * 35, hp: 750, supply: 0, scale: 1.06, bonusCarry: 2 },
+  { level: 3, name: "Reinforced Mill", blurb: "Reinforced structure with better equipment and storage.", cost: { gold: 540, lumber: 360 }, time: 20 * 45, hp: 950, supply: 0, scale: 1.12, bonusCarry: 4 },
+  { level: 4, name: "Sawing Works", blurb: "Increased capacity and efficiency with advanced sawing technology.", cost: { gold: 810, lumber: 540 }, time: 20 * 55, hp: 1200, supply: 0, scale: 1.18, bonusCarry: 6 },
+  { level: 5, name: "Established Mill", blurb: "A well-established mill with improved log handling.", cost: { gold: 1125, lumber: 765 }, time: 20 * 65, hp: 1500, supply: 0, scale: 1.24, bonusCarry: 8 },
+  { level: 6, name: "Machined Mill", blurb: "Stronger machinery and expanded storage for higher output.", cost: { gold: 1530, lumber: 1013 }, time: 20 * 80, hp: 1850, supply: 0, scale: 1.3, bonusCarry: 10 },
+  { level: 7, name: "Engineered Mill", blurb: "Advanced engineering allows for faster processing.", cost: { gold: 1980, lumber: 1305 }, time: 20 * 95, hp: 2250, supply: 0, scale: 1.36, bonusCarry: 12 },
+  { level: 8, name: "Master Mill", blurb: "A masterfully built mill with maximum sawing efficiency.", cost: { gold: 2520, lumber: 1643 }, time: 20 * 110, hp: 2700, supply: 0, scale: 1.42, bonusCarry: 15 },
+  { level: 9, name: "Mechanised Mill", blurb: "Top-tier mill with mechanized systems and high capacity.", cost: { gold: 3150, lumber: 2025 }, time: 20 * 125, hp: 3200, supply: 0, scale: 1.48, bonusCarry: 18 },
+  { level: 10, name: "Grand Lumberworks", blurb: "The finest lumber mill. Built for unmatched productivity.", cost: { gold: 3938, lumber: 2475 }, time: 20 * 145, hp: 3800, supply: 0, scale: 1.55, bonusCarry: 22 },
 ];
 
 export const MAX_TOWNHALL_LEVEL = TOWNHALL_LEVELS.length;
@@ -74,15 +74,15 @@ export const MAX_TOWNHALL_LEVEL = TOWNHALL_LEVELS.length;
  */
 export const BARRACKS_LEVELS: LevelDef[] = [
   { level: 1, name: "Training Hall", blurb: "A simple training hall for basic infantry. Sturdy but spartan.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 800, supply: 0, scale: 1.0, trainSpeed: 1.0 },
-  { level: 2, name: "Improved Barracks", blurb: "Improved structure with better defences and more space.", cost: { gold: 300, lumber: 195 }, time: 20 * 40, hp: 1000, supply: 0, scale: 1.06, trainSpeed: 1.08 },
-  { level: 3, name: "Reinforced Barracks", blurb: "Reinforced barracks with room for more soldiers and training.", cost: { gold: 465, lumber: 300 }, time: 20 * 50, hp: 1250, supply: 0, scale: 1.12, trainSpeed: 1.16 },
-  { level: 4, name: "Fortified Barracks", blurb: "Stronger fortifications and expanded quarters for veteran troops.", cost: { gold: 675, lumber: 435 }, time: 20 * 62, hp: 1550, supply: 0, scale: 1.18, trainSpeed: 1.25 },
-  { level: 5, name: "Garrison", blurb: "A well-defended barracks with advanced facilities and weapon racks.", cost: { gold: 930, lumber: 600 }, time: 20 * 75, hp: 1900, supply: 0, scale: 1.24, trainSpeed: 1.35 },
-  { level: 6, name: "War Quarters", blurb: "Enhanced training grounds and strong stone fortifications.", cost: { gold: 1230, lumber: 795 }, time: 20 * 90, hp: 2300, supply: 0, scale: 1.3, trainSpeed: 1.45 },
-  { level: 7, name: "Elite Barracks", blurb: "Elite barracks with advanced equipment and a larger garrison.", cost: { gold: 1575, lumber: 1020 }, time: 20 * 105, hp: 2750, supply: 0, scale: 1.36, trainSpeed: 1.56 },
-  { level: 8, name: "War Stronghold", blurb: "A mighty stronghold for elite soldiers. Built for war and endurance.", cost: { gold: 1980, lumber: 1275 }, time: 20 * 120, hp: 3250, supply: 0, scale: 1.42, trainSpeed: 1.68 },
-  { level: 9, name: "Citadel Barracks", blurb: "The peak of military architecture. Unmatched training and defence.", cost: { gold: 2445, lumber: 1575 }, time: 20 * 138, hp: 3800, supply: 0, scale: 1.48, trainSpeed: 1.8 },
-  { level: 10, name: "War Barracks", blurb: "The ultimate war barracks. Forged for legends and built to never fall.", cost: { gold: 3000, lumber: 1920 }, time: 20 * 160, hp: 4400, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+  { level: 2, name: "Improved Barracks", blurb: "Improved structure with better defences and more space.", cost: { gold: 450, lumber: 293 }, time: 20 * 40, hp: 1000, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Reinforced Barracks", blurb: "Reinforced barracks with room for more soldiers and training.", cost: { gold: 698, lumber: 450 }, time: 20 * 50, hp: 1250, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "Fortified Barracks", blurb: "Stronger fortifications and expanded quarters for veteran troops.", cost: { gold: 1013, lumber: 653 }, time: 20 * 62, hp: 1550, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Garrison", blurb: "A well-defended barracks with advanced facilities and weapon racks.", cost: { gold: 1395, lumber: 900 }, time: 20 * 75, hp: 1900, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "War Quarters", blurb: "Enhanced training grounds and strong stone fortifications.", cost: { gold: 1845, lumber: 1193 }, time: 20 * 90, hp: 2300, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Elite Barracks", blurb: "Elite barracks with advanced equipment and a larger garrison.", cost: { gold: 2363, lumber: 1530 }, time: 20 * 105, hp: 2750, supply: 0, scale: 1.36, trainSpeed: 1.56 },
+  { level: 8, name: "War Stronghold", blurb: "A mighty stronghold for elite soldiers. Built for war and endurance.", cost: { gold: 2970, lumber: 1913 }, time: 20 * 120, hp: 3250, supply: 0, scale: 1.42, trainSpeed: 1.68 },
+  { level: 9, name: "Citadel Barracks", blurb: "The peak of military architecture. Unmatched training and defence.", cost: { gold: 3668, lumber: 2363 }, time: 20 * 138, hp: 3800, supply: 0, scale: 1.48, trainSpeed: 1.8 },
+  { level: 10, name: "War Barracks", blurb: "The ultimate war barracks. Forged for legends and built to never fall.", cost: { gold: 4500, lumber: 2880 }, time: 20 * 160, hp: 4400, supply: 0, scale: 1.55, trainSpeed: 2.0 },
 ];
 
 /**
@@ -90,15 +90,15 @@ export const BARRACKS_LEVELS: LevelDef[] = [
  */
 export const SHIPYARD_LEVELS: LevelDef[] = [
   { level: 1, name: "Fishing Dock", blurb: "A basic shipyard. Used to build small fishing boats.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 900, supply: 0, scale: 1.0, trainSpeed: 1.0 },
-  { level: 2, name: "Boatyard", blurb: "Upgraded facilities allow construction of larger boats.", cost: { gold: 330, lumber: 270 }, time: 20 * 45, hp: 1120, supply: 0, scale: 1.06, trainSpeed: 1.08 },
-  { level: 3, name: "Reinforced Yard", blurb: "Reinforced structures and better equipment improve ship quality.", cost: { gold: 510, lumber: 405 }, time: 20 * 55, hp: 1400, supply: 0, scale: 1.12, trainSpeed: 1.16 },
-  { level: 4, name: "Warship Yard", blurb: "Increased capacity and advanced tools enable warship construction.", cost: { gold: 750, lumber: 585 }, time: 20 * 68, hp: 1750, supply: 0, scale: 1.18, trainSpeed: 1.25 },
-  { level: 5, name: "Naval Yard", blurb: "A well-established shipyard with improved defences.", cost: { gold: 1035, lumber: 795 }, time: 20 * 82, hp: 2150, supply: 0, scale: 1.24, trainSpeed: 1.35 },
-  { level: 6, name: "Great Docks", blurb: "Stronger docks and more workspace for building larger ships.", cost: { gold: 1365, lumber: 1050 }, time: 20 * 98, hp: 2600, supply: 0, scale: 1.3, trainSpeed: 1.45 },
-  { level: 7, name: "Shipwright Works", blurb: "Elite shipwrights and advanced technology increase productivity.", cost: { gold: 1755, lumber: 1350 }, time: 20 * 115, hp: 3100, supply: 0, scale: 1.36, trainSpeed: 1.56 },
-  { level: 8, name: "Master Shipyard", blurb: "A master shipyard capable of building powerful battleships.", cost: { gold: 2205, lumber: 1680 }, time: 20 * 132, hp: 3650, supply: 0, scale: 1.42, trainSpeed: 1.68 },
-  { level: 9, name: "Admiralty Yard", blurb: "The pinnacle of naval engineering. Legendary ships are born here.", cost: { gold: 2715, lumber: 2070 }, time: 20 * 152, hp: 4250, supply: 0, scale: 1.48, trainSpeed: 1.8 },
-  { level: 10, name: "Grand Armoury Docks", blurb: "The ultimate shipyard. Home of the mightiest fleet.", cost: { gold: 3300, lumber: 2520 }, time: 20 * 175, hp: 4900, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+  { level: 2, name: "Boatyard", blurb: "Upgraded facilities allow construction of larger boats.", cost: { gold: 495, lumber: 405 }, time: 20 * 45, hp: 1120, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Reinforced Yard", blurb: "Reinforced structures and better equipment improve ship quality.", cost: { gold: 765, lumber: 608 }, time: 20 * 55, hp: 1400, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "Warship Yard", blurb: "Increased capacity and advanced tools enable warship construction.", cost: { gold: 1125, lumber: 878 }, time: 20 * 68, hp: 1750, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Naval Yard", blurb: "A well-established shipyard with improved defences.", cost: { gold: 1553, lumber: 1193 }, time: 20 * 82, hp: 2150, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "Great Docks", blurb: "Stronger docks and more workspace for building larger ships.", cost: { gold: 2048, lumber: 1575 }, time: 20 * 98, hp: 2600, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Shipwright Works", blurb: "Elite shipwrights and advanced technology increase productivity.", cost: { gold: 2633, lumber: 2025 }, time: 20 * 115, hp: 3100, supply: 0, scale: 1.36, trainSpeed: 1.56 },
+  { level: 8, name: "Master Shipyard", blurb: "A master shipyard capable of building powerful battleships.", cost: { gold: 3308, lumber: 2520 }, time: 20 * 132, hp: 3650, supply: 0, scale: 1.42, trainSpeed: 1.68 },
+  { level: 9, name: "Admiralty Yard", blurb: "The pinnacle of naval engineering. Legendary ships are born here.", cost: { gold: 4073, lumber: 3105 }, time: 20 * 152, hp: 4250, supply: 0, scale: 1.48, trainSpeed: 1.8 },
+  { level: 10, name: "Grand Armoury Docks", blurb: "The ultimate shipyard. Home of the mightiest fleet.", cost: { gold: 4950, lumber: 3780 }, time: 20 * 175, hp: 4900, supply: 0, scale: 1.55, trainSpeed: 2.0 },
 ];
 
 /**
@@ -107,15 +107,15 @@ export const SHIPYARD_LEVELS: LevelDef[] = [
  */
 export const CHURCH_LEVELS: LevelDef[] = [
   { level: 1, name: "Wayside Chapel", blurb: "A small chapel for worship and healing. Humble but sacred.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 700, supply: 0, scale: 1.0, heal: 1, radius: 4 },
-  { level: 2, name: "Village Chapel", blurb: "A larger chapel with stronger walls and room for more worshippers.", cost: { gold: 270, lumber: 180 }, time: 20 * 40, hp: 880, supply: 0, scale: 1.06, heal: 1, radius: 4.5 },
-  { level: 3, name: "Stone Church", blurb: "Reinforced structure with stained glass windows and a taller bell tower.", cost: { gold: 420, lumber: 285 }, time: 20 * 50, hp: 1100, supply: 0, scale: 1.12, heal: 2, radius: 5 },
-  { level: 4, name: "Grand Church", blurb: "A grand church with ornate windows and improved comfort for the faithful.", cost: { gold: 600, lumber: 405 }, time: 20 * 62, hp: 1370, supply: 0, scale: 1.18, heal: 2, radius: 5.5 },
-  { level: 5, name: "Abbey", blurb: "An established church with a larger hall and dedicated areas for prayer and study.", cost: { gold: 825, lumber: 555 }, time: 20 * 75, hp: 1690, supply: 0, scale: 1.24, heal: 3, radius: 6 },
-  { level: 6, name: "Buttressed Abbey", blurb: "Enhanced architecture with flying buttresses and a towering spire.", cost: { gold: 1095, lumber: 735 }, time: 20 * 90, hp: 2060, supply: 0, scale: 1.3, heal: 3, radius: 6.5 },
-  { level: 7, name: "Minster", blurb: "A majestic church with intricate stone work and beautiful stained glass.", cost: { gold: 1410, lumber: 945 }, time: 20 * 105, hp: 2480, supply: 0, scale: 1.37, heal: 4, radius: 7 },
-  { level: 8, name: "Sanctuary", blurb: "A holy sanctuary with multiple spires and expanded worship halls.", cost: { gold: 1770, lumber: 1185 }, time: 20 * 120, hp: 2950, supply: 0, scale: 1.43, heal: 4, radius: 7.5 },
-  { level: 9, name: "Cathedral", blurb: "The pinnacle of spiritual architecture. A beacon of faith and hope.", cost: { gold: 2175, lumber: 1455 }, time: 20 * 138, hp: 3470, supply: 0, scale: 1.49, heal: 5, radius: 8 },
-  { level: 10, name: "Grand Cathedral", blurb: "The greatest church of all. A divine masterpiece that inspires all.", cost: { gold: 2640, lumber: 1770 }, time: 20 * 158, hp: 4050, supply: 0, scale: 1.55, heal: 6, radius: 9 },
+  { level: 2, name: "Village Chapel", blurb: "A larger chapel with stronger walls and room for more worshippers.", cost: { gold: 405, lumber: 270 }, time: 20 * 40, hp: 880, supply: 0, scale: 1.06, heal: 1, radius: 4.5 },
+  { level: 3, name: "Stone Church", blurb: "Reinforced structure with stained glass windows and a taller bell tower.", cost: { gold: 630, lumber: 428 }, time: 20 * 50, hp: 1100, supply: 0, scale: 1.12, heal: 2, radius: 5 },
+  { level: 4, name: "Grand Church", blurb: "A grand church with ornate windows and improved comfort for the faithful.", cost: { gold: 900, lumber: 608 }, time: 20 * 62, hp: 1370, supply: 0, scale: 1.18, heal: 2, radius: 5.5 },
+  { level: 5, name: "Abbey", blurb: "An established church with a larger hall and dedicated areas for prayer and study.", cost: { gold: 1238, lumber: 833 }, time: 20 * 75, hp: 1690, supply: 0, scale: 1.24, heal: 3, radius: 6 },
+  { level: 6, name: "Buttressed Abbey", blurb: "Enhanced architecture with flying buttresses and a towering spire.", cost: { gold: 1643, lumber: 1103 }, time: 20 * 90, hp: 2060, supply: 0, scale: 1.3, heal: 3, radius: 6.5 },
+  { level: 7, name: "Minster", blurb: "A majestic church with intricate stone work and beautiful stained glass.", cost: { gold: 2115, lumber: 1418 }, time: 20 * 105, hp: 2480, supply: 0, scale: 1.37, heal: 4, radius: 7 },
+  { level: 8, name: "Sanctuary", blurb: "A holy sanctuary with multiple spires and expanded worship halls.", cost: { gold: 2655, lumber: 1778 }, time: 20 * 120, hp: 2950, supply: 0, scale: 1.43, heal: 4, radius: 7.5 },
+  { level: 9, name: "Cathedral", blurb: "The pinnacle of spiritual architecture. A beacon of faith and hope.", cost: { gold: 3263, lumber: 2183 }, time: 20 * 138, hp: 3470, supply: 0, scale: 1.49, heal: 5, radius: 8 },
+  { level: 10, name: "Grand Cathedral", blurb: "The greatest church of all. A divine masterpiece that inspires all.", cost: { gold: 3960, lumber: 2655 }, time: 20 * 158, hp: 4050, supply: 0, scale: 1.55, heal: 6, radius: 9 },
 ];
 
 /**
@@ -123,16 +123,16 @@ export const CHURCH_LEVELS: LevelDef[] = [
  * further and take far more punishment. (Attacks arrive with combat in M2.)
  */
 export const TOWER_LEVELS: LevelDef[] = [
-  { level: 1, name: "Wooden Tower", blurb: "A wooden watch tower for scouting and basic defence.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 0, scale: 1.0, radius: 7 },
-  { level: 2, name: "Braced Tower", blurb: "Stronger structure with improved height and better visibility.", cost: { gold: 165, lumber: 105 }, time: 20 * 28, hp: 630, supply: 0, scale: 1.06, radius: 7.8 },
-  { level: 3, name: "Stone-Based Tower", blurb: "Reinforced tower with a stone base for added stability and defence.", cost: { gold: 255, lumber: 165 }, time: 20 * 35, hp: 790, supply: 0, scale: 1.12, radius: 8.6 },
-  { level: 4, name: "Fortified Tower", blurb: "Upgraded fortifications with thicker walls and archer protection.", cost: { gold: 375, lumber: 240 }, time: 20 * 42, hp: 980, supply: 0, scale: 1.18, radius: 9.4 },
-  { level: 5, name: "Advanced Tower", blurb: "Advanced tower with a larger platform and improved weapon mounts.", cost: { gold: 510, lumber: 330 }, time: 20 * 50, hp: 1200, supply: 0, scale: 1.24, radius: 10.2 },
-  { level: 6, name: "High Tower", blurb: "Stronger masonry and higher elevation for extended range.", cost: { gold: 675, lumber: 435 }, time: 20 * 60, hp: 1460, supply: 0, scale: 1.3, radius: 11 },
-  { level: 7, name: "Elite Tower", blurb: "Elite tower with reinforced armour and advanced projectile weapons.", cost: { gold: 870, lumber: 555 }, time: 20 * 70, hp: 1760, supply: 0, scale: 1.37, radius: 11.8 },
-  { level: 8, name: "Beacon Tower", blurb: "Heavily fortified tower with magical fire beacons and enhanced range.", cost: { gold: 1095, lumber: 705 }, time: 20 * 82, hp: 2100, supply: 0, scale: 1.43, radius: 12.6 },
-  { level: 9, name: "Grand Watch Tower", blurb: "Grand watch tower with superior artillery and magical enhancements.", cost: { gold: 1350, lumber: 870 }, time: 20 * 95, hp: 2480, supply: 0, scale: 1.49, radius: 13.4 },
-  { level: 10, name: "Arcane Spire", blurb: "The ultimate watch tower. Unmatched range, defence and magical power.", cost: { gold: 1650, lumber: 1050 }, time: 20 * 110, hp: 2900, supply: 0, scale: 1.55, radius: 14.5 },
+  { level: 1, name: "Wooden Tower", blurb: "A wooden watch tower for scouting and basic defence.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 0, scale: 1.0, radius: 20 },
+  { level: 2, name: "Braced Tower", blurb: "Stronger structure with improved height and better visibility.", cost: { gold: 248, lumber: 158 }, time: 20 * 28, hp: 630, supply: 0, scale: 1.06, radius: 22 },
+  { level: 3, name: "Stone-Based Tower", blurb: "Reinforced tower with a stone base for added stability and defence.", cost: { gold: 383, lumber: 248 }, time: 20 * 35, hp: 790, supply: 0, scale: 1.12, radius: 24 },
+  { level: 4, name: "Fortified Tower", blurb: "Upgraded fortifications with thicker walls and archer protection.", cost: { gold: 563, lumber: 360 }, time: 20 * 42, hp: 980, supply: 0, scale: 1.18, radius: 26 },
+  { level: 5, name: "Advanced Tower", blurb: "Advanced tower with a larger platform and improved weapon mounts.", cost: { gold: 765, lumber: 495 }, time: 20 * 50, hp: 1200, supply: 0, scale: 1.24, radius: 28 },
+  { level: 6, name: "High Tower", blurb: "Stronger masonry and higher elevation for extended range.", cost: { gold: 1013, lumber: 653 }, time: 20 * 60, hp: 1460, supply: 0, scale: 1.3, radius: 30 },
+  { level: 7, name: "Elite Tower", blurb: "Elite tower with reinforced armour and advanced projectile weapons.", cost: { gold: 1305, lumber: 833 }, time: 20 * 70, hp: 1760, supply: 0, scale: 1.37, radius: 32 },
+  { level: 8, name: "Beacon Tower", blurb: "Heavily fortified tower with magical fire beacons and enhanced range.", cost: { gold: 1643, lumber: 1058 }, time: 20 * 82, hp: 2100, supply: 0, scale: 1.43, radius: 34 },
+  { level: 9, name: "Grand Watch Tower", blurb: "Grand watch tower with superior artillery and magical enhancements.", cost: { gold: 2025, lumber: 1305 }, time: 20 * 95, hp: 2480, supply: 0, scale: 1.49, radius: 36 },
+  { level: 10, name: "Arcane Spire", blurb: "The ultimate watch tower. Unmatched range, defence and magical power.", cost: { gold: 2475, lumber: 1575 }, time: 20 * 110, hp: 2900, supply: 0, scale: 1.55, radius: 38 },
 ];
 
 /**
@@ -144,15 +144,15 @@ export const TOWER_LEVELS: LevelDef[] = [
  */
 export const TORCH_LEVELS: LevelDef[] = [
   { level: 1, name: "Camp Torch", blurb: "A simple wooden torch. Enough light for a worker camp or road junction.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 120, supply: 0, scale: 1.0, radius: 4.0, light: 0.34 },
-  { level: 2, name: "Iron Torch", blurb: "An iron basket burns brighter and survives rough weather.", cost: { gold: 68, lumber: 38 }, time: 20 * 15, hp: 180, supply: 0, scale: 1.05, radius: 5.0, light: 0.42 },
-  { level: 3, name: "Twin Brazier", blurb: "Twin flames throw a broader pool of light across roads and walls.", cost: { gold: 113, lumber: 68 }, time: 20 * 20, hp: 260, supply: 0, scale: 1.10, radius: 6.2, light: 0.50 },
-  { level: 4, name: "Raised Beacon", blurb: "A taller stone post carries the fire above nearby roofs and trees.", cost: { gold: 173, lumber: 98 }, time: 20 * 26, hp: 360, supply: 0, scale: 1.16, radius: 7.4, light: 0.58 },
-  { level: 5, name: "Stone Brazier", blurb: "A permanent stone beacon with a deep iron fire bowl.", cost: { gold: 248, lumber: 135 }, time: 20 * 32, hp: 480, supply: 0, scale: 1.22, radius: 8.8, light: 0.66 },
-  { level: 6, name: "Guard Beacon", blurb: "A fortified signal fire designed to illuminate approaches to the settlement.", cost: { gold: 345, lumber: 180 }, time: 20 * 39, hp: 620, supply: 0, scale: 1.28, radius: 10.2, light: 0.73 },
-  { level: 7, name: "Royal Beacon", blurb: "Gold-trimmed braziers burn high above a reinforced stone plinth.", cost: { gold: 465, lumber: 233 }, time: 20 * 47, hp: 780, supply: 0, scale: 1.34, radius: 11.8, light: 0.80 },
-  { level: 8, name: "Arcane Flame", blurb: "Mage-wrought fire burns brighter than ordinary pitch and resists the wind.", cost: { gold: 615, lumber: 293 }, time: 20 * 56, hp: 960, supply: 0, scale: 1.40, radius: 13.6, light: 0.87 },
-  { level: 9, name: "Great Signal Fire", blurb: "A towering beacon visible across the battlefield.", cost: { gold: 795, lumber: 368 }, time: 20 * 66, hp: 1170, supply: 0, scale: 1.47, radius: 15.6, light: 0.94 },
-  { level: 10, name: "Eternal Beacon", blurb: "The realm's ultimate beacon: a legendary flame that turns night around the stronghold into day.", cost: { gold: 1020, lumber: 465 }, time: 20 * 78, hp: 1420, supply: 0, scale: 1.55, radius: 18.0, light: 1.0 },
+  { level: 2, name: "Iron Torch", blurb: "An iron basket burns brighter and survives rough weather.", cost: { gold: 102, lumber: 57 }, time: 20 * 15, hp: 180, supply: 0, scale: 1.05, radius: 5.0, light: 0.42 },
+  { level: 3, name: "Twin Brazier", blurb: "Twin flames throw a broader pool of light across roads and walls.", cost: { gold: 170, lumber: 102 }, time: 20 * 20, hp: 260, supply: 0, scale: 1.10, radius: 6.2, light: 0.50 },
+  { level: 4, name: "Raised Beacon", blurb: "A taller stone post carries the fire above nearby roofs and trees.", cost: { gold: 260, lumber: 147 }, time: 20 * 26, hp: 360, supply: 0, scale: 1.16, radius: 7.4, light: 0.58 },
+  { level: 5, name: "Stone Brazier", blurb: "A permanent stone beacon with a deep iron fire bowl.", cost: { gold: 372, lumber: 203 }, time: 20 * 32, hp: 480, supply: 0, scale: 1.22, radius: 8.8, light: 0.66 },
+  { level: 6, name: "Guard Beacon", blurb: "A fortified signal fire designed to illuminate approaches to the settlement.", cost: { gold: 518, lumber: 270 }, time: 20 * 39, hp: 620, supply: 0, scale: 1.28, radius: 10.2, light: 0.73 },
+  { level: 7, name: "Royal Beacon", blurb: "Gold-trimmed braziers burn high above a reinforced stone plinth.", cost: { gold: 698, lumber: 350 }, time: 20 * 47, hp: 780, supply: 0, scale: 1.34, radius: 11.8, light: 0.80 },
+  { level: 8, name: "Arcane Flame", blurb: "Mage-wrought fire burns brighter than ordinary pitch and resists the wind.", cost: { gold: 923, lumber: 440 }, time: 20 * 56, hp: 960, supply: 0, scale: 1.40, radius: 13.6, light: 0.87 },
+  { level: 9, name: "Great Signal Fire", blurb: "A towering beacon visible across the battlefield.", cost: { gold: 1193, lumber: 552 }, time: 20 * 66, hp: 1170, supply: 0, scale: 1.47, radius: 15.6, light: 0.94 },
+  { level: 10, name: "Eternal Beacon", blurb: "The realm's ultimate beacon: a legendary flame that turns night around the stronghold into day.", cost: { gold: 1530, lumber: 698 }, time: 20 * 78, hp: 1420, supply: 0, scale: 1.55, radius: 18.0, light: 1.0 },
 ];
 
 /**
@@ -160,15 +160,15 @@ export const TORCH_LEVELS: LevelDef[] = [
  */
 export const AIRFACTORY_LEVELS: LevelDef[] = [
   { level: 1, name: "Workshop", blurb: "A small workshop for building basic aeroplanes. Simple tools and wooden structures.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 1000, supply: 0, scale: 1.0, trainSpeed: 1.0 },
-  { level: 2, name: "Improved Workshop", blurb: "Improved facilities allow for better designs and more efficient production.", cost: { gold: 420, lumber: 300 }, time: 20 * 50, hp: 1250, supply: 0, scale: 1.06, trainSpeed: 1.08 },
-  { level: 3, name: "Reinforced Factory", blurb: "Reinforced buildings and more equipment increase aeroplane quality and speed.", cost: { gold: 630, lumber: 450 }, time: 20 * 62, hp: 1560, supply: 0, scale: 1.12, trainSpeed: 1.16 },
-  { level: 4, name: "Assembly Works", blurb: "Expanded factory with advanced machinery and dedicated assembly lines.", cost: { gold: 900, lumber: 645 }, time: 20 * 76, hp: 1930, supply: 0, scale: 1.18, trainSpeed: 1.25 },
-  { level: 5, name: "Engine Works", blurb: "A well-established factory with powerful engines and improved armour plating.", cost: { gold: 1230, lumber: 870 }, time: 20 * 92, hp: 2360, supply: 0, scale: 1.24, trainSpeed: 1.35 },
-  { level: 6, name: "Great Hangars", blurb: "Stronger structures and larger hangars allow for advanced aeroplane models.", cost: { gold: 1620, lumber: 1140 }, time: 20 * 110, hp: 2860, supply: 0, scale: 1.3, trainSpeed: 1.45 },
-  { level: 7, name: "Precision Works", blurb: "High-performance engines and refined production lines increase output and reliability.", cost: { gold: 2070, lumber: 1455 }, time: 20 * 128, hp: 3430, supply: 0, scale: 1.37, trainSpeed: 1.56 },
-  { level: 8, name: "Master Factory", blurb: "A master factory with specialised departments for engines, weapons and aerodynamics.", cost: { gold: 2580, lumber: 1815 }, time: 20 * 148, hp: 4070, supply: 0, scale: 1.43, trainSpeed: 1.68 },
-  { level: 9, name: "Aviation Works", blurb: "The pinnacle of aviation engineering. Legendary aeroplanes are built within these walls.", cost: { gold: 3150, lumber: 2220 }, time: 20 * 170, hp: 4790, supply: 0, scale: 1.49, trainSpeed: 1.8 },
-  { level: 10, name: "Builders of the Skies", blurb: "The ultimate aeroplane factory. Unmatched technology and capacity.", cost: { gold: 3780, lumber: 2670 }, time: 20 * 195, hp: 5600, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+  { level: 2, name: "Improved Workshop", blurb: "Improved facilities allow for better designs and more efficient production.", cost: { gold: 630, lumber: 450 }, time: 20 * 50, hp: 1250, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Reinforced Factory", blurb: "Reinforced buildings and more equipment increase aeroplane quality and speed.", cost: { gold: 945, lumber: 675 }, time: 20 * 62, hp: 1560, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "Assembly Works", blurb: "Expanded factory with advanced machinery and dedicated assembly lines.", cost: { gold: 1350, lumber: 968 }, time: 20 * 76, hp: 1930, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Engine Works", blurb: "A well-established factory with powerful engines and improved armour plating.", cost: { gold: 1845, lumber: 1305 }, time: 20 * 92, hp: 2360, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "Great Hangars", blurb: "Stronger structures and larger hangars allow for advanced aeroplane models.", cost: { gold: 2430, lumber: 1710 }, time: 20 * 110, hp: 2860, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Precision Works", blurb: "High-performance engines and refined production lines increase output and reliability.", cost: { gold: 3105, lumber: 2183 }, time: 20 * 128, hp: 3430, supply: 0, scale: 1.37, trainSpeed: 1.56 },
+  { level: 8, name: "Master Factory", blurb: "A master factory with specialised departments for engines, weapons and aerodynamics.", cost: { gold: 3870, lumber: 2723 }, time: 20 * 148, hp: 4070, supply: 0, scale: 1.43, trainSpeed: 1.68 },
+  { level: 9, name: "Aviation Works", blurb: "The pinnacle of aviation engineering. Legendary aeroplanes are built within these walls.", cost: { gold: 4725, lumber: 3330 }, time: 20 * 170, hp: 4790, supply: 0, scale: 1.49, trainSpeed: 1.8 },
+  { level: 10, name: "Builders of the Skies", blurb: "The ultimate aeroplane factory. Unmatched technology and capacity.", cost: { gold: 5670, lumber: 4005 }, time: 20 * 195, hp: 5600, supply: 0, scale: 1.55, trainSpeed: 2.0 },
 ];
 
 /**
@@ -177,15 +177,15 @@ export const AIRFACTORY_LEVELS: LevelDef[] = [
  */
 export const FOUNDRY_LEVELS: LevelDef[] = [
   { level: 1, name: "Charcoal Forge", blurb: "A small forge for basic metalwork. Simple tools and a charcoal fire.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 900, supply: 0, scale: 1.0, armour: 0.05 },
-  { level: 2, name: "Larger Forge", blurb: "Improved facilities with a larger forge and better tools for stronger metalwork.", cost: { gold: 300, lumber: 210 }, time: 20 * 42, hp: 1120, supply: 0, scale: 1.06, armour: 0.1 },
-  { level: 3, name: "Coal Furnace", blurb: "Reinforced structure with a coal furnace for higher heat and better efficiency.", cost: { gold: 465, lumber: 315 }, time: 20 * 52, hp: 1400, supply: 0, scale: 1.12, armour: 0.16 },
-  { level: 4, name: "Smelting Works", blurb: "Expanded foundry with skilled workers and improved smelting equipment.", cost: { gold: 660, lumber: 450 }, time: 20 * 64, hp: 1730, supply: 0, scale: 1.18, armour: 0.22 },
-  { level: 5, name: "Steel Foundry", blurb: "A well-established foundry with advanced furnaces and the ability to cast steel.", cost: { gold: 900, lumber: 615 }, time: 20 * 78, hp: 2120, supply: 0, scale: 1.24, armour: 0.29 },
-  { level: 6, name: "Casting Works", blurb: "Stronger infrastructure with multiple furnaces and improved casting workshops.", cost: { gold: 1185, lumber: 810 }, time: 20 * 94, hp: 2570, supply: 0, scale: 1.3, armour: 0.36 },
-  { level: 7, name: "Alloy Foundry", blurb: "Advanced foundry with powerful forges and the ability to produce specialised alloys.", cost: { gold: 1515, lumber: 1035 }, time: 20 * 110, hp: 3080, supply: 0, scale: 1.37, armour: 0.44 },
-  { level: 8, name: "Master Foundry", blurb: "A master foundry with high-capacity furnaces and expert metallurgists.", cost: { gold: 1890, lumber: 1290 }, time: 20 * 128, hp: 3660, supply: 0, scale: 1.43, armour: 0.52 },
-  { level: 9, name: "Metallurgical Works", blurb: "The pinnacle of metallurgical engineering. Casts the finest and strongest metals.", cost: { gold: 2325, lumber: 1575 }, time: 20 * 148, hp: 4310, supply: 0, scale: 1.49, armour: 0.61 },
-  { level: 10, name: "Legendary Foundry", blurb: "The ultimate foundry. Capable of forging legendary weapons and armour.", cost: { gold: 2820, lumber: 1920 }, time: 20 * 170, hp: 5030, supply: 0, scale: 1.55, armour: 0.75 },
+  { level: 2, name: "Larger Forge", blurb: "Improved facilities with a larger forge and better tools for stronger metalwork.", cost: { gold: 450, lumber: 315 }, time: 20 * 42, hp: 1120, supply: 0, scale: 1.06, armour: 0.1 },
+  { level: 3, name: "Coal Furnace", blurb: "Reinforced structure with a coal furnace for higher heat and better efficiency.", cost: { gold: 698, lumber: 473 }, time: 20 * 52, hp: 1400, supply: 0, scale: 1.12, armour: 0.16 },
+  { level: 4, name: "Smelting Works", blurb: "Expanded foundry with skilled workers and improved smelting equipment.", cost: { gold: 990, lumber: 675 }, time: 20 * 64, hp: 1730, supply: 0, scale: 1.18, armour: 0.22 },
+  { level: 5, name: "Steel Foundry", blurb: "A well-established foundry with advanced furnaces and the ability to cast steel.", cost: { gold: 1350, lumber: 923 }, time: 20 * 78, hp: 2120, supply: 0, scale: 1.24, armour: 0.29 },
+  { level: 6, name: "Casting Works", blurb: "Stronger infrastructure with multiple furnaces and improved casting workshops.", cost: { gold: 1778, lumber: 1215 }, time: 20 * 94, hp: 2570, supply: 0, scale: 1.3, armour: 0.36 },
+  { level: 7, name: "Alloy Foundry", blurb: "Advanced foundry with powerful forges and the ability to produce specialised alloys.", cost: { gold: 2273, lumber: 1553 }, time: 20 * 110, hp: 3080, supply: 0, scale: 1.37, armour: 0.44 },
+  { level: 8, name: "Master Foundry", blurb: "A master foundry with high-capacity furnaces and expert metallurgists.", cost: { gold: 2835, lumber: 1935 }, time: 20 * 128, hp: 3660, supply: 0, scale: 1.43, armour: 0.52 },
+  { level: 9, name: "Metallurgical Works", blurb: "The pinnacle of metallurgical engineering. Casts the finest and strongest metals.", cost: { gold: 3488, lumber: 2363 }, time: 20 * 148, hp: 4310, supply: 0, scale: 1.49, armour: 0.61 },
+  { level: 10, name: "Legendary Foundry", blurb: "The ultimate foundry. Capable of forging legendary weapons and armour.", cost: { gold: 4230, lumber: 2880 }, time: 20 * 170, hp: 5030, supply: 0, scale: 1.55, armour: 0.75 },
 ];
 
 /**
@@ -194,15 +194,15 @@ export const FOUNDRY_LEVELS: LevelDef[] = [
  */
 export const OILRIG_LEVELS: LevelDef[] = [
   { level: 1, name: "Drilling Platform", blurb: "A small offshore platform pumping crude oil from the seabed.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 700, supply: 0, scale: 1.0, oilPerSecond: 2 },
-  { level: 2, name: "Reinforced Platform", blurb: "Stronger decking and a second pump raise the flow of crude.", cost: { gold: 300, lumber: 225 }, time: 20 * 45, hp: 880, supply: 0, scale: 1.06, oilPerSecond: 3 },
-  { level: 3, name: "Twin Derrick", blurb: "Two derricks and improved separators pull far more oil from the well.", cost: { gold: 465, lumber: 345 }, time: 20 * 55, hp: 1100, supply: 0, scale: 1.12, oilPerSecond: 4 },
-  { level: 4, name: "Deep Well Rig", blurb: "Deeper drilling reaches richer reserves beneath the seabed.", cost: { gold: 660, lumber: 495 }, time: 20 * 68, hp: 1370, supply: 0, scale: 1.18, oilPerSecond: 5 },
-  { level: 5, name: "Industrial Rig", blurb: "A full industrial platform with storage tanks and continuous pumping.", cost: { gold: 900, lumber: 675 }, time: 20 * 82, hp: 1680, supply: 0, scale: 1.24, oilPerSecond: 7 },
-  { level: 6, name: "High-Pressure Rig", blurb: "High-pressure pumps and expanded decking greatly increase output.", cost: { gold: 1185, lumber: 885 }, time: 20 * 98, hp: 2040, supply: 0, scale: 1.3, oilPerSecond: 9 },
-  { level: 7, name: "Elite Platform", blurb: "Specialised crews and advanced machinery keep the crude flowing.", cost: { gold: 1515, lumber: 1140 }, time: 20 * 115, hp: 2450, supply: 0, scale: 1.37, oilPerSecond: 11 },
-  { level: 8, name: "Master Rig", blurb: "A master platform with multiple wells feeding vast storage.", cost: { gold: 1890, lumber: 1425 }, time: 20 * 132, hp: 2910, supply: 0, scale: 1.43, oilPerSecond: 14 },
-  { level: 9, name: "Deepwater Works", blurb: "The finest offshore works. Enormous reserves tapped continuously.", cost: { gold: 2325, lumber: 1755 }, time: 20 * 152, hp: 3430, supply: 0, scale: 1.49, oilPerSecond: 17 },
-  { level: 10, name: "Ocean Wellhead", blurb: "The ultimate rig. An unmatched torrent of crude oil.", cost: { gold: 2820, lumber: 2130 }, time: 20 * 175, hp: 4010, supply: 0, scale: 1.55, oilPerSecond: 21 },
+  { level: 2, name: "Reinforced Platform", blurb: "Stronger decking and a second pump raise the flow of crude.", cost: { gold: 450, lumber: 338 }, time: 20 * 45, hp: 880, supply: 0, scale: 1.06, oilPerSecond: 3 },
+  { level: 3, name: "Twin Derrick", blurb: "Two derricks and improved separators pull far more oil from the well.", cost: { gold: 698, lumber: 518 }, time: 20 * 55, hp: 1100, supply: 0, scale: 1.12, oilPerSecond: 4 },
+  { level: 4, name: "Deep Well Rig", blurb: "Deeper drilling reaches richer reserves beneath the seabed.", cost: { gold: 990, lumber: 743 }, time: 20 * 68, hp: 1370, supply: 0, scale: 1.18, oilPerSecond: 5 },
+  { level: 5, name: "Industrial Rig", blurb: "A full industrial platform with storage tanks and continuous pumping.", cost: { gold: 1350, lumber: 1013 }, time: 20 * 82, hp: 1680, supply: 0, scale: 1.24, oilPerSecond: 7 },
+  { level: 6, name: "High-Pressure Rig", blurb: "High-pressure pumps and expanded decking greatly increase output.", cost: { gold: 1778, lumber: 1328 }, time: 20 * 98, hp: 2040, supply: 0, scale: 1.3, oilPerSecond: 9 },
+  { level: 7, name: "Elite Platform", blurb: "Specialised crews and advanced machinery keep the crude flowing.", cost: { gold: 2273, lumber: 1710 }, time: 20 * 115, hp: 2450, supply: 0, scale: 1.37, oilPerSecond: 11 },
+  { level: 8, name: "Master Rig", blurb: "A master platform with multiple wells feeding vast storage.", cost: { gold: 2835, lumber: 2138 }, time: 20 * 132, hp: 2910, supply: 0, scale: 1.43, oilPerSecond: 14 },
+  { level: 9, name: "Deepwater Works", blurb: "The finest offshore works. Enormous reserves tapped continuously.", cost: { gold: 3488, lumber: 2633 }, time: 20 * 152, hp: 3430, supply: 0, scale: 1.49, oilPerSecond: 17 },
+  { level: 10, name: "Ocean Wellhead", blurb: "The ultimate rig. An unmatched torrent of crude oil.", cost: { gold: 4230, lumber: 3195 }, time: 20 * 175, hp: 4010, supply: 0, scale: 1.55, oilPerSecond: 21 },
 ];
 
 /**
@@ -211,15 +211,15 @@ export const OILRIG_LEVELS: LevelDef[] = [
  */
 export const REFINERY_LEVELS: LevelDef[] = [
   { level: 1, name: "Distillation Shack", blurb: "A small distillation shack to process crude oil into basic fuel.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 800, supply: 0, scale: 1.0, refine: 0.15 },
-  { level: 2, name: "Improved Stills", blurb: "Improved distillation units increase fuel output and efficiency.", cost: { gold: 330, lumber: 255 }, time: 20 * 48, hp: 1000, supply: 0, scale: 1.06, refine: 0.3 },
-  { level: 3, name: "Pump House", blurb: "Better pumps and separators allow for more refined products and greater output.", cost: { gold: 510, lumber: 390 }, time: 20 * 58, hp: 1250, supply: 0, scale: 1.12, refine: 0.45 },
-  { level: 4, name: "Refining Columns", blurb: "Advanced refining columns and storage tanks improve fuel quality and capacity.", cost: { gold: 720, lumber: 555 }, time: 20 * 72, hp: 1550, supply: 0, scale: 1.18, refine: 0.6 },
-  { level: 5, name: "Efficient Works", blurb: "More efficient systems and additional towers increase production and reduce waste.", cost: { gold: 975, lumber: 750 }, time: 20 * 88, hp: 1900, supply: 0, scale: 1.24, refine: 0.8 },
-  { level: 6, name: "Cracking Units", blurb: "High-capacity distillation and cracking units significantly boost fuel production.", cost: { gold: 1290, lumber: 990 }, time: 20 * 105, hp: 2310, supply: 0, scale: 1.3, refine: 1.0 },
-  { level: 7, name: "Catalytic Works", blurb: "Advanced catalytic cracking and hydro-processing increase efficiency and yield.", cost: { gold: 1650, lumber: 1275 }, time: 20 * 122, hp: 2780, supply: 0, scale: 1.37, refine: 1.25 },
-  { level: 8, name: "State Refinery", blurb: "State-of-the-art refining technology produces higher-grade fuels and byproducts.", cost: { gold: 2070, lumber: 1590 }, time: 20 * 142, hp: 3300, supply: 0, scale: 1.43, refine: 1.5 },
-  { level: 9, name: "Automated Refinery", blurb: "Maximum refinement capability with automated systems and vast storage.", cost: { gold: 2550, lumber: 1950 }, time: 20 * 164, hp: 3890, supply: 0, scale: 1.49, refine: 1.8 },
-  { level: 10, name: "Grand Refinery", blurb: "The ultimate oil refinery. Unmatched production and the purest fuels.", cost: { gold: 3090, lumber: 2370 }, time: 20 * 188, hp: 4550, supply: 0, scale: 1.55, refine: 2.2 },
+  { level: 2, name: "Improved Stills", blurb: "Improved distillation units increase fuel output and efficiency.", cost: { gold: 495, lumber: 383 }, time: 20 * 48, hp: 1000, supply: 0, scale: 1.06, refine: 0.3 },
+  { level: 3, name: "Pump House", blurb: "Better pumps and separators allow for more refined products and greater output.", cost: { gold: 765, lumber: 585 }, time: 20 * 58, hp: 1250, supply: 0, scale: 1.12, refine: 0.45 },
+  { level: 4, name: "Refining Columns", blurb: "Advanced refining columns and storage tanks improve fuel quality and capacity.", cost: { gold: 1080, lumber: 833 }, time: 20 * 72, hp: 1550, supply: 0, scale: 1.18, refine: 0.6 },
+  { level: 5, name: "Efficient Works", blurb: "More efficient systems and additional towers increase production and reduce waste.", cost: { gold: 1463, lumber: 1125 }, time: 20 * 88, hp: 1900, supply: 0, scale: 1.24, refine: 0.8 },
+  { level: 6, name: "Cracking Units", blurb: "High-capacity distillation and cracking units significantly boost fuel production.", cost: { gold: 1935, lumber: 1485 }, time: 20 * 105, hp: 2310, supply: 0, scale: 1.3, refine: 1.0 },
+  { level: 7, name: "Catalytic Works", blurb: "Advanced catalytic cracking and hydro-processing increase efficiency and yield.", cost: { gold: 2475, lumber: 1913 }, time: 20 * 122, hp: 2780, supply: 0, scale: 1.37, refine: 1.25 },
+  { level: 8, name: "State Refinery", blurb: "State-of-the-art refining technology produces higher-grade fuels and byproducts.", cost: { gold: 3105, lumber: 2385 }, time: 20 * 142, hp: 3300, supply: 0, scale: 1.43, refine: 1.5 },
+  { level: 9, name: "Automated Refinery", blurb: "Maximum refinement capability with automated systems and vast storage.", cost: { gold: 3825, lumber: 2925 }, time: 20 * 164, hp: 3890, supply: 0, scale: 1.49, refine: 1.8 },
+  { level: 10, name: "Grand Refinery", blurb: "The ultimate oil refinery. Unmatched production and the purest fuels.", cost: { gold: 4635, lumber: 3555 }, time: 20 * 188, hp: 4550, supply: 0, scale: 1.55, refine: 2.2 },
 ];
 
 /**
@@ -227,15 +227,15 @@ export const REFINERY_LEVELS: LevelDef[] = [
  */
 export const STABLES_LEVELS: LevelDef[] = [
   { level: 1, name: "Small Stable", blurb: "A small stable to house and care for a few war horses.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 750, supply: 0, scale: 1.0, trainSpeed: 1.0 },
-  { level: 2, name: "Improved Stables", blurb: "Improved stables with more space and better facilities for training and care.", cost: { gold: 315, lumber: 210 }, time: 20 * 44, hp: 940, supply: 0, scale: 1.06, trainSpeed: 1.08 },
-  { level: 3, name: "Expanded Stalls", blurb: "Stronger construction and expanded stalls allow for more horses and improved training.", cost: { gold: 480, lumber: 330 }, time: 20 * 54, hp: 1170, supply: 0, scale: 1.12, trainSpeed: 1.16 },
-  { level: 4, name: "Training Grounds", blurb: "Advanced stables with training grounds and veterinary facilities for healthier mounts.", cost: { gold: 690, lumber: 465 }, time: 20 * 66, hp: 1450, supply: 0, scale: 1.18, trainSpeed: 1.25 },
-  { level: 5, name: "Spacious Stables", blurb: "Spacious stables with multiple training areas and better equipment for elite cavalry.", cost: { gold: 930, lumber: 630 }, time: 20 * 80, hp: 1780, supply: 0, scale: 1.24, trainSpeed: 1.35 },
-  { level: 6, name: "War Stables", blurb: "Stronger buildings with larger stalls and advanced training programs.", cost: { gold: 1230, lumber: 840 }, time: 20 * 96, hp: 2160, supply: 0, scale: 1.3, trainSpeed: 1.45 },
-  { level: 7, name: "Elite Stables", blurb: "Elite stables with specialised training fields and improved breeding programs.", cost: { gold: 1575, lumber: 1065 }, time: 20 * 112, hp: 2600, supply: 0, scale: 1.37, trainSpeed: 1.56 },
-  { level: 8, name: "Stables Complex", blurb: "A grand stables complex with infirmary, breeding grounds and war horse arenas.", cost: { gold: 1965, lumber: 1335 }, time: 20 * 130, hp: 3090, supply: 0, scale: 1.43, trainSpeed: 1.68 },
-  { level: 9, name: "Royal Stables", blurb: "The finest stables, producing the fastest and strongest war horses in the realm.", cost: { gold: 2415, lumber: 1635 }, time: 20 * 150, hp: 3640, supply: 0, scale: 1.49, trainSpeed: 1.8 },
-  { level: 10, name: "Legendary Stables", blurb: "The ultimate stables. Legendary war horses are bred, trained and prepared for war.", cost: { gold: 2925, lumber: 1995 }, time: 20 * 172, hp: 4260, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+  { level: 2, name: "Improved Stables", blurb: "Improved stables with more space and better facilities for training and care.", cost: { gold: 473, lumber: 315 }, time: 20 * 44, hp: 940, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Expanded Stalls", blurb: "Stronger construction and expanded stalls allow for more horses and improved training.", cost: { gold: 720, lumber: 495 }, time: 20 * 54, hp: 1170, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "Training Grounds", blurb: "Advanced stables with training grounds and veterinary facilities for healthier mounts.", cost: { gold: 1035, lumber: 698 }, time: 20 * 66, hp: 1450, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Spacious Stables", blurb: "Spacious stables with multiple training areas and better equipment for elite cavalry.", cost: { gold: 1395, lumber: 945 }, time: 20 * 80, hp: 1780, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "War Stables", blurb: "Stronger buildings with larger stalls and advanced training programs.", cost: { gold: 1845, lumber: 1260 }, time: 20 * 96, hp: 2160, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Elite Stables", blurb: "Elite stables with specialised training fields and improved breeding programs.", cost: { gold: 2363, lumber: 1598 }, time: 20 * 112, hp: 2600, supply: 0, scale: 1.37, trainSpeed: 1.56 },
+  { level: 8, name: "Stables Complex", blurb: "A grand stables complex with infirmary, breeding grounds and war horse arenas.", cost: { gold: 2948, lumber: 2003 }, time: 20 * 130, hp: 3090, supply: 0, scale: 1.43, trainSpeed: 1.68 },
+  { level: 9, name: "Royal Stables", blurb: "The finest stables, producing the fastest and strongest war horses in the realm.", cost: { gold: 3623, lumber: 2453 }, time: 20 * 150, hp: 3640, supply: 0, scale: 1.49, trainSpeed: 1.8 },
+  { level: 10, name: "Legendary Stables", blurb: "The ultimate stables. Legendary war horses are bred, trained and prepared for war.", cost: { gold: 4388, lumber: 2993 }, time: 20 * 172, hp: 4260, supply: 0, scale: 1.55, trainSpeed: 2.0 },
 ];
 
 /**
@@ -244,15 +244,15 @@ export const STABLES_LEVELS: LevelDef[] = [
  */
 export const MAGETOWER_LEVELS: LevelDef[] = [
   { level: 1, name: "Apprentice Tower", blurb: "A small tower where apprentice mages learn the basic arts.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 650, supply: 0, scale: 1.0, trainSpeed: 1.0, spellPower: 0.0, radius: 6 },
-  { level: 2, name: "Adept Tower", blurb: "Improved facilities allow for more mages and better research.", cost: { gold: 360, lumber: 240 }, time: 20 * 50, hp: 810, supply: 0, scale: 1.06, trainSpeed: 1.08, spellPower: 0.12, radius: 6.6 },
-  { level: 3, name: "Focus Spire", blurb: "Stronger magical focus increases spell power and efficiency.", cost: { gold: 555, lumber: 375 }, time: 20 * 60, hp: 1010, supply: 0, scale: 1.12, trainSpeed: 1.16, spellPower: 0.25, radius: 7.2 },
-  { level: 4, name: "Arcane Chambers", blurb: "Expanded arcane chambers and enhanced focuses improve spell mastery.", cost: { gold: 780, lumber: 525 }, time: 20 * 74, hp: 1250, supply: 0, scale: 1.18, trainSpeed: 1.25, spellPower: 0.4, radius: 7.8 },
-  { level: 5, name: "Grand Tower", blurb: "A grand tower with advanced libraries and powerful enchantments.", cost: { gold: 1065, lumber: 720 }, time: 20 * 90, hp: 1540, supply: 0, scale: 1.24, trainSpeed: 1.35, spellPower: 0.55, radius: 8.4 },
-  { level: 6, name: "Enchanters' Hall", blurb: "Greater magical capacity unlocks new spells and enchantments.", cost: { gold: 1410, lumber: 945 }, time: 20 * 108, hp: 1870, supply: 0, scale: 1.3, trainSpeed: 1.45, spellPower: 0.75, radius: 9.0 },
-  { level: 7, name: "Warded Spire", blurb: "Advanced research and magical defences protect the tower.", cost: { gold: 1800, lumber: 1215 }, time: 20 * 126, hp: 2250, supply: 0, scale: 1.37, trainSpeed: 1.56, spellPower: 0.95, radius: 9.6 },
-  { level: 8, name: "Arcane Mastery", blurb: "Mastery of the arcane unleashes devastating magical potential.", cost: { gold: 2250, lumber: 1515 }, time: 20 * 146, hp: 2680, supply: 0, scale: 1.43, trainSpeed: 1.68, spellPower: 1.2, radius: 10.2 },
-  { level: 9, name: "Ancient Conflux", blurb: "Ancient magic flows through the tower, warping reality itself.", cost: { gold: 2760, lumber: 1860 }, time: 20 * 168, hp: 3160, supply: 0, scale: 1.49, trainSpeed: 1.8, spellPower: 1.5, radius: 10.8 },
-  { level: 10, name: "Pinnacle of Magic", blurb: "The pinnacle of magical knowledge. Few can rival its power.", cost: { gold: 3345, lumber: 2250 }, time: 20 * 192, hp: 3700, supply: 0, scale: 1.55, trainSpeed: 2.0, spellPower: 1.9, radius: 11.6 },
+  { level: 2, name: "Adept Tower", blurb: "Improved facilities allow for more mages and better research.", cost: { gold: 540, lumber: 360 }, time: 20 * 50, hp: 810, supply: 0, scale: 1.06, trainSpeed: 1.08, spellPower: 0.12, radius: 6.6 },
+  { level: 3, name: "Focus Spire", blurb: "Stronger magical focus increases spell power and efficiency.", cost: { gold: 833, lumber: 563 }, time: 20 * 60, hp: 1010, supply: 0, scale: 1.12, trainSpeed: 1.16, spellPower: 0.25, radius: 7.2 },
+  { level: 4, name: "Arcane Chambers", blurb: "Expanded arcane chambers and enhanced focuses improve spell mastery.", cost: { gold: 1170, lumber: 788 }, time: 20 * 74, hp: 1250, supply: 0, scale: 1.18, trainSpeed: 1.25, spellPower: 0.4, radius: 7.8 },
+  { level: 5, name: "Grand Tower", blurb: "A grand tower with advanced libraries and powerful enchantments.", cost: { gold: 1598, lumber: 1080 }, time: 20 * 90, hp: 1540, supply: 0, scale: 1.24, trainSpeed: 1.35, spellPower: 0.55, radius: 8.4 },
+  { level: 6, name: "Enchanters' Hall", blurb: "Greater magical capacity unlocks new spells and enchantments.", cost: { gold: 2115, lumber: 1418 }, time: 20 * 108, hp: 1870, supply: 0, scale: 1.3, trainSpeed: 1.45, spellPower: 0.75, radius: 9.0 },
+  { level: 7, name: "Warded Spire", blurb: "Advanced research and magical defences protect the tower.", cost: { gold: 2700, lumber: 1823 }, time: 20 * 126, hp: 2250, supply: 0, scale: 1.37, trainSpeed: 1.56, spellPower: 0.95, radius: 9.6 },
+  { level: 8, name: "Arcane Mastery", blurb: "Mastery of the arcane unleashes devastating magical potential.", cost: { gold: 3375, lumber: 2273 }, time: 20 * 146, hp: 2680, supply: 0, scale: 1.43, trainSpeed: 1.68, spellPower: 1.2, radius: 10.2 },
+  { level: 9, name: "Ancient Conflux", blurb: "Ancient magic flows through the tower, warping reality itself.", cost: { gold: 4140, lumber: 2790 }, time: 20 * 168, hp: 3160, supply: 0, scale: 1.49, trainSpeed: 1.8, spellPower: 1.5, radius: 10.8 },
+  { level: 10, name: "Pinnacle of Magic", blurb: "The pinnacle of magical knowledge. Few can rival its power.", cost: { gold: 5018, lumber: 3375 }, time: 20 * 192, hp: 3700, supply: 0, scale: 1.55, trainSpeed: 2.0, spellPower: 1.9, radius: 11.6 },
 ];
 
 /**
@@ -261,15 +261,15 @@ export const MAGETOWER_LEVELS: LevelDef[] = [
  */
 export const FARM_LEVELS: LevelDef[] = [
   { level: 1, name: "Farm", blurb: "A basic farm with a few fields and a milking cow.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 6, scale: 1.0 },
-  { level: 2, name: "Improved Farm", blurb: "Better tools and techniques increase food production.", cost: { gold: 165, lumber: 120 }, time: 20 * 26, hp: 620, supply: 9, scale: 1.04 },
-  { level: 3, name: "Advanced Farm", blurb: "Expanded fields and storage increase output.", cost: { gold: 255, lumber: 188 }, time: 20 * 32, hp: 770, supply: 12, scale: 1.09 },
-  { level: 4, name: "Large Farm", blurb: "More land and better infrastructure boost yields.", cost: { gold: 368, lumber: 270 }, time: 20 * 39, hp: 950, supply: 16, scale: 1.14 },
-  { level: 5, name: "Superior Farm", blurb: "Upgraded facilities and crop rotation maximise production.", cost: { gold: 503, lumber: 368 }, time: 20 * 47, hp: 1160, supply: 20, scale: 1.18 },
-  { level: 6, name: "Elite Farm", blurb: "Expert farmers and advanced equipment greatly increase yields.", cost: { gold: 660, lumber: 488 }, time: 20 * 56, hp: 1400, supply: 25, scale: 1.23 },
-  { level: 7, name: "Prestige Farm", blurb: "A prestigious farm with superior resources and techniques.", cost: { gold: 848, lumber: 623 }, time: 20 * 66, hp: 1680, supply: 30, scale: 1.27 },
-  { level: 8, name: "Royal Farm", blurb: "Royal standards and innovation ensure abundant harvests.", cost: { gold: 1065, lumber: 780 }, time: 20 * 77, hp: 1990, supply: 36, scale: 1.31 },
-  { level: 9, name: "Grand Farm", blurb: "The finest farm in the kingdom. Yields are nearly unmatched.", cost: { gold: 1313, lumber: 960 }, time: 20 * 89, hp: 2340, supply: 42, scale: 1.36 },
-  { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 1590, lumber: 1170 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.41 },
+  { level: 2, name: "Improved Farm", blurb: "Better tools and techniques increase food production.", cost: { gold: 248, lumber: 180 }, time: 20 * 26, hp: 620, supply: 9, scale: 1.04 },
+  { level: 3, name: "Advanced Farm", blurb: "Expanded fields and storage increase output.", cost: { gold: 383, lumber: 282 }, time: 20 * 32, hp: 770, supply: 12, scale: 1.09 },
+  { level: 4, name: "Large Farm", blurb: "More land and better infrastructure boost yields.", cost: { gold: 552, lumber: 405 }, time: 20 * 39, hp: 950, supply: 16, scale: 1.14 },
+  { level: 5, name: "Superior Farm", blurb: "Upgraded facilities and crop rotation maximise production.", cost: { gold: 755, lumber: 552 }, time: 20 * 47, hp: 1160, supply: 20, scale: 1.18 },
+  { level: 6, name: "Elite Farm", blurb: "Expert farmers and advanced equipment greatly increase yields.", cost: { gold: 990, lumber: 732 }, time: 20 * 56, hp: 1400, supply: 25, scale: 1.23 },
+  { level: 7, name: "Prestige Farm", blurb: "A prestigious farm with superior resources and techniques.", cost: { gold: 1272, lumber: 935 }, time: 20 * 66, hp: 1680, supply: 30, scale: 1.27 },
+  { level: 8, name: "Royal Farm", blurb: "Royal standards and innovation ensure abundant harvests.", cost: { gold: 1598, lumber: 1170 }, time: 20 * 77, hp: 1990, supply: 36, scale: 1.31 },
+  { level: 9, name: "Grand Farm", blurb: "The finest farm in the kingdom. Yields are nearly unmatched.", cost: { gold: 1970, lumber: 1440 }, time: 20 * 89, hp: 2340, supply: 42, scale: 1.36 },
+  { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 2385, lumber: 1755 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.41 },
 ];
 
 /**
@@ -278,15 +278,15 @@ export const FARM_LEVELS: LevelDef[] = [
  */
 export const GRYPHONAVIARY_LEVELS: LevelDef[] = [
   { level: 1, name: "Cliffside Roost", blurb: "A rough stone-and-timber roost for the first bonded gryphons.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 850, supply: 0, scale: 1.0, trainSpeed: 1.0 },
-  { level: 2, name: "High Roost", blurb: "Stronger perches and larger mews support a growing flight.", cost: { gold: 345, lumber: 255 }, time: 20 * 46, hp: 1060, supply: 0, scale: 1.06, trainSpeed: 1.08 },
-  { level: 3, name: "Stone Aviary", blurb: "Stone towers shelter riders, tack and breeding pairs.", cost: { gold: 525, lumber: 375 }, time: 20 * 57, hp: 1320, supply: 0, scale: 1.12, trainSpeed: 1.16 },
-  { level: 4, name: "War Roost", blurb: "Armour racks and launch platforms prepare gryphons for battle.", cost: { gold: 750, lumber: 525 }, time: 20 * 70, hp: 1630, supply: 0, scale: 1.18, trainSpeed: 1.25 },
-  { level: 5, name: "Royal Mews", blurb: "A permanent royal flight with dedicated handlers and healers.", cost: { gold: 1020, lumber: 720 }, time: 20 * 85, hp: 1990, supply: 0, scale: 1.24, trainSpeed: 1.35 },
-  { level: 6, name: "Sky Barracks", blurb: "Fortified towers and broad launch decks keep elite riders ready.", cost: { gold: 1350, lumber: 960 }, time: 20 * 102, hp: 2410, supply: 0, scale: 1.3, trainSpeed: 1.45 },
-  { level: 7, name: "Storm Roost", blurb: "Arcane wards and hardened stone protect the realm's aerial cavalry.", cost: { gold: 1740, lumber: 1230 }, time: 20 * 120, hp: 2890, supply: 0, scale: 1.37, trainSpeed: 1.56 },
-  { level: 8, name: "Master Aviary", blurb: "Master handlers maintain several combat flights at once.", cost: { gold: 2190, lumber: 1545 }, time: 20 * 140, hp: 3430, supply: 0, scale: 1.43, trainSpeed: 1.68 },
-  { level: 9, name: "Sky Citadel", blurb: "A towering fortress-roost dominating the air above the realm.", cost: { gold: 2700, lumber: 1905 }, time: 20 * 162, hp: 4040, supply: 0, scale: 1.49, trainSpeed: 1.8 },
-  { level: 10, name: "Crown of the Skies", blurb: "The ultimate gryphon stronghold, home to the realm's legendary riders.", cost: { gold: 3270, lumber: 2310 }, time: 20 * 186, hp: 4720, supply: 0, scale: 1.55, trainSpeed: 2.0 },
+  { level: 2, name: "High Roost", blurb: "Stronger perches and larger mews support a growing flight.", cost: { gold: 518, lumber: 383 }, time: 20 * 46, hp: 1060, supply: 0, scale: 1.06, trainSpeed: 1.08 },
+  { level: 3, name: "Stone Aviary", blurb: "Stone towers shelter riders, tack and breeding pairs.", cost: { gold: 788, lumber: 563 }, time: 20 * 57, hp: 1320, supply: 0, scale: 1.12, trainSpeed: 1.16 },
+  { level: 4, name: "War Roost", blurb: "Armour racks and launch platforms prepare gryphons for battle.", cost: { gold: 1125, lumber: 788 }, time: 20 * 70, hp: 1630, supply: 0, scale: 1.18, trainSpeed: 1.25 },
+  { level: 5, name: "Royal Mews", blurb: "A permanent royal flight with dedicated handlers and healers.", cost: { gold: 1530, lumber: 1080 }, time: 20 * 85, hp: 1990, supply: 0, scale: 1.24, trainSpeed: 1.35 },
+  { level: 6, name: "Sky Barracks", blurb: "Fortified towers and broad launch decks keep elite riders ready.", cost: { gold: 2025, lumber: 1440 }, time: 20 * 102, hp: 2410, supply: 0, scale: 1.3, trainSpeed: 1.45 },
+  { level: 7, name: "Storm Roost", blurb: "Arcane wards and hardened stone protect the realm's aerial cavalry.", cost: { gold: 2610, lumber: 1845 }, time: 20 * 120, hp: 2890, supply: 0, scale: 1.37, trainSpeed: 1.56 },
+  { level: 8, name: "Master Aviary", blurb: "Master handlers maintain several combat flights at once.", cost: { gold: 3285, lumber: 2318 }, time: 20 * 140, hp: 3430, supply: 0, scale: 1.43, trainSpeed: 1.68 },
+  { level: 9, name: "Sky Citadel", blurb: "A towering fortress-roost dominating the air above the realm.", cost: { gold: 4050, lumber: 2858 }, time: 20 * 162, hp: 4040, supply: 0, scale: 1.49, trainSpeed: 1.8 },
+  { level: 10, name: "Crown of the Skies", blurb: "The ultimate gryphon stronghold, home to the realm's legendary riders.", cost: { gold: 4905, lumber: 3465 }, time: 20 * 186, hp: 4720, supply: 0, scale: 1.55, trainSpeed: 2.0 },
 ];
 
 /** Buildings that support levelling, and their tier table. */

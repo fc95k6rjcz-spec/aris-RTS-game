@@ -12,5 +12,5 @@ for(const [resource,tile,expected] of [['gold',4,50],['lumber',3,25]]){
  for(let i=0;i<3000;i++){w.step([]);maximum=Math.max(maximum,u.carrying?.amount??0);if(u.carrying?.amount===expected)full=true;if(w.players.get(1)[resource]>before)break;}
  assert.equal(maximum,expected);assert(full);assert.equal(w.players.get(1)[resource]-before,expected);
 }
-assert.equal(START_PURSE.gold,690);assert.equal(START_PURSE.lumber,375);
+assert.equal(START_PURSE.gold,1035);assert.equal(START_PURSE.lumber,563);
 console.log('PASS: 50 gold, 25 wood across two trees, exact deposits, playable founding budget.');

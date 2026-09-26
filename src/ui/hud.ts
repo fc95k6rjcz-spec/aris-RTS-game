@@ -424,7 +424,7 @@ export function drawHud(
 
   // Match over.
   if (world.winner !== null) {
-    const won = world.winner === player;
+    const won = world.allied(world.winner, player);
     ctx.font = "bold 34px Georgia, serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

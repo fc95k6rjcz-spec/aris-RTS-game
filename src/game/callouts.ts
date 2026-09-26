@@ -5,12 +5,25 @@ import type { Unit } from "../sim/entities";
 /** One short line at most every 45 seconds; each topic waits three minutes. */
 export class Callouts {
   private next = 0;
+  private nextAttack = 0;
   private topics = new Map<string, number>();
   constructor() {
     onSettingsChange(() => { if (!settings.voices || sfxGain() === 0) window.speechSynthesis?.cancel(); });
   }
   update(world: World, player: number, visible: Unit[]): string | null {
     const now = performance.now();
+    // Urgent warnings work off-screen and bypass the ambient chatter cooldown.
+    if (now >= this.nextAttack && world.fx.some(e => e.kind === 'hit' && e.owner === player && e.attackerOwner !== player)) {
+      this.nextAttack=now+15000;
+      this.next=Math.max(this.next,now+5000);
+      const text='We are under attack!';
+      if (settings.voices && sfxGain()>0 && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const line=new SpeechSynthesisUtterance(text);line.lang='en-GB';line.rate=1;line.pitch=.85;line.volume=Math.min(1,sfxGain());
+        window.speechSynthesis.speak(line);
+      }
+      return text;
+    }
     if (!settings.voices || sfxGain() === 0 || now < this.next || !visible.length) return null;
     let topic = "", text = "";
     if (world.fx.some(e => e.kind === "battleRally" && e.owner === player)) { topic="rally"; text="Stand with me! For the realm!"; }

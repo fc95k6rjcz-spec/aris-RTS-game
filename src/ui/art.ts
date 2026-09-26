@@ -30,7 +30,7 @@ import gryphonaviary from "../assets/gryphonaviary_1.png";
 import townhall from "../assets/royal/hall-1.webp";
 import farm from "../assets/ui/farm.jpg";
 import lumbermill from "../assets/ui/lumbermill.jpg";
-import golddepot from "../assets/ui/golddepot.jpg";
+import golddepot from "../assets/golddepot.png";
 import barracks from "../assets/ui/barracks.jpg";
 import tower from "../assets/royal/outpost-1.webp";
 import orderAttack from "../assets/ui/order_attack.jpg";

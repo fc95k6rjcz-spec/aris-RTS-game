@@ -1,10 +1,11 @@
+import { createGamePanel } from '../ui/createGamePanel';
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
 import { Camera } from "../render/camera";
 import { Renderer, type Ghost } from "../render/renderer";
 import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
-import type { Building, Unit } from "../sim/entities";
+import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
 import { Faction, TICKS_PER_SECOND, WILD, World } from "../sim/world";
 import {
@@ -134,6 +135,9 @@ export class Game {
   private difficulty: Difficulty = "normal";
   /** The room this machine is in, if any. */
   private room: Room | null = null;
+  private pendingRoom: AbortController | null = null;
+  private startHostedGame: (() => void) | null = null;
+  private createPanel: ReturnType<typeof createGamePanel> | null = null;
   /** Set before start() to play over a network instead of alone. */
   transport: Transport | null = null;
   /**
@@ -279,7 +283,8 @@ export class Game {
     const m = this.setup;
     const w = new World(n, n, seedOverride ?? m?.seed ?? def.seed, def.kind, m?.pace ?? settings.pace, m?.stockade ?? settings.stockade);
     w.addPlayer(1, Faction.Human, "#3b82f6");
-    w.addPlayer(2, Faction.Human, "#ef4444");
+    w.addPlayer(2, Faction.Human, m?.mode === "coop" ? "#22c55e" : "#ef4444");
+    if (m?.mode === "coop") { w.addPlayer(3, Faction.Human, "#ef4444"); w.prepareCoop(); }
     // The country itself, and whatever lives in it.
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
     // Seats come from the map, not from two hard-coded corners, so a layout can
@@ -300,10 +305,17 @@ export class Game {
       w.spawnStart(1, starts[0]!.x - 1, starts[0]!.y - 1);
       w.spawnStart(2, starts[1]!.x - 2, starts[1]!.y - 2);
     }
+    if (m?.mode === "coop") {
+      const enemy = starts[2]!;
+      if (crowning) w.spawnCrowning(3, enemy.x-1, enemy.y-1);
+      else if (nomad) w.spawnNomad(3, enemy.x-1, enemy.y-1);
+      else w.spawnStart(3, enemy.x-1, enemy.y-1);
+    }
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
     w.spawnWanderers();
+    w.updateVision(true);
     return w;
   }
 
@@ -322,6 +334,8 @@ export class Game {
     // view, and the guest's is not seat one.
     this.renderer.viewer = this.player;
     this.selected.clear();
+    const firstPerson = this.world.units().find(u => u.owner === this.player);
+    if (firstPerson) this.selected.add(firstPerson.id);
     this.controlGroups.clear();
     this.commandMarkers = [];
     this.pending = [];
@@ -337,7 +351,7 @@ export class Game {
     this.renderer.fx.clear();
     // Player 2 is run by the AI, issuing the same commands a human would.
     // Nobody plays the other seat in a network game; there is somebody in it.
-    this.ai = this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    this.ai = this.setup?.mode === "coop" ? new SkirmishAI(this.world, 3, this.setup.aiDifficulty ?? "normal") : this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
     this.banner = null;
     this.crowned = false;
     this.crowningAt = null;
@@ -404,8 +418,7 @@ export class Game {
     if (!turn) return;
     this.renderer.snapshot();
     const cmds = turn.commands;
-    // The AI is local and is not a seat: it plays on whichever machine is
-    // running it. In a network game there is no AI, so this never fires.
+    // Both peers run the same deterministic AI after the same ordered human commands.
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
@@ -438,7 +451,7 @@ export class Game {
       const p=this.cam.toScreen(u.pos.x,u.pos.y);
       return p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH;
     }));
-    if(line) this.toast(line,"info");
+    if(line) { this.toast(line,"info"); if(line === "We are under attack!") this.audio.play("warning"); }
     // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
     for (const [n, ids] of this.controlGroups) {
@@ -460,7 +473,7 @@ export class Game {
    */
   surrender(): void {
     if (this.menu) return;
-    const other = [...this.world.players.keys()].find((p) => p !== this.player && p !== WILD);
+    const other = [...this.world.players.keys()].find((p) => !this.world.allied(p, this.player) && p !== WILD);
     this.world.winner = other ?? null;
     this.setPaused(false);
     this.surrenderRect = null;
@@ -629,7 +642,7 @@ export class Game {
     c.addEventListener("mouseup", (e) => this.onMouseUp(e));
     window.addEventListener("mouseup", (e) => {
       if (e.button === 1) this.panDrag = null;
-      if(e.button===0 && e.target !== this.canvas) this.wallStart=null;
+      if(e.button===0 && e.target !== this.canvas) { this.wallStart=null; this.drag=null; }
     });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -640,10 +653,12 @@ export class Game {
         return;
       }
       this.mouse.x = e.offsetX; this.mouse.y = e.offsetY; this.mouse.inside = true;
-      this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.09 : 1 / 1.09);
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.canvas.height : 1);
+      this.cam.zoomAt(e.offsetX, e.offsetY, Math.exp(-Math.max(-100, Math.min(100, delta)) * .001));
     }, { passive: false });
     window.addEventListener("keydown", (e) => this.onKey(e));
     window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('blur', () => { this.keys.clear(); this.drag = null; this.panDrag = null; this.wallStart = null; this.camVelocity = {x:0,y:0}; });
   }
 
   /**
@@ -727,11 +742,18 @@ export class Game {
     if (e.button !== 0 || !this.drag) return;
     const d = this.drag;
     this.drag = null;
-    const isClick = Math.abs(d.x1 - d.x0) < 4 && Math.abs(d.y1 - d.y0) < 4;
+    const isClick = Math.hypot(d.x1 - d.x0, d.y1 - d.y0) < 9;
     const shift = e.shiftKey;
     if (isClick) {
       const w = this.cam.toWorld(d.x0, d.y0);
-      const hit = this.pick(w.x, w.y);
+      const hit = this.pick(w.x, w.y, true);
+      const clicked = hit === null ? undefined : this.world.entities.get(hit);
+      if (settings.clickToMove && !shift && this.selectedUnits().some(u => u.owner === this.player) && (!clicked || clicked.owner !== this.player)) {
+        const destination = clicked?.kind === "unit" ? clicked.pos : clicked ? centerOf(clicked) : w;
+        this.contextOrder(destination.x, destination.y);
+        this.lastUnitClick = null;
+        return;
+      }
       if (hit === null) {
         if (!shift) this.selected.clear();
       } else if (shift) {
@@ -769,11 +791,13 @@ export class Game {
   }
 
   /** Entity under a world point: units first (they're smaller), then buildings. */
-  private pick(wx: number, wy: number): EntityId | null {
+  private pick(wx: number, wy: number, visual = false): EntityId | null {
     let best: EntityId | null = null;
-    let bestD = SUB * 0.6;
+    let bestD = visual ? 1 : SUB * 0.6;
     for (const u of this.world.units()) {
-      const d = Math.hypot(u.pos.x - wx, u.pos.y - wy);
+      if (!this.world.canSeeEntity(this.player, u)) continue;
+      // Match the visible body, while retaining precise world targeting for orders.
+      const d = visual ? Math.hypot((u.pos.x - wx) / Math.max(SUB * .5, 16 / this.cam.scale), (u.pos.y - SUB * .32 - wy) / Math.max(SUB * .95, 22 / this.cam.scale)) : Math.hypot(u.pos.x - wx, u.pos.y - wy);
       if (d < bestD) {
         bestD = d;
         best = u.id;
@@ -784,7 +808,8 @@ export class Game {
     const ty = Math.floor(wy / SUB);
     if (!this.world.map.inBounds(tx, ty)) return null;
     const occ = this.world.map.occupant[this.world.map.idx(tx, ty)]!;
-    return occ !== 0 ? occ : null;
+    const building = occ ? this.world.entities.get(occ) : undefined;
+    return building && this.world.canSeeEntity(this.player, building) ? occ : null;
   }
 
   /**
@@ -883,6 +908,13 @@ export class Game {
     if (units.length === 0) {
       for (const b of this.selectedBuildings()) {
         if (b.owner === this.player && b.complete) {
+          if (b.def === 'tower') {
+            const target=this.pick(wx,wy,true);
+            const enemy=target===null?undefined:this.world.entities.get(target);
+            if (enemy && !this.world.allied(enemy.owner,this.player)) { this.issue({type:'towerAttack',player:this.player,building:b.id,target:enemy.id}); this.marker(wx,wy,'attack'); }
+            else this.toast('Right-click an enemy to focus tower fire. The tower also attacks automatically.','info');
+            continue;
+          }
           this.issue({ type: "setRally", player: this.player, building: b.id, x: Math.round(wx), y: Math.round(wy) });
           this.marker(wx, wy, "move");
         }
@@ -903,7 +935,7 @@ export class Game {
       }
       const foe = this.pick(wx, wy);
       const fe = foe !== null ? this.world.entities.get(foe) : undefined;
-      if (fe && fe.owner !== this.player) {
+      if (fe && !this.world.allied(fe.owner, this.player)) {
         const fighters = units.filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);
         if (fighters.length > 0) {
           this.issue({ type: "attack", player: this.player, units: fighters, target: fe.id });
@@ -1100,6 +1132,7 @@ export class Game {
   }
 
   private onKey(e: KeyboardEvent): void {
+    if (this.createPanel?.visible) return;
     const k = e.key.toLowerCase();
     if (this.menu) {
       // Any key at all opens the gate; after that the keyboard drives the column.
@@ -1109,7 +1142,7 @@ export class Game {
       }
       // The join screen takes typing before it takes navigation: W and S are
       // letters here, not up and down.
-      if (this.front.pane === "join") {
+      if (this.front.pane === "join" && !this.front.net.busy) {
         if (k === "backspace") {
           this.front.net.typed = this.front.net.typed.slice(0, -1);
           this.front.net.status = "";
@@ -1136,6 +1169,14 @@ export class Game {
         else if (this.front.pane === "multiplayer") this.runFront({ kind: "pane", pane: "menu" });
         else this.runFront({ kind: "pane", pane: this.front.pane === "menu" ? "splash" : "menu" });
       }
+      return;
+    }
+    if (k === 'home') {
+      e.preventDefault();
+      let units = this.selectedUnits().filter(u => u.owner === this.player);
+      if (!units.length) { const own = this.world.units().find(u => u.owner === this.player); if (own) { units = [own]; this.select([own.id]); } }
+      if (units.length) this.cam.centerOn(units.reduce((n,u)=>n+u.pos.x,0)/units.length, units.reduce((n,u)=>n+u.pos.y,0)/units.length);
+      this.camVelocity = {x:0,y:0};
       return;
     }
     if (k === " " || k === "p") {
@@ -1229,6 +1270,7 @@ export class Game {
         this.start(this.difficulty);
         break;
       case "pane":
+        if ((this.front.pane === 'host' || this.front.pane === 'join') && a.pane !== this.front.pane) this.closeRoom();
         this.front.pane = a.pane;
         this.front.cursor = 0;
         this.front.scroll = 0;
@@ -1249,7 +1291,11 @@ export class Game {
         this.settingsPanel?.toggle();
         break;
       case "host":
-        void this.openRoom();
+        this.createPanel ??= createGamePanel(setup => { void this.openRoom(setup); });
+        this.createPanel.open();
+        break;
+      case "startRoom":
+        this.startHostedGame?.();
         break;
       case "join":
         void this.knock();
@@ -1286,38 +1332,39 @@ export class Game {
   }
 
   /** Open a room and wait for a friend to walk in. */
-  private async openRoom(): Promise<void> {
-    this.front.pane = "host";
-    this.front.cursor = 0;
-    this.front.net = { code: "", typed: "", status: "Opening a room…", busy: true };
+  private async openRoom(setup: MatchSetup = this.proposal()): Promise<void> {
+    this.closeRoom();
+    const pending=new AbortController();this.pendingRoom=pending;
+    this.front.pane='host';this.front.cursor=0;
+    this.front.net={code:'',typed:'',status:'Opening your room…',busy:true};
     try {
-      const room = await hostRoom(this.proposal(), (e) => {
-        if (e.kind === "waiting") {
-          this.front.net.code = e.code;
-          this.front.net.status = "Waiting for your friend to join.";
-        }
-      });
-      this.beginNetworkMatch(room);
-    } catch (err) {
-      this.front.net = { code: "", typed: "", status: err instanceof Error ? err.message : "Could not open a room.", busy: false };
-      this.front.pane = "multiplayer";
-      this.front.cursor = 0;
+      const room=await hostRoom(setup,e=>{
+        if(pending.signal.aborted)return;
+        if(e.kind==='waiting'){this.front.net.code=e.code;this.front.net.status=(MAP_BY_ID.get(setup.mapId)?.name??setup.mapId)+(setup.mode==='coop'?' · Co-op vs AI':' · Versus')+' · Waiting for player 2.';}
+        if(e.kind==='ready'){this.startHostedGame=e.start;this.front.net.ready=true;this.front.net.status='2 / 2 players · Your friend is ready. Start when you are.';this.front.cursor=0;}
+        if(e.kind==='peerLeft'){this.startHostedGame=null;this.front.net.ready=false;this.front.net.status='Your friend left. Waiting for player 2.';}
+      },pending.signal);
+      if(pending.signal.aborted){room.transport.close();return;}
+      this.pendingRoom=null;this.startHostedGame=null;this.beginNetworkMatch(room);
+    }catch(err){
+      if(pending.signal.aborted)return;
+      this.pendingRoom=null;this.front.net={code:'',typed:'',status:err instanceof Error?err.message:'Could not open a room.',busy:false};this.front.pane='multiplayer';this.front.cursor=0;
     }
   }
 
-  /** Knock on somebody else's room. */
   private async knock(): Promise<void> {
-    const code = this.front.net.typed;
-    if (code.length !== 4) return;
-    this.front.net.status = `Knocking on ${code}…`;
-    this.front.net.busy = true;
-    try {
-      const room = await joinRoom(code, () => {});
-      this.beginNetworkMatch(room);
-    } catch (err) {
-      this.front.net.status = err instanceof Error ? err.message : "Could not join.";
-      this.front.net.busy = false;
-    }
+    const code=this.front.net.typed;
+    if(code.length!==4||this.front.net.busy)return;
+    const pending=new AbortController();this.pendingRoom=pending;
+    this.front.net.status='Joining '+code+'…';this.front.net.busy=true;
+    try{
+      const room=await joinRoom(code,e=>{
+        if(pending.signal.aborted)return;
+        if(e.kind==='lobby')this.front.net.status=(MAP_BY_ID.get(e.setup.mapId)?.name??e.setup.mapId)+(e.setup.mode==='coop'?' · Co-op vs AI':' · Versus')+' · You are ready. Waiting for the host to start.';
+      },pending.signal);
+      if(pending.signal.aborted){room.transport.close();return;}
+      this.pendingRoom=null;this.beginNetworkMatch(room);
+    }catch(err){if(pending.signal.aborted)return;this.pendingRoom=null;this.front.net.status=err instanceof Error?err.message:'Could not join.';this.front.net.busy=false;}
   }
 
   /**
@@ -1337,6 +1384,9 @@ export class Game {
   }
 
   private closeRoom(): void {
+    this.pendingRoom?.abort();
+    this.pendingRoom=null;
+    this.startHostedGame=null;
     this.room?.transport.close();
     this.room = null;
     this.transport = null;

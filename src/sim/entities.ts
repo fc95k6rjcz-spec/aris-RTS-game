@@ -37,6 +37,8 @@ export interface Unit {
   cooldown: number;
   /** What it is currently shooting at, for auto-acquired targets. */
   engaging: EntityId | null;
+  /** Position to return to after automatic defence. */
+  guardOrigin?: Vec;
   ralliedUntil?: number;
   rallyReadyAt?: number;
   patrolHome?: Vec;
@@ -88,6 +90,8 @@ export interface Building {
   level: number;
   upgrade: UpgradeJob | null;
   rally: Vec | null;
+  /** Explicit focus target; towers resume automatic fire when it disappears. */
+  attackTarget?: EntityId;
   /** Upgrade being researched here, if any. Blocks training while it runs. */
   research: { id: string; toLevel: number; remaining: number; total: number } | null;
   /** Workers currently applying construction this tick (for the renderer / progress rate). */

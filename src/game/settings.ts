@@ -33,6 +33,8 @@ export interface Settings {
   damageNumbers: boolean;
   /** Push the camera when the pointer touches the screen edge. */
   edgeScroll: boolean;
+  /** Left-click terrain to order selected units. */
+  clickToMove: boolean;
   /** Multiplier on keyboard and edge scrolling. */
   scrollSpeed: number;
   /** Applies to the next game started, not the one in progress. */
@@ -73,6 +75,7 @@ export const DEFAULTS: Settings = {
   healthBars: "damaged",
   damageNumbers: true,
   edgeScroll: true,
+  clickToMove: true,
   scrollSpeed: 1,
   difficulty: "normal",
   mapId: "random",
@@ -132,6 +135,7 @@ export function loadSettings(): void {
     settings.healthBars = o.healthBars === "always" || o.healthBars === "never" ? o.healthBars : DEFAULTS.healthBars;
     settings.damageNumbers = o.damageNumbers !== false;
     settings.edgeScroll = o.edgeScroll !== false;
+    settings.clickToMove = o.clickToMove !== false;
     settings.scrollSpeed = clamp(o.scrollSpeed, 0.4, 2.5, DEFAULTS.scrollSpeed);
     const d = o.difficulty;
     settings.difficulty = d === "easy" || d === "hard" || d === "none" || d === "peaceful" ? d : DEFAULTS.difficulty;

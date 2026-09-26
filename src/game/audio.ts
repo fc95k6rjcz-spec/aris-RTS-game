@@ -23,10 +23,11 @@ import { musicGain, sfxGain } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
+  warning: 15000,
   command: 160,
   crown: 3000,
   magic: 140,
@@ -172,6 +173,9 @@ export class Audio {
     this.effectVolume = vol;
 
     switch (name) {
+      case 'warning':
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
       case "command":
         this.tone("triangle", 392, 440, 0.09, 0.08);
         this.tone("sine", 587.33, 587.33, 0.1, 0.04, 0.04);

@@ -19,103 +19,47 @@ export interface SettingsPanel {
 }
 
 const CSS = `
-.rts-gear {
-  position: fixed; top: 6px; right: 12px; z-index: 30;
-  width: 30px; height: 30px; padding: 0;
-  border: 1px solid #4a5568; border-radius: 6px;
-  background: rgba(12,16,22,0.85); color: #cbd5e0;
-  font: 16px/1 system-ui, sans-serif; cursor: pointer;
-}
-.rts-gear:hover { background: rgba(30,40,52,0.95); color: #fff; }
-.rts-scrim {
-  position: fixed; inset: 0; z-index: 40;
-  background: rgba(4,6,9,0.68);
-  display: flex; align-items: center; justify-content: center;
-}
-/* display:flex outranks the [hidden] attribute, so a hidden scrim would stay
-   laid out and swallow every click on the game behind it. */
-.rts-scrim[hidden] { display: none; }
-.rts-panel {
-  width: min(440px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px); overflow-y: auto;
-  background: #12161d; color: #e2e8f0;
-  border: 1px solid #2d3748; border-radius: 10px;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.6);
-  font: 13px/1.45 system-ui, sans-serif;
-  padding: 18px 20px 14px;
-}
-.rts-panel h2 { margin: 0 0 2px; font-size: 17px; letter-spacing: 0.02em; }
-.rts-panel .rts-hint { margin: 0 0 16px; color: #94a3b8; font-size: 12px; }
-.rts-group { margin: 0 0 6px; padding: 10px 0 4px; border-top: 1px solid #232a34; }
-.rts-group:first-of-type { border-top: 0; padding-top: 0; }
-.rts-group > h3 {
-  margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.09em; color: #7f8ea3; font-weight: 600;
-}
-.rts-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
-.rts-row > label { flex: 1; }
-.rts-row .rts-val { width: 42px; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
-.rts-row input[type=range] { width: 150px; accent-color: #4c7fd6; }
-.rts-row select {
-  background: #1b212b; color: #e2e8f0; border: 1px solid #2d3748;
-  border-radius: 5px; padding: 3px 6px; font: inherit;
-}
-.rts-row input[type=checkbox] { width: 15px; height: 15px; accent-color: #4c7fd6; }
-.rts-note { color: #7f8ea3; font-size: 11.5px; margin: 2px 0 0; }
-.rts-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.rts-foot button {
-  border: 1px solid #2d3748; border-radius: 6px; padding: 6px 14px;
-  background: #1b212b; color: #e2e8f0; font: inherit; cursor: pointer;
-}
-.rts-foot button:hover { background: #253040; }
-.rts-foot button.rts-primary { background: #3b62a8; border-color: #4c7fd6; }
-.rts-foot button.rts-primary:hover { background: #4c7fd6; }
-.rts-scrim { background:rgba(3,5,8,.82); backdrop-filter:blur(7px); padding:16px; box-sizing:border-box; }
-.rts-panel { width:min(690px,100%); max-height:calc(100dvh - 32px); overflow:hidden; display:flex; flex-direction:column; padding:0; border:1px solid #9c7942; border-radius:4px; color:#e7ddc7; background:radial-gradient(ellipse at 15% 0%,#39301e55,transparent 55%),#101317; box-shadow:0 28px 100px #000c,inset 0 0 0 4px #080b0e,inset 0 0 0 5px #6c573b55; font:14px/1.55 system-ui,sans-serif; }
-.rts-panel h2 { padding:0 30px; margin:0; color:#f5dfad; font:32px/1.2 Georgia,serif; letter-spacing:.02em; }
-.rts-kicker { margin:24px 30px 8px; color:#b8975b; font:10px/1.4 monospace; letter-spacing:.24em; }
-.rts-panel .rts-hint { margin:8px 30px 22px; color:#a59c8a; }
-.rts-navigation { display:grid; grid-template-columns:repeat(4,1fr); padding:0 24px; border-bottom:1px solid #75603a66; gap:4px; }
-.rts-navigation button { border:0; border-bottom:2px solid transparent; padding:12px 5px; background:transparent; color:#a59c8a; font:12px/1.4 Georgia,serif; letter-spacing:.1em; cursor:pointer; }
-.rts-navigation button:hover { color:#ffe8b2; background:#b8954720; }
-.rts-navigation button[aria-pressed=true] { color:#f5d892; border-color:#d4ad5e; background:linear-gradient(0deg,#bd924327,transparent); }
-.rts-settings-body { overflow-y:auto; scrollbar-width:thin; scrollbar-color:#79603a #12161b; padding:24px 30px; min-height:0; height:min(440px,55vh); }
-.rts-group { border:0; margin:0; padding:0; }
-.rts-group[hidden] { display:none; }
-.rts-group > h3 { color:#d5b77d; font:18px/1.4 Georgia,serif; text-transform:none; letter-spacing:.02em; margin:0 0 16px; }
-.rts-row { padding:12px 0; gap:14px; border-bottom:1px solid #b1935930; }
-.rts-row label { cursor:pointer; }
-.rts-row select { max-width:58%; min-width:0; padding:8px 10px; background:#20231f; border:1px solid #766342; border-radius:2px; color:#eee0c3; color-scheme:dark; }
-.rts-row .rts-val { color:#d6b879; font:12px monospace; }
-.rts-row input[type=range] { appearance:none; height:5px; border-radius:3px; background:#65573e; width:180px; max-width:34%; accent-color:#d8b76e; cursor:pointer; }
-.rts-row input[type=range]::-webkit-slider-thumb { appearance:none; width:15px; height:15px; border-radius:3px; background:#e2c37e; border:2px solid #3a2e19; box-shadow:0 0 0 1px #bf9954; }
-.rts-row input[type=checkbox] { appearance:none; flex:none; width:38px; height:21px; border:1px solid #6e644d; border-radius:12px; background:#252827; position:relative; cursor:pointer; transition:background .15s; }
-.rts-row input[type=checkbox]::before { content:''; position:absolute; width:13px; height:13px; top:3px; left:3px; border-radius:50%; background:#9b978b; transition:transform .15s; }
-.rts-row input[type=checkbox]:checked { background:#82662e; border-color:#dbb967; }
-.rts-row input[type=checkbox]:checked::before { transform:translateX(17px); background:#fff0b9; }
-.rts-note { color:#a59d8b; font-size:12px; line-height:1.6; margin:7px 0 13px; }
-.rts-foot { flex:none; align-items:center; border-top:1px solid #75603a66; background:#080b0e77; padding:17px 30px; margin:0; }
-.rts-foot::before { content:'Changes saved automatically'; margin-right:auto; color:#8e8879; font-size:11px; }
-.rts-foot button { border-radius:2px; border-color:#75603a; background:#181b1b; color:#d4c4a6; padding:9px 15px; }
-.rts-foot button:hover { background:#343026; }
-.rts-foot button.rts-primary { color:#1d180e; background:linear-gradient(#e7cc8e,#b98f42); border-color:#f2d391; font-weight:700; min-width:90px; }
-.rts-foot button.rts-primary:hover { background:#f0d493; }
-.rts-panel :focus-visible { outline:2px solid #ffe2a0; outline-offset:4px; }
-@media(max-width:520px) { .rts-panel h2{font-size:27px} .rts-settings-body{padding:18px} .rts-row{gap:8px;font-size:12px} .rts-foot{padding:14px 18px}.rts-foot::before{display:none}.rts-navigation{padding:0 14px} }
-@media(prefers-reduced-motion:reduce) { .rts-panel *{transition:none!important} }
-.rts-settings-hero { position:relative; isolation:isolate; flex:none; padding:5px 0 8px; min-height:143px; background:linear-gradient(110deg,#243238aa,#12191f66); border-bottom:1px solid #b58b4355; }
-.rts-settings-hero::after { content:''; position:absolute; z-index:-1; inset:0 10px 0 45%; background:linear-gradient(90deg,#192126,transparent 45%),url('${royalHall}') right 48%/auto 185px no-repeat; opacity:.6; }
-.rts-settings-hero h2 { text-shadow:0 2px 8px #000; }
-.rts-settings-hero .rts-hint { color:#c4bba6; max-width:65%; }
-.rts-panel { border-color:#c7a465; box-shadow:0 32px 100px #000e,0 0 45px #bd92431a,inset 0 0 0 4px #080b0e,inset 0 0 0 5px #a17b4055; }
-.rts-navigation { padding:10px 20px 0; gap:9px; background:#080c10aa; }
-.rts-navigation button { border:1px solid #76613c66; border-bottom:2px solid transparent; border-radius:3px 3px 0 0; padding:11px 5px; font:12px Georgia,serif; }
-.rts-navigation button[aria-pressed=true] { border-color:#8e713e; border-bottom-color:#eccb80; box-shadow:inset 0 1px #dfbd6255; }
-.rts-category-symbol { display:block; font:22px/1 Georgia,serif; margin-bottom:7px; color:#c5a461; }
-.rts-group>h3 { padding:0 0 12px; border-bottom:1px solid #84693877; color:#f0d596; }
-.rts-row:hover { background:linear-gradient(90deg,#b5944911,transparent); }
-.rts-foot button.rts-primary { box-shadow:inset 0 0 0 2px #f8e1a744,0 3px 12px #0008; }
-@media(max-width:520px) { .rts-settings-hero::after{opacity:.32;right:-50px;left:30%}.rts-settings-hero .rts-hint{max-width:85%}.rts-navigation{gap:5px;padding:8px 12px 0}.rts-category-symbol{font-size:18px}.rts-navigation button{letter-spacing:0} }
+.rts-gear{position:fixed;top:6px;right:12px;z-index:30;width:32px;height:32px;border:1px solid #967744;border-radius:6px;background:#12201e;color:#e7cc91;cursor:pointer}
+.rts-scrim{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:#030909cc;backdrop-filter:blur(10px)}
+.rts-scrim[hidden],.rts-group[hidden]{display:none}
+.rts-panel{width:min(880px,100%);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden;border:1px solid #9e8050;border-radius:12px;background:radial-gradient(ellipse at top left,#233b34,transparent 65%),#101917;color:#ece9db;box-shadow:0 30px 100px #000c,0 0 0 5px #a7894720,inset 0 0 0 1px #dfc68e14;font:14px/1.5 system-ui,sans-serif}
+.rts-settings-hero{position:relative;isolation:isolate;flex:none;padding:30px 34px 24px;min-height:125px;overflow:hidden;background:linear-gradient(110deg,#203a32,#122520);border-bottom:1px solid #b9944b55}
+.rts-settings-hero::after{content:'';position:absolute;z-index:-1;inset:-40px -20px -70px 44%;background:linear-gradient(90deg,#1a3029,transparent 60%),url('${royalHall}') right 48%/auto 310px no-repeat;opacity:.75;filter:drop-shadow(0 0 22px #dab77322)}
+.rts-kicker{margin:0 0 12px;color:#d5b977;font:10px/1.4 system-ui,sans-serif;letter-spacing:.25em;font-weight:700}
+.rts-panel h2{margin:0;color:#f3e6c6;font:42px/1.12 Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 20px #0008}
+.rts-panel .rts-hint{margin:13px 0 0;color:#b3c5b8;font-size:12px;max-width:65%}
+.rts-hint::before{content:'Ⅱ';display:inline-grid;place-items:center;width:20px;height:20px;margin-right:8px;border:1px solid #ac995455;border-radius:50%;color:#d7be80;font-size:9px}
+.rts-navigation{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px 26px;background:#0c1614}
+.rts-navigation button{display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:#aab8ac;font:14px Georgia,serif;cursor:pointer;transition:background .15s,color .15s}
+.rts-navigation button:hover{background:#24352c;color:#f6e3b3}
+.rts-navigation button[aria-pressed=true]{color:#ffe4a6;background:linear-gradient(135deg,#4b462b,#2a3326);border-color:#9c8247;box-shadow:inset 0 1px #e0c47e33,0 3px 9px #0004}
+.rts-category-symbol{font:22px/1 Georgia,serif;color:#c7ae73}
+.rts-settings-body{overflow-y:auto;min-height:0;height:min(410px,48vh);padding:22px 34px 28px;scrollbar-width:thin;scrollbar-color:#6e7956 #101917}
+.rts-group{margin:0;padding:0;border:0}
+.rts-group>h3{margin:0 0 4px;color:#f0dfb7;font:24px/1.3 Georgia,serif}
+.rts-category-intro{margin:0 0 21px;color:#97ac9e;font-size:12px}
+.rts-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:15px 18px;margin:0 0 9px;border:1px solid #58664766;border-radius:7px;background:linear-gradient(115deg,#25382d66,#14211c88);transition:border-color .15s}
+.rts-row:hover{border-color:#9a865e99}
+.rts-row>label{flex:1;min-width:95px;cursor:pointer;font-weight:500;color:#eeeadd}
+.rts-note{color:#a4b5a7;font-size:12px;line-height:1.6;margin:8px 0 16px}
+.rts-row>.rts-note{flex-basis:100%;margin:-4px 0 0;padding-right:52px;font-weight:400;color:#99ac9f}
+.rts-row select{max-width:58%;min-width:0;padding:9px 11px;background:#0e1c17;color:#e4dfca;border:1px solid #687350;border-radius:5px;font:inherit;color-scheme:dark}
+.rts-row .rts-val{width:42px;text-align:right;color:#e3c780;font:12px monospace;font-variant-numeric:tabular-nums}
+.rts-row input[type=range]{appearance:none;height:5px;border-radius:4px;background:#506444;width:180px;max-width:34%;accent-color:#e1c277;cursor:pointer}
+.rts-row input[type=range]::-webkit-slider-thumb{appearance:none;width:17px;height:17px;border-radius:50%;background:#efdaa2;border:3px solid #9c834e;box-shadow:0 0 0 3px #bba86b22}
+.rts-row input[type=checkbox]{appearance:none;flex:none;width:44px;height:25px;margin:0;border:1px solid #687553;border-radius:20px;background:#26332b;position:relative;cursor:pointer;transition:background .18s}
+.rts-row input[type=checkbox]::before{content:'';position:absolute;width:17px;height:17px;top:3px;left:3px;border-radius:50%;background:#8e9d91;transition:transform .18s}
+.rts-row input[type=checkbox]:checked{background:#8b773e;border-color:#e0c276;box-shadow:0 0 12px #cfb56720}
+.rts-row input[type=checkbox]:checked::before{transform:translateX(19px);background:#fff1c6;box-shadow:0 1px 4px #0007}
+.rts-foot{display:flex;flex:none;align-items:center;gap:10px;padding:19px 34px;border-top:1px solid #8b78404d;background:#0c1512}
+.rts-foot::before{content:'✓  Changes saved automatically';margin-right:auto;color:#91aa94;font-size:11px}
+.rts-foot button{padding:11px 17px;border:1px solid #6f7955;border-radius:5px;background:transparent;color:#c2c8b4;font:12px system-ui,sans-serif;cursor:pointer}
+.rts-foot button:hover{background:#28382a;color:#fff0c7}
+.rts-foot button.rts-primary{min-width:112px;color:#282313;font-weight:750;border-color:#e3c985;background:linear-gradient(#efdaa0,#bd9c51);box-shadow:inset 0 1px #fff2c7,0 3px 10px #0005}
+.rts-foot button.rts-primary:hover{background:#f0dba5}
+.rts-panel :focus-visible{outline:2px solid #f6d997;outline-offset:3px}
+@media(max-width:560px){.rts-scrim{padding:10px}.rts-panel{max-height:calc(100dvh - 20px)}.rts-settings-hero{padding:24px 20px 20px;min-height:105px}.rts-panel h2{font-size:32px}.rts-settings-hero::after{opacity:.35;left:25%}.rts-panel .rts-hint{max-width:85%}.rts-navigation{gap:3px;padding:10px}.rts-navigation button{flex-direction:column;gap:5px;font-size:12px;padding:10px 3px}.rts-settings-body{padding:20px 16px;height:44vh}.rts-row{padding:13px 12px;gap:8px;font-size:12px}.rts-row>.rts-note{padding-right:0}.rts-foot{padding:14px 16px}.rts-foot::before{content:'✓ Saved';font-size:10px}.rts-foot button{padding:10px; font-size:11px}.rts-foot button.rts-primary{min-width:70px}}
+@media(prefers-reduced-motion:reduce){.rts-panel *{transition:none!important}}
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -161,6 +105,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   const group = (title: string): HTMLDivElement => {
     const g = el("div", "rts-group");
     g.appendChild(el("h3", undefined, title));
+    g.appendChild(el('p','rts-category-intro',({Audio:'Set the sound of your kingdom.',Display:'Bring every battle into focus.',Controls:'Command your realm with confidence.',Game:'Choose the story your kingdom will tell.'} as Record<string,string>)[title]));
     const button=el('button',undefined,title);button.type='button';button.setAttribute('aria-pressed',String(groups.length===0));
     const symbol=el('span','rts-category-symbol',({Audio:'♫',Display:'◈',Controls:'✥',Game:'♜'} as Record<string,string>)[title]);symbol.setAttribute('aria-hidden','true');button.prepend(symbol);
     g.hidden=groups.length>0;g.id='rts-settings-'+title.toLowerCase();button.setAttribute('aria-controls',g.id);
@@ -208,7 +153,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     return sync;
   };
 
-  const check = (parent: HTMLElement, label: string, key: "voices" | "muted" | "music" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
+  const check = (parent: HTMLElement, label: string, key: "clickToMove" | "voices" | "muted" | "music" | "animations" | "edgeScroll" | "damageNumbers" | "nomad" | "stockade" | "crowning" | "wildlife", note?: string): (() => void) => {
     const r = row(parent, label);
     const input = el("input");
     input.type = "checkbox";
@@ -257,6 +202,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   syncs.push(check(gfx, "Damage numbers", "damageNumbers", "Every blow rolls a different amount; this shows what landed."));
 
   const ctrl = group("Controls");
+  syncs.push(check(ctrl, "Left-click to move", "clickToMove", "Click a person to select them, then click the ground to move or a tree to gather. Right-click also works. Drag a box for a group; press Home to find your people."));
   syncs.push(check(ctrl, "Edge scrolling", "edgeScroll"));
   syncs.push(slider(ctrl, "Scroll speed", "scrollSpeed", 0.4, 2.5, 0.1, (v) => `${v.toFixed(1)}x`));
 
@@ -366,6 +312,11 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     play.appendChild(el("p", "rts-note", "Map, opponent and start all apply to the next game you start, not this one."));
   }
 
+  // Keep each explanation with its control, including at narrow widths.
+  body.querySelectorAll('.rts-note').forEach(note => {
+    const previous = note.previousElementSibling;
+    if (previous?.classList.contains('rts-row')) previous.appendChild(note);
+  });
   const foot = el("div", "rts-foot");
   const reset = el("button", undefined, "Reset to defaults");
   const done = el("button", "rts-primary", "Done");

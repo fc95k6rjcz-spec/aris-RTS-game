@@ -12,7 +12,7 @@
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
 const html = readFileSync("dist/index.html", "utf8");
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const browser = await chromium.launch({ executablePath: process.env.CHROME || "C:/Program Files/Google/Chrome/Application/chrome.exe" });
 
 const open = async () => {
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 700 } });
@@ -32,24 +32,34 @@ const open = async () => {
   return { page, errs };
 };
 
+try {
 const a = await open();
 const b = await open();
 
 // Host, and read the code off the lobby.
-await a.page.evaluate(() => window.game.hostForTest());
+await a.page.evaluate((coop) => { const g=window.game; if(coop) void g.openRoom({...g.proposal(),mode:'coop',aiDifficulty:'normal'}); else g.hostForTest(); }, process.env.COOP === '1');
 const code = await a.page.waitForFunction(() => {
   const c = window.game.frontNetForTest.code;
   return c && c.length === 4 ? c : null;
-}, { timeout: 20000 }).then((h) => h.jsonValue());
+}, null, { timeout: 20000 }).then((h) => h.jsonValue());
 console.log("room code:", code);
 
 await b.page.evaluate((c) => window.game.joinForTest(c), code);
 
+try { await a.page.waitForFunction(() => !!window.game.front.net.ready, null, {timeout:25000}); }
+catch(error){console.log('Lobby diagnostics',await a.page.evaluate(()=>window.game.frontNetForTest),await b.page.evaluate(()=>window.game.frontNetForTest),a.errs,b.errs);throw error;}
+await a.page.evaluate(() => window.game.runFront({kind:'startRoom'}));
 // Both must leave the menu and land in a match.
-for (const p of [a, b]) await p.page.waitForFunction(() => window.game.menu === false, { timeout: 25000 });
+for (const p of [a, b]) await p.page.waitForFunction(() => window.game.menu === false, null, { timeout: 25000 });
 const seats = await Promise.all([a, b].map((p) => p.page.evaluate(() => window.game.player)));
 console.log("seats:", seats.join(" and "));
+if(process.env.COOP === '1') for(const p of [a,b]) { const ok=await p.page.evaluate(()=>{const g=window.game;return g.world.allied(1,2)&&!g.world.allied(1,3)&&g.world.units().some(u=>u.owner===3)&&!!g.ai;});if(!ok)throw new Error('Co-op setup did not reach both players'); }
 
+for(const p of [a,b]) {
+  const visible=await p.page.evaluate(()=>{const g=window.game;const own=g.world.units().find(u=>u.owner===g.player);return own&&g.world.canSee(g.player,own.pos.x,own.pos.y);});
+  if(!visible)throw new Error('Starting army is hidden by fog');
+}
+const before = await Promise.all([a,b].map(p=>p.page.evaluate(()=>{const g=window.game;return g.world.units().filter(u=>u.owner===g.player).slice(0,2).map(u=>({id:u.id,x:u.pos.x,y:u.pos.y}));})));
 // Drive both sides: each orders its own units about, and both step in step.
 const drive = async (p, seat) => p.page.evaluate((s) => {
   const g = window.game, w = g.world;
@@ -62,7 +72,10 @@ await drive(a, seats[0]);
 await drive(b, seats[1]);
 
 // Let real time carry both simulations forward together.
-await a.page.waitForTimeout(9000);
+for(const p of [a,b])await p.page.evaluate(()=>{const g=window.game,step=g.tick.bind(g);g.tick=()=>{if(g.world.tick<160)step();};});
+for(const p of [a,b])await p.page.waitForFunction(()=>window.game.world.tick===160,null,{timeout:25000});
+const moved=await Promise.all([a,b].map((p,i)=>p.page.evaluate(before=>before.some(old=>{const u=window.game.world.entities.get(old.id);return u&&(u.pos.x!==old.x||u.pos.y!==old.y);}),before[i])));
+if(!moved.every(Boolean))throw new Error('A player could not move their units');
 
 const state = await Promise.all([a, b].map((p) => p.page.evaluate(() => ({
   tick: window.game.world.tick,
@@ -88,3 +101,5 @@ if (state[0].terrain !== state[1].terrain) fail.push("the two clients generated 
 if (state[0].tick === state[1].tick && state[0].sum !== state[1].sum) fail.push(`same tick, different worlds (${state[0].sum} vs ${state[1].sum})`);
 if (fail.length) { console.log("FAIL: " + fail.join("; ")); process.exit(1); }
 console.log(`PASS: two clients played ${Math.min(state[0].tick, state[1].tick)} ticks of the same match`);
+
+} finally { await browser.close(); }
