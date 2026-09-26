@@ -77,6 +77,11 @@ export class SkirmishAI {
     private readonly difficulty: Exclude<Difficulty, "none"> = "normal",
   ) {}
 
+  saveState() { return { wave:this.wave, gateOpen:this.gateOpen, gateChecked:this.gateChecked, massingSince:this.massingSince }; }
+  restoreState(state: ReturnType<SkirmishAI['saveState']>): void {
+    this.wave=state.wave; this.gateOpen=state.gateOpen; this.gateChecked=state.gateChecked; this.massingSince=state.massingSince;
+  }
+
   private get cfg() {
     return SETTINGS[this.difficulty];
   }

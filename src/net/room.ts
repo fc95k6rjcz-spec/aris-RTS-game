@@ -52,6 +52,8 @@ export interface MatchSetup {
   nomad: boolean;
   wildlife: boolean;
   mode?: "versus" | "coop";
+  resume?: string;
+  resumeHostPlayer?: number;
   aiDifficulty?: "easy" | "normal" | "hard";
 }
 
@@ -236,7 +238,7 @@ export async function host(setup: MatchSetup, on: (e: RoomEvent) => void, signal
   });
 }
 
-const ROOM_VERSION='coop-5';
+const ROOM_VERSION='save-6';
 
 /** Reserve the second seat, then wait for the host to explicitly start. */
 export async function join(code: string, on: (e: RoomEvent) => void, signal?: AbortSignal): Promise<Room> {

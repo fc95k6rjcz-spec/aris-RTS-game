@@ -1,3 +1,4 @@
+import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, type SavedGame } from './saveGame';
 import { createGamePanel } from '../ui/createGamePanel';
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
@@ -133,6 +134,9 @@ export class Game {
   /** Clickable rectangles the front screen put on the canvas this frame. */
   private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
+  private pendingSave: SavedGame | null = null;
+  private saving = false;
+  private loadingSave = false;
   /** The room this machine is in, if any. */
   private room: Room | null = null;
   private pendingRoom: AbortController | null = null;
@@ -211,6 +215,7 @@ export class Game {
   constructor(readonly canvas: HTMLCanvasElement, seed?: number) {
     // Settings first: the renderer and the opening menu both read them.
     loadSettings();
+    this.front.saveAvailable = hasSavedGame();
     this.difficulty = settings.difficulty;
     const def = this.chooseMap();
     this.map = def;
@@ -230,6 +235,7 @@ export class Game {
       });
       this.shell.onPause(() => this.setPaused(!this.paused));
       this.shell.onSettings(() => this.settingsPanel?.toggle());
+      this.shell.onSave(() => void this.saveGame());
       this.bindMinimap(this.shell.minimap);
       // The game opens on the front screen, which wants the whole window. The
       // frame loop only toggles this on a change, so the opening state has to
@@ -324,8 +330,10 @@ export class Game {
     this.menu = false;
     // Rebuild the world so the map choice takes effect and a second game is not
     // played on the wreckage of the first.
-    this.map = this.chooseMap();
-    this.world = this.buildWorld(this.map);
+    const saved = this.pendingSave; this.pendingSave = null;
+    this.difficulty = difficulty;
+    this.map = saved?.map ?? this.chooseMap();
+    this.world = saved?.world ?? this.buildWorld(this.map);
     // A new camera as well: it carries the map bounds it clamps against, and a
     // stale one would pin the view inside the old map's corner.
     this.cam = new Camera(this.world.map.width, this.world.map.height);
@@ -352,11 +360,17 @@ export class Game {
     // Player 2 is run by the AI, issuing the same commands a human would.
     // Nobody plays the other seat in a network game; there is somebody in it.
     this.ai = this.setup?.mode === "coop" ? new SkirmishAI(this.world, 3, this.setup.aiDifficulty ?? "normal") : this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    if (saved?.ai && this.ai) this.ai.restoreState(saved.ai);
+    if (saved && saved.player === this.player) {
+      Object.assign(this.cam,saved.camera); this.cam.clamp();
+      this.selected=new Set(saved.selected.filter(id=>this.world.entities.get(id)?.owner===this.player));
+    }
+    this.paused=false; this.keys.clear();
     this.banner = null;
-    this.crowned = false;
+    this.crowned = saved ? !this.world.relics.some(r=>r.owner===this.player&&!r.taken) : false;
     this.crowningAt = null;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
-    if (this.setup?.crowning ?? settings.crowning) {
+    if (!saved && (this.setup?.crowning ?? settings.crowning)) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
     }
     this.last = performance.now();
@@ -1247,6 +1261,41 @@ export class Game {
 
   // ───────────────────────────── menu ─────────────────────────────
 
+  private async saveGame(): Promise<void> {
+    if (this.menu || this.saving) return;
+    this.saving=true;
+    try {
+      const setup=this.setup ? {...this.setup} : null;
+      if (setup) { delete setup.resume; delete setup.resumeHostPlayer; }
+      const json=encodeSave({version:1,world:this.world,map:this.map,player:this.player,multiplayer:!!this.transport,setup,difficulty:this.difficulty,ai:this.ai?.saveState()??null,camera:{x:this.cam.x,y:this.cam.y,zoom:this.cam.zoom},selected:[...this.selected]});
+      const packed=await packSave(json);
+      if (this.transport && packed.length>900000) throw new Error('This multiplayer save is too large to share.');
+      storeSave(packed);
+      this.front.saveAvailable=true;
+      this.toast('Game saved in this browser. Use Load Saved Game on the main menu.','info');
+    } catch (error) {
+      this.toast(error instanceof Error ? 'Could not save: '+error.message : 'Could not save. Browser storage may be full or unavailable.');
+    } finally { this.saving=false; }
+  }
+
+  private async loadGame(): Promise<void> {
+    if (this.loadingSave || !this.menu) return;
+    this.loadingSave=true;
+    try {
+      const packed=readSave(), saved=await unpackSave(packed);
+      if (saved.multiplayer) {
+        if (!saved.setup) throw new Error('The multiplayer setup is missing.');
+        void this.openRoom({...saved.setup,resume:packed,resumeHostPlayer:saved.player});
+      } else {
+        this.closeRoom();
+        this.pendingSave=saved; this.player=saved.player; this.setup=saved.setup;
+        this.start(saved.difficulty);
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? 'Could not load: '+error.message : 'Could not load this saved game.');
+    } finally { this.loadingSave=false; }
+  }
+
   private drawMenu(): void {
     const ctx = this.canvas.getContext("2d")!;
     this.frontHits = drawFrontScreen(
@@ -1266,6 +1315,9 @@ export class Game {
    */
   private runFront(a: FrontAction): void {
     switch (a.kind) {
+      case "loadSave":
+        void this.loadGame();
+        break;
       case "begin":
         this.start(this.difficulty);
         break;
@@ -1374,13 +1426,23 @@ export class Game {
    * because start() is what builds the world and every one of them changes what
    * it builds.
    */
-  private beginNetworkMatch(room: Room): void {
+  private async beginNetworkMatch(room: Room): Promise<void> {
+    this.room=room;
+    if (room.setup.resume) {
+      try {
+        const saved=await unpackSave(room.setup.resume);
+        if (this.room!==room) return;
+        this.pendingSave=saved;
+      }
+      catch { room.transport.close(); this.room=null; this.front.net.status="Could not load this multiplayer save. Please create a new room."; return; }
+    }
     this.room = room;
     this.transport = room.transport;
     this.setup = room.setup;
-    this.player = room.slot === 0 ? 1 : 2;
+    const hostPlayer = room.setup.resumeHostPlayer ?? 1;
+    this.player = room.slot === 0 ? hostPlayer : 3-hostPlayer;
     this.front.net.status = "";
-    this.start("none");
+    this.start(this.pendingSave?.difficulty ?? "none");
   }
 
   private closeRoom(): void {

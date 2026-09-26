@@ -34,6 +34,7 @@ export type FrontPane = "splash" | "menu" | "credits" | "multiplayer" | "host" |
 
 export type FrontAction =
   | { kind: "begin" }
+  | { kind: "loadSave" }
   | { kind: "host" }
   | { kind: "startRoom" }
   | { kind: "join" }
@@ -55,6 +56,7 @@ export interface FrontHit {
 
 export interface FrontState {
   pane: FrontPane;
+  saveAvailable?: boolean;
   /**
    * The lobby, while one is open.
    *
@@ -328,12 +330,12 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
         },
         {
           numeral: numeral(1),
-          label: "Continue",
-          hint: "No save",
-          enabled: false,
+          label: "Load Saved Game",
+          hint: state.saveAvailable ? "Resume" : "No save",
+          enabled: !!state.saveAvailable,
           marked: false,
-          action: { kind: "pane", pane: "menu" },
-          note: "Nothing saved yet — a match is not written to disk.",
+          action: { kind: "loadSave" },
+          note: "Resume your latest save in this browser. Multiplayer saves open a room for your friend to rejoin.",
         },
         {
           numeral: numeral(2),

@@ -101,6 +101,7 @@ export interface Shell {
   onTab(cb: (id: string) => void): void;
   onPause(cb: () => void): void;
   onSettings(cb: () => void): void;
+  onSave(cb: () => void): void;
   destroy(): void;
 }
 
@@ -403,7 +404,10 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   pauseBtn.title = "Pause (Space)";
   const gearBtn = el("button", "rv-icon", "⚙");
   gearBtn.title = "Settings";
-  top.append(clock, pauseBtn, gearBtn);
+  const saveBtn = el('button', 'rv-icon', 'Save');
+  saveBtn.style.width='auto'; saveBtn.style.padding='0 10px';
+  saveBtn.title='Save game in this browser'; saveBtn.setAttribute('aria-label','Save game');
+  top.append(clock, saveBtn, pauseBtn, gearBtn);
 
   // ── viewport ──
   const view = el("div", "rv-view");
@@ -474,6 +478,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   gearBtn.addEventListener("click", () => gearCb());
   let pauseCb: () => void = () => {};
   let gearCb: () => void = () => {};
+  let saveCb: () => void = () => {};
+  saveBtn.addEventListener('click',()=>saveCb());
 
   // Rebuilding the grid every frame would throw away hover and focus sixty
   // times a second, so tiles are reused and only their contents change.
@@ -668,6 +674,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
     onPause(cb) {
       pauseCb = cb;
     },
+    onSave(cb) { saveCb=cb; },
     onSettings(cb) {
       gearCb = cb;
     },

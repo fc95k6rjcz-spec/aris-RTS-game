@@ -28,8 +28,8 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Record<string, BuildingDef> = {
-  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 35, lumber: 80 }, hp: 650, buildTime: 20 * 10, trains: [], requires: ["barracks"], dropOff: [], supply: 0, coastal: false, description: "Defensive stone wall. Kings build 50% faster and repair twice as quickly, without needing Barracks. Hold Shift to place more." },
-  shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 90, lumber: 158 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
+  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 100, lumber: 90 }, hp: 650, buildTime: 20 * 10, trains: [], requires: ["barracks"], dropOff: [], supply: 0, coastal: false, description: "Defensive stone wall. Kings build 50% faster and repair twice as quickly, without needing Barracks. Hold Shift to place more." },
+  shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 100, lumber: 158 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
   townhall: {
     id: "townhall",
     name: "Town Hall",
@@ -81,7 +81,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Lumber Mill",
     hotkey: "L",
     size: 3,
-    cost: { gold: 270, lumber: 0 },
+    cost: { gold: 270, lumber: 90 },
     hp: 600,
     buildTime: 20 * 35,
     trains: [],
@@ -247,7 +247,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Torch",
     hotkey: "Q",
     size: 1,
-    cost: { gold: 57, lumber: 45 },
+    cost: { gold: 100, lumber: 90 },
     hp: 120,
     buildTime: 20 * 10,
     trains: [],
