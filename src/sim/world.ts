@@ -114,6 +114,10 @@ const BEAST_RANGE = 9;
 const DRAGON_FIRST = 6 * 60;
 const DRAGON_GAP = 4 * 60;
 const DRAGON_RAID = 150;
+/** Seconds a dragon spends burning a town, the fraction of health its fire stops at, and how far its terror reaches (tiles). */
+const DRAGON_BURN = 35;
+const DRAGON_FLOOR = 0.25;
+const DRAGON_FEAR_RADIUS = 7;
 /** The Orc Horde's timetable, in seconds: scouts, then raids, then the warhost. */
 const HORDE_SCOUTS = 4 * 60;
 const HORDE_SCOUT_GAP = 150;
@@ -548,17 +552,19 @@ export class World {
     if (!this.players.has(WILD) || !this.dragonsEnabled) return;
     const first = DRAGON_FIRST * TICKS_PER_SECOND, gap = DRAGON_GAP * TICKS_PER_SECOND;
     const dragons = this.units().filter((u) => u.def === "dragon" && u.owner === WILD);
-    // Raids: each dragon in turn leaves its roost for somebody's town.
+    // Raids: each dragon in turn leaves its roost to burn somebody's town.
     if (this.tick > first && this.tick % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
       for (const d of dragons) {
-        if (d.task.kind === "attack") continue;
+        if (d.dragon && d.dragon.phase !== "roost") continue;
         const towns = this.buildings().filter((b) => b.owner !== WILD && this.players.has(b.owner));
         if (!towns.length) break;
         const t = towns[this.rng.int(towns.length)]!;
-        d.task = { kind: "attackMove", target: centerOf(t) };
-        d.path = [];
-        this.pathTo(d, t.tx, t.ty, true);
+        const over = centerOf(t);
+        d.dragon = { phase: "raid", target: t.owner, over, until: this.tick + DRAGON_BURN * TICKS_PER_SECOND + 60 * TICKS_PER_SECOND };
+        d.task = { kind: "move", target: over };
+        this.pathTo(d, Math.floor(over.x / SUB), Math.floor(over.y / SUB), true);
         for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, pid === t.owner ? "A dragon is flying at your settlement!" : "A dragon has taken wing");
+        this.fx.push({ kind: "alarm", x: over.x, y: over.y, owner: t.owner });
       }
     }
     if (this.tick < first || (this.tick - first) % gap !== 0) return;
@@ -647,6 +653,97 @@ export class World {
     const dir = compassFrom(best.x - hx, best.y - hy);
     this.emit(target, `${shout} — from the ${dir}!`);
     this.fx.push({ kind: "alarm", x: at.x, y: at.y, owner: target });
+  }
+
+  /**
+   * A dragon is weather with teeth. Nothing you have can kill it; all you can
+   * do is get out of its way. It flies to a town, circles it breathing fire --
+   * roofs catch, fields burn, and every man near it drops what he is doing and
+   * runs -- then, having made its point, flies home. It never razes a town:
+   * its fire stops short of bringing a building down.
+   */
+  private stepDragon(u: Unit): void {
+    const d = u.dragon;
+    if (!d || d.phase === "roost") {
+      // Circle lazily over the roost.
+      if (this.tick % 60 !== u.id % 60) return;
+      const lair = this.lairs.get(u.id);
+      if (!lair) return;
+      const a = this.rng.next() * Math.PI * 2;
+      const tx = Math.floor(lair.x / SUB + Math.cos(a) * 5), ty = Math.floor(lair.y / SUB + Math.sin(a) * 5);
+      if (!this.map.inBounds(tx, ty)) return;
+      this.pathTo(u, tx, ty, true);
+      u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+      return;
+    }
+    if (d.phase === "leave") {
+      const lair = this.lairs.get(u.id);
+      if (!lair || Math.hypot(u.pos.x - lair.x, u.pos.y - lair.y) < 3 * SUB) { d.phase = "roost"; return; }
+      if (u.path.length === 0) { this.pathTo(u, Math.floor(lair.x / SUB), Math.floor(lair.y / SUB), true); u.task = { kind: "move", target: { ...lair } }; }
+      return;
+    }
+    // Raid: terror spreads ahead of it.
+    if (this.tick % 10 === u.id % 10) this.terrify(u.pos.x, u.pos.y, DRAGON_FEAR_RADIUS * SUB, d.target);
+    const overTown = Math.hypot(u.pos.x - d.over.x, u.pos.y - d.over.y) < 5 * SUB;
+    if (!overTown) {
+      if (u.path.length === 0) { this.pathTo(u, Math.floor(d.over.x / SUB), Math.floor(d.over.y / SUB), true); u.task = { kind: "move", target: { ...d.over } }; }
+      if (this.tick > d.until) d.phase = "leave";
+      return;
+    }
+    if (!d.arrived) { d.arrived = true; d.until = this.tick + DRAGON_BURN * TICKS_PER_SECOND; this.emit(d.target, "The dragon is burning your town! Your people are fleeing"); }
+    if (this.tick > d.until) {
+      d.phase = "leave";
+      this.emit(d.target, "The dragon is leaving — for now");
+      return;
+    }
+    // Wheel over the town.
+    if (u.path.length === 0) {
+      const a = (this.tick / 40 + u.id) % (Math.PI * 2);
+      const tx = Math.floor(d.over.x / SUB + Math.cos(a) * 4), ty = Math.floor(d.over.y / SUB + Math.sin(a) * 4);
+      if (this.map.inBounds(tx, ty)) { this.pathTo(u, tx, ty, true); u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } }; }
+    }
+    // Breathe fire on whatever of theirs is below.
+    if (this.tick % 30 !== u.id % 30) return;
+    const near = this.buildings().filter((b) => b.owner === d.target && b.complete && Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < 7 * SUB);
+    const b = near.length ? near[this.rng.int(near.length)]! : null;
+    const at = b ? centerOf(b) : { x: u.pos.x + (this.rng.next() - 0.5) * 4 * SUB, y: u.pos.y + 2 * SUB };
+    this.fx.push({ kind: "attack", x: u.pos.x, y: u.pos.y, tx: at.x, ty: at.y, def: "dragon", ranged: true });
+    if (b) {
+      // Burns, but never brings it down: fire stops at a quarter of its health.
+      const floor = Math.ceil(b.maxHp * DRAGON_FLOOR);
+      if (b.hp > floor) {
+        const burn = Math.min(b.hp - floor, Math.round(b.maxHp * 0.08));
+        b.hp -= burn;
+        this.fx.push({ kind: "hit", owner: b.owner, attackerOwner: WILD, id: b.id, x: at.x, y: at.y, building: true, amount: burn, crit: false });
+      }
+    }
+    // Anyone standing in the fire is scorched.
+    for (const v of this.units()) {
+      if (v.owner === WILD || Math.hypot(v.pos.x - at.x, v.pos.y - at.y) > 1.6 * SUB) continue;
+      this.dealDamage(v, 22, WILD, 0.2);
+    }
+  }
+
+  /** Everyone of this player's near a terror drops what he is doing and runs. */
+  private terrify(x: number, y: number, r: number, owner: PlayerId): void {
+    for (const v of this.units()) {
+      if (v.owner !== owner || UNITS[v.def]!.domain !== "land" && UNITS[v.def]!.domain !== "amphibious") continue;
+      const dx = v.pos.x - x, dy = v.pos.y - y, dist = Math.hypot(dx, dy);
+      if (dist > r) continue;
+      if (!v.fear) v.fear = { until: 0, resume: v.task.kind === "gather" || v.task.kind === "build" || v.task.kind === "repair" ? v.task : null };
+      v.fear.until = this.tick + 5 * TICKS_PER_SECOND;
+      if (v.task.kind === "move" && v.path.length > 2) continue;
+      const a = Math.atan2(dy, dx);
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2, 2]) {
+        const tx = Math.floor((v.pos.x + Math.cos(a + turn) * (r - dist + 3 * SUB)) / SUB);
+        const ty = Math.floor((v.pos.y + Math.sin(a + turn) * (r - dist + 3 * SUB)) / SUB);
+        if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "land")) continue;
+        this.pathTo(v, tx, ty, true);
+        if (v.path.length === 0) continue;
+        v.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+        break;
+      }
+    }
   }
 
   /** One Horde fighter's turn: fight what is near, otherwise do the job it was sent for. */
@@ -946,6 +1043,7 @@ export class World {
    */
   private stepBeast(u: Unit): void {
     if (u.horde) { this.stepHorde(u); return; }
+    if (u.def === "dragon") { this.stepDragon(u); return; }
     const def = UNITS[u.def]!;
     if (u.def === "barbarian" || u.def === "grunt") { this.stepBarbarian(u); return; }
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
@@ -1964,10 +2062,13 @@ export class World {
   }
 
   private findTarget(u: Unit, range: number): Entity | null {
+    // A dragon does not duel; its fire is aimed by its raid (see stepDragon).
+    if (u.def === "dragon") return null;
     let best: Entity | null = null;
     let bestD = Infinity;
     for (const e of this.entities.values()) {
       if (!this.hostile(u, e)) continue;
+      if (e.kind === "unit" && e.def === "dragon") continue; // nobody picks a fight they cannot win
       if (!this.canStrike(u, e)) continue;
       // Aircraft are only reachable by units that can shoot upward; for now
       // everything can, which keeps the first pass simple and readable.
@@ -1996,6 +2097,8 @@ export class World {
    */
   private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3): void {
     if (this.allied(target.owner, attackerOwner)) return;
+    // Nothing mortal hurts a dragon.
+    if (target.kind === "unit" && target.def === "dragon") return;
     const swing = 1 + spread * (this.rng.next() * 2 - 1);
     const crit = this.rng.next() < CRIT_CHANCE;
     const rolled = amount * swing * (crit ? CRIT_MULTIPLIER : 1);
@@ -2331,6 +2434,16 @@ export class World {
   private stepUnit(u: Unit): void {
     if (u.cooldown > 0) u.cooldown--;
     if (u.enterTower !== undefined && this.tryEnterTower(u)) return;
+    if (u.fear && this.tick >= u.fear.until) {
+      // The danger has passed: back to work.
+      const resume = u.fear.resume;
+      u.fear = undefined;
+      if (resume) {
+        u.task = resume;
+        if (resume.kind === "gather") { resume.phase = u.carrying ? "toDrop" : "toNode"; u.path = []; }
+        else if (resume.kind === "build" || resume.kind === "repair") u.path = [];
+      } else if (u.task.kind === "move") u.task = { kind: "idle" };
+    }
     const supportCast = this.tryHeal(u);
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) this.stepBeast(u);
@@ -2835,6 +2948,7 @@ export class World {
             if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner,e)) continue;
             if (e.kind === "unit" && UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) continue;
             if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
+            if (e.kind === "unit" && e.def === "dragon") continue;
             const p = this.posOf(e);
             const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
             if (d > range) continue;

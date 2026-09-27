@@ -52,6 +52,10 @@ export interface Unit {
   enterTower?: EntityId;
   /** One of the Orc Horde: what it was sent to do, to whom, and where it came from. */
   horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean };
+  /** A dragon's errand: sleeping on its roost, burning a town, or flying home. */
+  dragon?: { phase: "roost" | "raid" | "leave"; target: PlayerId; over: Vec; until: number; arrived?: boolean };
+  /** Running from something terrible, and what to go back to afterwards. */
+  fear?: { until: number; resume: UnitTask | null };
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */

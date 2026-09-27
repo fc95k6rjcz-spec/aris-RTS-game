@@ -100,6 +100,9 @@ export class Fx {
               this.puffs.push({ x: mx + (e.tx - mx) * f, y: my + (e.ty - my) * f, t0: tick + k * 0.6, life: 16 + k, color: k < 3 ? "#fff1a8" : k < 7 ? "#ffb13b" : "#ff5a1f", n: 5 + k, size: 0.05 + f * 0.06, spread: 0.2 + f * 0.7 });
             }
             this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 6, life: 30, color: "#3a2a22", n: 10, size: 0.08, spread: 0.9 });
+            // The ground keeps burning after the breath has passed.
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 8, life: 80, color: "#ff7a1a", n: 9, size: 0.05, spread: 0.55 });
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 20, life: 70, color: "#ffc04a", n: 5, size: 0.04, spread: 0.4 });
           }
            {
           const dx = e.tx - e.x;

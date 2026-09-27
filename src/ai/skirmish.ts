@@ -481,7 +481,7 @@ export class SkirmishAI {
     let threat: Unit | null = null;
     let bestD = Infinity;
     for (const e of this.world.units()) {
-      if (e.owner === this.player || UNITS[e.def]!.damage <= 0) continue;
+      if (e.owner === this.player || UNITS[e.def]!.damage <= 0 || e.def === "dragon") continue;
       for (const b of mine) {
         const c = centerOf(b);
         const d = (e.pos.x - c.x) ** 2 + (e.pos.y - c.y) ** 2;

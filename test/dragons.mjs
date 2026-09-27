@@ -7,7 +7,7 @@ const w=new World(96,96,5,'plains',1,false);w.addPlayer(1,Faction.Human,'blue');
 const s=w.map.starts;w.spawnStart(1,s[0].x-1,s[0].y-1);w.spawnStart(2,s[1].x-2,s[1].y-2);
 let seen=null,raid=false,msgs=new Set();
 for(let t=0;t<20*60*10&&!raid;t++){w.step([]);for(const e of w.events)msgs.add(e.text);
- const d=w.units().find(u=>u.def==='dragon');if(d&&seen===null)seen=w.tick;if(d&&d.task.kind==='attackMove')raid=true;}
+ const d=w.units().find(u=>u.def==='dragon');if(d&&seen===null)seen=w.tick;if(d&&d.dragon?.phase==='raid')raid=true;}
 console.log('first dragon at',(seen/20/60).toFixed(1),'min; raided:',raid,[...msgs].filter(m=>/dragon/i.test(m)));
 assert(seen!==null&&seen<=20*60*7,'a dragon arrives by minute 7');assert(raid,'the dragon raids a settlement');
 console.log('PASS: dragons arrive and raid');
