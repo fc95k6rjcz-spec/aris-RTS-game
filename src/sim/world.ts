@@ -2551,7 +2551,8 @@ export class World {
         }
         if(b.complete && (t.kind === "build" || b.hp >= b.maxHp)) {
           u.constructionWork=undefined;u.path=[];
-          if(!this.nextQueuedBuild(u)) u.task={kind:"idle"};
+          // Job done: back to the wood or the mine, not stood about.
+          if(!this.nextQueuedBuild(u)) { u.task={kind:"idle"}; this.autoGatherAfterBuild(u, b); }
           return;
         }
         if(u.constructionWork?.building !== b.id) u.constructionWork={building:b.id,ticks:60+u.id%16,travel:0};
@@ -2595,7 +2596,8 @@ export class World {
           } else if (t.kind === "repair" && b.hp < b.maxHp) {
             b.hp = Math.min(b.maxHp, b.hp + (u.def === "king" && ROYAL_LICENCE.has(b.def) ? 2 : 1));
           } else {
-            if(!this.nextQueuedBuild(u)) u.task = { kind: "idle" };
+            // Finished (by someone else, or repaired): back to work, not idle.
+            if(!this.nextQueuedBuild(u)) { u.task = { kind: "idle" }; this.autoGatherAfterBuild(u, b); }
           }
           return;
         }
@@ -2608,6 +2610,7 @@ export class World {
       }
       case "gather": {
         const def = UNITS[u.def]!;
+        u.lastGather = { tx: t.tx, ty: t.ty, resource: t.resource };
         // A worker under attack fights back, but does not abandon its trip.
         if (def.damage > 0 && u.cooldown === 0) {
           const foe = this.findTarget(u, def.range * SUB);
@@ -2770,15 +2773,34 @@ export class World {
     return false;
   }
 
+  /**
+   * A worker who has finished a building goes back to work instead of
+   * standing beside it: to whatever he was cutting or mining before, or
+   * failing that the nearest wood or gold -- as long as there is somewhere
+   * to take it.
+   */
   private autoGatherAfterBuild(u: Unit, b: Building): void {
+    if (!UNITS[u.def]!.canGather || UNITS[u.def]!.royal) return;
+    const go = (tx: number, ty: number, resource: "gold" | "lumber"): boolean => {
+      if (!this.nearestDropOff(u, resource)) return false;
+      u.task = { kind: "gather", tx, ty, resource, phase: "toNode", timer: 0 };
+      this.pathTo(u, tx, ty, true);
+      return true;
+    };
+    const last = u.lastGather;
+    if (last) {
+      const tile = last.resource === "gold" ? Tile.Gold : Tile.Tree;
+      const node = this.map.get(last.tx, last.ty) === tile && this.map.amount[this.map.idx(last.tx, last.ty)]! > 0
+        ? ([last.tx, last.ty] as [number, number]) : this.findResourceNear(last.tx, last.ty, tile, 12);
+      if (node && go(node[0], node[1], last.resource)) return;
+    }
     const d = BUILDINGS[b.def]!;
     if (d.dropOff.includes("lumber")) {
       const node = this.findResourceNear(b.tx, b.ty, Tile.Tree, 10);
-      if (node) {
-        u.task = { kind: "gather", tx: node[0], ty: node[1], resource: "lumber", phase: "toNode", timer: 0 };
-        this.pathTo(u, node[0], node[1]);
-      }
+      if (node && go(node[0], node[1], "lumber")) return;
     }
+    const near = this.nearestResource(b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), 16);
+    if (near) go(near.x, near.y, near.resource);
   }
 
   /** True when an amphibious unit is currently over water. */

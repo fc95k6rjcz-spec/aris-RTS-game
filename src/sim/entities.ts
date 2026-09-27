@@ -54,6 +54,8 @@ export interface Unit {
   horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean };
   /** A dragon's errand: sleeping on its roost, burning a town, or flying home. */
   dragon?: { phase: "roost" | "raid" | "leave"; target: PlayerId; over: Vec; until: number; arrived?: boolean };
+  /** The last resource this worker was working, so he can go back to it after a job. */
+  lastGather?: { tx: number; ty: number; resource: "gold" | "lumber" };
   /** Running from something terrible, and what to go back to afterwards. */
   fear?: { until: number; resume: UnitTask | null };
 }
