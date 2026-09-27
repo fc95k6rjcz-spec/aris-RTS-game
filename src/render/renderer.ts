@@ -730,6 +730,24 @@ export class Renderer {
     }
   }
 
+  /** A great harpoon ballista on a tower's top: timber stock, bow arms, iron-tipped bolt. */
+  private drawDragonbane(cx: number, cy: number, w: number): void {
+    const ctx = this.ctx, k = w / 3;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#3a2814"; ctx.lineWidth = Math.max(2, k * 0.14);
+    ctx.beginPath(); ctx.moveTo(cx - k * 0.55, cy + k * 0.35); ctx.lineTo(cx + k * 0.55, cy - k * 0.2); ctx.stroke();
+    ctx.strokeStyle = "#6b4a2a"; ctx.lineWidth = Math.max(2, k * 0.1);
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.15, cy - k * 0.55); ctx.quadraticCurveTo(cx + k * 0.45, cy + k * 0.05, cx + k * 0.05, cy + k * 0.45); ctx.stroke();
+    ctx.strokeStyle = "#d9d2c0"; ctx.lineWidth = Math.max(1, k * 0.03);
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.15, cy - k * 0.55); ctx.lineTo(cx - k * 0.2, cy + k * 0.05); ctx.lineTo(cx + k * 0.05, cy + k * 0.45); ctx.stroke();
+    ctx.strokeStyle = "#8f8f8f"; ctx.lineWidth = Math.max(1.5, k * 0.06);
+    ctx.beginPath(); ctx.moveTo(cx - k * 0.45, cy + k * 0.28); ctx.lineTo(cx + k * 0.8, cy - k * 0.35); ctx.stroke();
+    ctx.fillStyle = "#c9c9c9";
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.95, cy - k * 0.42); ctx.lineTo(cx + k * 0.72, cy - k * 0.44); ctx.lineTo(cx + k * 0.78, cy - k * 0.24); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
   /** Tar-dark seeps where oil comes up through the ground: where oil rigs go. */
   private drawOilGround(): void {
     const map = this.world.map;
@@ -1264,6 +1282,7 @@ export class Renderer {
       if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
     }
     if (b.complete && settings.animations && !redesignedArt(b.def,'level',1)) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
+    if (b.dragonbane && b.complete) this.drawDragonbane(p.x + w / 2, p.y + w * 1.06 - w * 2.1 * (LEVELLED.tower ? levelDef("tower", b.level).scale : 1), w);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
       // the painted art, which deliberately overhangs its tiles.

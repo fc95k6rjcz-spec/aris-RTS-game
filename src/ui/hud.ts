@@ -2,6 +2,7 @@ import { BUILDINGS, BUILD_ADVANCED, BUILD_BASIC, BUILD_MENU, buildingName } from
 import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
 import { LEVELLED, levelDef } from "../data/levels";
+import { DRAGONBANE_COST } from "../sim/world";
 import type { Building, Unit } from "../sim/entities";
 import { ROYAL_LICENCE, type World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
@@ -111,7 +112,8 @@ export interface HudButton {
     | { type: "cancelResearch" }
     | { type: "attack" }
     | { type: "harvest" }
-    | { type: "ungarrison" };
+    | { type: "ungarrison" }
+    | { type: "dragonbane" };
 }
 
 /** Which page of the build menu a worker's command card is showing. */
@@ -667,6 +669,9 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
       } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
       if (b.def === "tower") {
+        out.push(b.dragonbane
+          ? { label: "Dragonbane ✓", cost: null, hotkey: "", enabled: false, description: "A great harpoon ballista stands on this tower. Dragons will not raid anything it covers, and one that strays into reach is driven off.", action: { type: "dragonbane" } }
+          : { label: "Dragonbane", cost: costLine(DRAGONBANE_COST), need: shortfall(world, player, DRAGONBANE_COST), hotkey: "D", enabled: world.canAfford(player, DRAGONBANE_COST), description: "Mount a great harpoon ballista on top. Dragons hate it: they will not raid a town it covers, and one that comes within reach is driven off.", action: { type: "dragonbane" } });
         const n = b.garrison?.length ?? 0;
         out.push({ label: n ? `Release Archers (${n})` : "Garrison", cost: null, hotkey: "R", enabled: n > 0,
           description: n ? "Bring your archers down from the tower." : "Select archers and right-click this tower to send them up. Each one adds another bow, shooting harder and further than he could from the ground.",

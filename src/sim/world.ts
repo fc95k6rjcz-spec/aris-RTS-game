@@ -190,6 +190,8 @@ export type FxEvent =
  */
 /** Archers standing on a watch tower of the given level: three, and one more per upgrade. */
 export function towerArchers(level: number): number { return 2 + Math.max(1, level); }
+/** A Dragonbane harpoon for the top of a watch tower. */
+export const DRAGONBANE_COST = { gold: 600, lumber: 400 };
 /** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
 export function towerRange(level: number): number { return 8 + Math.max(1, level) * 0.5; }
 /** How many of your own archers a tower can take on top of its crew. */
@@ -565,6 +567,8 @@ export class World {
     if (!this.players.has(WILD) || !this.dragonsEnabled) return;
     const first = DRAGON_FIRST * TICKS_PER_SECOND, gap = DRAGON_GAP * TICKS_PER_SECOND;
     const dragons = this.units().filter((u) => u.def === "dragon" && u.owner === WILD);
+    // Only ever one dragon in the realm. Older worlds may have more: the rest leave.
+    for (const extra of dragons.splice(1)) this.removeEntity(extra.id);
     // Raids: each dragon in turn leaves its roost to burn somebody's town.
     const firstRaid = DRAGON_FIRST_RAID * TICKS_PER_SECOND;
     if (this.tick >= firstRaid && (this.tick - firstRaid) % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
@@ -572,7 +576,10 @@ export class World {
         if (d.dragon && d.dragon.phase !== "roost") continue;
         const towns = this.buildings().filter((b) => b.owner !== WILD && this.players.has(b.owner));
         if (!towns.length) break;
-        const t = towns[this.rng.int(towns.length)]!;
+        // Dragons hate the Dragonbane: they pick a town no harpoon covers.
+        const open = towns.filter((b) => !this.dragonbaneNear(centerOf(b), b.owner));
+        if (!open.length) { this.emit(this.buildings().find((b) => b.owner !== WILD)!.owner, "A dragon circled high over the realm, and found every town defended"); continue; }
+        const t = open[this.rng.int(open.length)]!;
         const over = centerOf(t);
         d.dragon = { phase: "raid", target: t.owner, over, until: this.tick + DRAGON_BURN * TICKS_PER_SECOND + 60 * TICKS_PER_SECOND };
         d.task = { kind: "move", target: over };
@@ -696,6 +703,18 @@ export class World {
       if (u.path.length === 0) { this.pathTo(u, Math.floor(lair.x / SUB), Math.floor(lair.y / SUB), true); u.task = { kind: "move", target: { ...lair } }; }
       return;
     }
+    // A Dragonbane in reach: one harpoon and it turns tail.
+    if (this.tick % 10 === u.id % 10) {
+      const bane = this.buildings().find((b) => b.def === "tower" && b.dragonbane && b.complete && Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < (towerRange(b.level) + 2) * SUB);
+      if (bane) {
+        const c = centerOf(bane);
+        this.fx.push({ kind: "attack", x: c.x, y: c.y - SUB, tx: u.pos.x, ty: u.pos.y, def: "ballista", ranged: true });
+        this.projectiles.push({ from: { x: c.x, y: c.y - SUB }, to: { x: u.pos.x, y: u.pos.y }, t: 0, speed: 0.1, kind: "arrow" });
+        d.phase = "leave";
+        this.emit(bane.owner, "The Dragonbane drove the dragon off!", "info");
+        return;
+      }
+    }
     // Raid: terror spreads ahead of it.
     if (this.tick % 10 === u.id % 10) this.terrify(u.pos.x, u.pos.y, DRAGON_FEAR_RADIUS * SUB, d.target);
     const overTown = Math.hypot(u.pos.x - d.over.x, u.pos.y - d.over.y) < 5 * SUB;
@@ -736,6 +755,11 @@ export class World {
       if (v.owner === WILD || Math.hypot(v.pos.x - at.x, v.pos.y - at.y) > 1.6 * SUB) continue;
       this.dealDamage(v, 22, WILD, 0.2);
     }
+  }
+
+  /** Whether one of this player's Dragonbane towers covers a point. */
+  private dragonbaneNear(at: Vec, owner: PlayerId): boolean {
+    return this.buildings().some((b) => b.owner === owner && b.def === "tower" && b.dragonbane && b.complete && Math.hypot(centerOf(b).x - at.x, centerOf(b).y - at.y) < (towerRange(b.level) + 2) * SUB);
   }
 
   /** Everyone of this player's near a terror drops what he is doing and runs. */
@@ -1110,7 +1134,8 @@ export class World {
       home.push({ x: tx, y: ty });
 
       const roll = this.rng.next();
-      const kind = roll < 0.24 ? "direwolf" : roll < 0.40 ? "bear" : roll < 0.76 ? "deer" : "cow";
+      // No deer: there is no painted deer yet, and without art one is drawn as a bare brown dot.
+      const kind = roll < 0.24 ? "direwolf" : roll < 0.40 ? "bear" : "cow";
       const herd = kind === "bear" || kind === "direwolf" ? 1 : 2 + this.rng.int(3);
       for (let i = 0; i < herd; i++) {
         // Spread a herd over a few tiles rather than stacking it on one.
@@ -1535,6 +1560,15 @@ export class World {
           u.task = { kind: "move", target };
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
         }
+        break;
+      }
+      case "dragonbane": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.def !== "tower" || !b.complete || b.owner !== c.player || b.dragonbane) break;
+        if (!this.canAfford(c.player, DRAGONBANE_COST)) { this.emit(c.player, this.lacking(c.player, DRAGONBANE_COST)); break; }
+        this.spend(c.player, DRAGONBANE_COST);
+        b.dragonbane = true;
+        this.emit(c.player, "Dragonbane mounted — no dragon will come near this tower", "info");
         break;
       }
       case "joinRealm": {

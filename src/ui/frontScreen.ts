@@ -349,15 +349,6 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
         },
         {
           numeral: numeral(3),
-          label: "Play a Friend",
-          hint: "2 players",
-          enabled: true,
-          marked: false,
-          action: { kind: "pane", pane: "multiplayer" },
-          note: "Host a game and read out the code, or join one you have been given.",
-        },
-        {
-          numeral: numeral(4),
           label: "Settings",
           hint: "Gear",
           enabled: true,
@@ -366,7 +357,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Sound, speed, the opponent, and which of the hundred realms you fight over.",
         },
         {
-          numeral: numeral(5),
+          numeral: numeral(4),
           label: "Credits",
           hint: "",
           enabled: true,
@@ -375,8 +366,8 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Who made this, and what with.",
         },
         {
-          numeral: numeral(6),
-          label: "Leave the Realm",
+          numeral: numeral(5),
+          label: "Quit",
           hint: "Esc",
           enabled: true,
           marked: false,

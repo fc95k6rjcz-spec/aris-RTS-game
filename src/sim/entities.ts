@@ -108,6 +108,8 @@ export interface Building {
   builders: number;
   /** Archers who have climbed a watch tower. Stored off the map while inside. */
   garrison?: Array<{ def: string; hp: number; maxHp: number }>;
+  /** Watch towers: a great harpoon ballista mounted on top. Dragons will not come near one. */
+  dragonbane?: boolean;
 }
 
 export type Entity = Unit | Building;

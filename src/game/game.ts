@@ -1248,6 +1248,11 @@ export class Game {
         if (b) this.issue({ type: "upgrade", player: this.player, building: b.id });
         break;
       }
+      case "dragonbane": {
+        const b = this.selectedBuildings()[0];
+        if (b) this.issue({ type: "dragonbane", player: this.player, building: b.id });
+        break;
+      }
       case "ungarrison": {
         const b = this.selectedBuildings()[0];
         if (b) this.issue({ type: "ungarrison", player: this.player, building: b.id });
