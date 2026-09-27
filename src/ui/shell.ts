@@ -239,25 +239,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   display: grid;
   grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(190px, 240px);
   gap: 1px; background: rgba(216,179,90,0.22);
-  height: clamp(214px, 24vh, 232px);
+  /* Slim: the map is the game. The minimap keeps its old size by standing
+     up out of the bar over the map's corner (see .rv-mini). */
+  height: clamp(124px, 15vh, 144px);
   border-top: 1px solid rgba(216,179,90,0.34);
+  position: relative; z-index: 3;
 }
 .rv-pane { background: linear-gradient(180deg, var(--panel-a) 0%, var(--panel-b) 100%); min-width: 0; min-height: 0; }
 
 /* selection */
-.rv-sel { padding: 10px 14px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 10px; }
+.rv-sel { padding: 8px 12px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 6px; }
 .rv-sel .who { display: flex; gap: 12px; }
 .rv-port {
-  width: 56px; height: 56px; flex: none; border: 1px solid rgba(216,179,90,0.35);
+  width: 44px; height: 44px; flex: none; border: 1px solid rgba(216,179,90,0.35);
   background: #14161b;
   background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
   background-size: cover; background-position: center top;
 }
 /* The roster, when more than one thing is selected. */
 .rv-roster { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; min-height: 0; overflow: hidden; }
-.rv-face { width: 42px; }
+.rv-face { width: 30px; }
 .rv-face .pic {
-  width: 42px; height: 42px; border: 1px solid rgba(216,179,90,0.35);
+  width: 30px; height: 30px; border: 1px solid rgba(216,179,90,0.35);
   background: #14161b center top / cover no-repeat;
   background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
 }
@@ -265,9 +268,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-face .hp i { display: block; height: 100%; background: #6fae4e; }
 .rv-face .hp i.hurt { background: #d8b35a; }
 .rv-face .hp i.bad { background: #c4553f; }
-.rv-sel .nm { font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: 0.06em; color: var(--parchment); }
+.rv-sel .nm { font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: var(--parchment); }
 .rv-sel .sb { margin-top: 3px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
-.rv-hp { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.rv-hp { margin-top: 4px; display: flex; align-items: center; gap: 8px; }
 .rv-hp .track { width: 108px; height: 6px; background: rgba(255,255,255,0.1); }
 .rv-hp .fill { height: 100%; background: #6fae4e; }
 .rv-hp .val { font-size: 11px; color: #c9c2b0; font-variant-numeric: tabular-nums; }
@@ -280,10 +283,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-empty { font-family: var(--serif); font-style: italic; font-size: 14px; color: #8b8676; }
 
 /* commands */
-.rv-cmd { padding: 9px 14px 10px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 8px; }
+.rv-cmd { padding: 6px 12px 6px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 5px; }
 .rv-tabs { display: flex; align-items: center; gap: 6px; }
 .rv-tab {
-  padding: 6px 14px; cursor: pointer; font-family: var(--mono);
+  padding: 3px 12px; cursor: pointer; font-family: var(--mono);
   font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
   background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--muted);
 }
@@ -291,8 +294,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-tab.on { background: rgba(216,179,90,0.16); border-color: var(--gold); color: var(--parchment); }
 .rv-hints { margin-left: auto; display: flex; gap: 18px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--fainter); }
 .rv-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  grid-auto-rows: minmax(0, 1fr); gap: 6px; min-height: 0; overflow: hidden;
+  /* Fixed-size tiles: three orders no longer stretch into three giant posters. */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  grid-auto-rows: minmax(0, 1fr); gap: 5px; min-height: 0; overflow: hidden;
 }
 .rv-tile {
   position: relative; overflow: hidden;
@@ -335,12 +339,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-tile.upgrade.art { background-size:auto 85%; background-repeat:no-repeat; background-position:center; background-color:#17171b; }
 .rv-tile.upgrade.art::before { content:''; top:0; left:0; width:100%; height:35%; }
 .rv-desc {
-  min-height: 2.1em; padding-left: 10px; border-left: 1px solid var(--rule);
-  font-family: var(--serif); font-style: italic; font-size: 14px; color: #b6ae9c;
+  min-height: 1.3em; padding-left: 10px; border-left: 1px solid var(--rule);
+  font-family: var(--serif); font-style: italic; font-size: 12px; color: #b6ae9c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* minimap */
-.rv-mini { padding: 10px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 8px; }
+.rv-mini { padding: 10px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 8px;
+  margin-top: -92px; border-top: 1px solid rgba(216,179,90,0.34); border-left: 1px solid rgba(216,179,90,0.34); }
 .rv-mini .hd { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; }
 .rv-mini .hd .nm { color: var(--fainter); }
 .rv-mini .hd .kb { color: var(--muted); }
