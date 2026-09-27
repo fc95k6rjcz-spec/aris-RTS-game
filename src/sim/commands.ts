@@ -29,6 +29,8 @@ export type Command =
   | { type: "ungarrison"; player: PlayerId; building: EntityId }
   /** Shared realm: a traveller arrives. Gives them back their old seat, or a new one. */
   | { type: "joinRealm"; player: PlayerId; peer: string }
+  /** Shared realm: abandon your kingdom and start again as a new camp. */
+  | { type: "restartSeat"; player: PlayerId }
   /** Mount a Dragonbane harpoon on a watch tower. */
   | { type: "dragonbane"; player: PlayerId; building: EntityId };
 

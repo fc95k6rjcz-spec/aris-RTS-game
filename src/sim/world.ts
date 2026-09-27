@@ -892,8 +892,35 @@ export class World {
       Object.assign(p, { ...START_PURSE, research: {} });
     }
     this.realmSeats.set(peer, id);
+    this.seatCamp(id);
+    return id;
+  }
+
+  /**
+   * Start again: whatever is left of your kingdom is abandoned -- its
+   * buildings fall to ruin and its people scatter -- and you arrive afresh
+   * somewhere else, with the same banner.
+   */
+  restartSeat(id: PlayerId): void {
+    if (!this.realm || !this.players.has(id) || id === WILD) return;
+    for (const e of [...this.entities.values()]) {
+      if (e.owner !== id) continue;
+      if (e.kind === "building") {
+        const c = centerOf(e);
+        this.fx.push({ kind: "death", x: c.x, y: c.y, def: e.def, owner: e.owner, facing: 6, building: true });
+      }
+      this.removeEntity(e.id);
+    }
+    const p = this.players.get(id)!;
+    Object.assign(p, { ...START_PURSE, research: {} });
+    this.homes.delete(id);
+    this.seatCamp(id);
+  }
+
+  /** A new camp for this player: King, two workers, and the means to found a hall. */
+  private seatCamp(id: PlayerId): void {
     const spot = this.freeStart();
-    if (!spot) return id;
+    if (!spot) return;
     // You arrive with your King and two workers and the means to found a hall
     // -- where to put it is your first decision, not the map's.
     this.homes.set(id, { x: spot.x, y: spot.y });
@@ -904,7 +931,12 @@ export class World {
     this.spawnUnit(id, "king", { x: cx, y: cy });
     this.spawnUnit(id, "worker", { x: cx - SUB, y: cy + SUB });
     this.spawnUnit(id, "worker", { x: cx + SUB, y: cy + SUB });
-    return id;
+  }
+
+  /** Whether this player still has a kingdom: a building, or someone who could raise one. */
+  seatAlive(id: PlayerId): boolean {
+    for (const e of this.entities.values()) if (e.owner === id && (e.kind === "building" || UNITS[e.def]!.canBuild)) return true;
+    return false;
   }
 
   /** Somewhere to found a new town: open ground by unclaimed gold, far from everyone. */
@@ -1619,6 +1651,10 @@ export class World {
       }
       case "joinRealm": {
         this.claimSeat(c.peer);
+        break;
+      }
+      case "restartSeat": {
+        this.restartSeat(c.player);
         break;
       }
       case "garrison": {

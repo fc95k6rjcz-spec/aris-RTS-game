@@ -76,6 +76,9 @@ export class Game {
   /** The shared realm this machine is part of, when playing New Campaign. */
   private realm: RealmNet | null = null;
   private realmNote = "";
+  private choiceBox: HTMLDivElement | null = null;
+  private fallenShown = false;
+  private recenterOnKing = false;
   private realmSavedAt = 0;
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
@@ -491,6 +494,7 @@ export class Game {
     this.world.step(cmds);
     this.ticks++;
     if (this.realm && performance.now() - this.realmSavedAt > 90000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
+    if (this.realm && this.world.tick % 20 === 0) this.watchRealmSeat();
     // One tick's happenings, handed to the two things that show them. Neither
     // can write back, so the sim stays the only author of state.
     // The one moment the whole opening is waiting on.
@@ -1608,6 +1612,65 @@ export class Game {
     if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
     else if (king) this.cam.centerOn(king.pos.x, king.pos.y);
     this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
+    this.fallenShown = false;
+    if (this.world.buildings().some((b) => b.owner === this.player)) {
+      this.showChoice("WELCOME BACK", "Your kingdom stands as you left it. Carry on where you were, or abandon it and start again somewhere new?", [
+        { label: "Continue", primary: true, act: () => {} },
+        { label: "Start again", act: () => this.startAgain() },
+      ]);
+    }
+  }
+
+  /** Every second in the realm: has our kingdom fallen, and has a new camp arrived to look at? */
+  private watchRealmSeat(): void {
+    if (this.recenterOnKing) {
+      const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal);
+      if (king) {
+        this.recenterOnKing = false;
+        this.cam.centerOn(king.pos.x, king.pos.y);
+        this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
+        this.proclaim("A NEW BEGINNING", "Find good ground by gold, and found your hall.", 5000);
+      }
+      return;
+    }
+    const alive = this.world.seatAlive(this.player);
+    if (alive) { this.fallenShown = false; return; }
+    if (this.fallenShown) return;
+    this.fallenShown = true;
+    this.showChoice("YOUR KINGDOM HAS FALLEN", "Nothing of yours still stands. Gather what you can and start again as a new camp somewhere in the realm.", [
+      { label: "Start again", primary: true, act: () => this.startAgain() },
+    ]);
+  }
+
+  private startAgain(): void {
+    this.issue({ type: "restartSeat", player: this.player });
+    this.recenterOnKing = true;
+    this.selected.clear();
+  }
+
+  /** A small centred choice over the map: a title, a line, and a few buttons. */
+  private showChoice(title: string, line: string, buttons: Array<{ label: string; primary?: boolean; act: () => void }>): void {
+    this.choiceBox?.remove();
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:50;min-width:340px;max-width:520px;padding:26px 30px 22px;background:rgba(12,12,14,0.96);border:1px solid #b89a52;box-shadow:0 12px 40px rgba(0,0,0,.7);color:#e9e2cf;font-family:Georgia,serif;text-align:center";
+    const h = document.createElement("div");
+    h.textContent = title;
+    h.style.cssText = "font-size:24px;letter-spacing:.08em;color:#e8c56b;margin-bottom:10px";
+    const p = document.createElement("div");
+    p.textContent = line;
+    p.style.cssText = "font-size:15px;line-height:1.45;color:#cfc6b0;margin-bottom:20px";
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;justify-content:center";
+    for (const b of buttons) {
+      const btn = document.createElement("button");
+      btn.textContent = b.label;
+      btn.style.cssText = `padding:9px 22px;font:600 14px Georgia,serif;letter-spacing:.06em;cursor:pointer;border:1px solid #b89a52;${b.primary ? "background:#b89a52;color:#15120c" : "background:transparent;color:#e8c56b"}`;
+      btn.onclick = () => { box.remove(); if (this.choiceBox === box) this.choiceBox = null; b.act(); };
+      row.appendChild(btn);
+    }
+    box.append(h, p, row);
+    document.body.appendChild(box);
+    this.choiceBox = box;
   }
 
   /** Keep this computer's copy of the realm: the ledger it resumes from when alone. */
