@@ -108,6 +108,10 @@ const BEAST_AGGRO = 6;
 
 /** How far a beast will drift from where it was born, in tiles. */
 const BEAST_RANGE = 9;
+/** Seconds before the first dragon arrives, between arrivals, and between raids. */
+const DRAGON_FIRST = 6 * 60;
+const DRAGON_GAP = 4 * 60;
+const DRAGON_RAID = 150;
 
 /** A farm yields this much food, this often. */
 const FARM_FOOD = 10;
@@ -157,6 +161,13 @@ export type FxEvent =
  * The whole game state. `step()` advances exactly one tick given the commands
  * issued for that tick. Same seed + same command stream ⇒ same state everywhere.
  */
+/** Archers standing on a watch tower of the given level: three, and one more per upgrade. */
+export function towerArchers(level: number): number { return 2 + Math.max(1, level); }
+/** Ticks between one tower archer's shots. */
+const TOWER_ARCHER_INTERVAL = 24;
+/** Base arrow damage from a tower archer (before armour); +2 per tower level. */
+const TOWER_ARROW_DAMAGE = 23;
+
 export class World {
   tick = 0;
   readonly map: GameMap;
@@ -461,6 +472,8 @@ export class World {
   private readonly grinding = new Map<number, number>();
   /** Where each wild animal was born, so it has somewhere to wander around. */
   patrolsEnabled = false;
+  /** Dragons arrive in the wild mid-game and raid settlements. On for every normal match. */
+  dragonsEnabled = true;
 
   /** Patrols arrive after one minute and grow every ninety seconds, capped at 24. */
   private stepPatrols(): void {
@@ -483,6 +496,48 @@ export class World {
         const u=this.spawnUnit(WILD,i % 3 === 0 ? "grunt" : "barbarian",spots[i]!);
         u.patrolHome={x:(x+.5)*SUB,y:(y+.5)*SUB}; u.patrolBand=this.tick;
       }
+      return;
+    }
+  }
+
+  /**
+   * Dragons. They were in the bestiary and never once left it -- nothing ever
+   * spawned one. Now the first comes over the edge of the map a few minutes in,
+   * roosts somewhere in the wild country between the settlements, and every so
+   * often goes raiding: straight for somebody's buildings. More follow as the
+   * match goes on. Every player hears when one arrives.
+   */
+  private stepDragons(): void {
+    if (!this.players.has(WILD) || !this.dragonsEnabled) return;
+    const first = DRAGON_FIRST * TICKS_PER_SECOND, gap = DRAGON_GAP * TICKS_PER_SECOND;
+    const dragons = this.units().filter((u) => u.def === "dragon" && u.owner === WILD);
+    // Raids: each dragon in turn leaves its roost for somebody's town.
+    if (this.tick > first && this.tick % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
+      for (const d of dragons) {
+        if (d.task.kind === "attack") continue;
+        const towns = this.buildings().filter((b) => b.owner !== WILD && this.players.has(b.owner));
+        if (!towns.length) break;
+        const t = towns[this.rng.int(towns.length)]!;
+        d.task = { kind: "attackMove", target: centerOf(t) };
+        d.path = [];
+        this.pathTo(d, t.tx, t.ty, true);
+        for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, pid === t.owner ? "A dragon is flying at your settlement!" : "A dragon has taken wing");
+      }
+    }
+    if (this.tick < first || (this.tick - first) % gap !== 0) return;
+    const cap = Math.min(3, 1 + Math.floor((this.tick - first) / (gap * 2)));
+    if (dragons.length >= cap) return;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const x = 3 + this.rng.int(this.map.width - 6), y = 3 + this.rng.int(this.map.height - 6);
+      if (this.map.starts.some((st) => Math.hypot(st.x - x, st.y - y) < Math.max(16, this.map.width * 0.22))) continue;
+      if (this.buildings().some((b) => b.owner !== WILD && Math.hypot(b.tx - x, b.ty - y) < 14)) continue;
+      // Arrive from the nearest edge of the map, and settle on the roost.
+      const ex = x < this.map.width / 2 ? 1 : this.map.width - 2;
+      const d = this.spawnUnit(WILD, "dragon", { x: (ex + 0.5) * SUB, y: (y + 0.5) * SUB });
+      this.lairs.set(d.id, { x: (x + 0.5) * SUB, y: (y + 0.5) * SUB });
+      this.pathTo(d, x, y, true);
+      d.task = { kind: "move", target: { x: (x + 0.5) * SUB, y: (y + 0.5) * SUB } };
+      for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, "A DRAGON has come to the realm — guard your towns");
       return;
     }
   }
@@ -802,7 +857,11 @@ export class World {
       }
     }
 
-    const prey = def.damage > 0 ? this.findTarget(u, BEAST_AGGRO * SUB) : null;
+    const dragon = u.def === "dragon";
+    // A raiding dragon keeps flying at the town it chose; anything on the way
+    // is still fair game, which the attack-move handles.
+    if (dragon && u.task.kind === "attackMove") return;
+    const prey = def.damage > 0 ? this.findTarget(u, (dragon ? 9 : BEAST_AGGRO) * SUB) : null;
     if (prey) {
       u.task = { kind: "attack", target: prey.id };
       return;
@@ -813,10 +872,10 @@ export class World {
     const lair = this.lairs.get(u.id);
     if (!lair) return;
     const a = this.rng.next() * Math.PI * 2;
-    const d = this.rng.next() * BEAST_RANGE;
+    const d = this.rng.next() * BEAST_RANGE * (dragon ? 1.6 : 1);
     const tx = Math.floor(lair.x / SUB + Math.cos(a) * d);
     const ty = Math.floor(lair.y / SUB + Math.sin(a) * d);
-    if (!this.map.isWalkable(tx, ty, "land")) return;
+    if (!this.map.isWalkable(tx, ty, def.domain === "air" ? "air" : "land")) return;
     this.pathTo(u, tx, ty, true);
     u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
   }
@@ -948,6 +1007,17 @@ export class World {
     return false;
   }
 
+  /** "Not enough — need 120 more gold, 40 more wood". */
+  lacking(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): string {
+    const p = this.players.get(player)!;
+    const parts: string[] = [];
+    if (p.gold < cost.gold) parts.push(`${cost.gold - Math.floor(p.gold)} more gold`);
+    if (p.lumber < cost.lumber) parts.push(`${cost.lumber - Math.floor(p.lumber)} more wood`);
+    if (p.oil < (cost.oil ?? 0)) parts.push(`${(cost.oil ?? 0) - Math.floor(p.oil)} more oil`);
+    if (p.food < (cost.food ?? 0)) parts.push(`${(cost.food ?? 0) - Math.floor(p.food)} more food`);
+    return parts.length ? `Not enough — need ${parts.join(", ")}` : "Not enough resources";
+  }
+
   canAfford(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): boolean {
     const p = this.players.get(player)!;
     return p.gold >= cost.gold && p.lumber >= cost.lumber && p.oil >= (cost.oil ?? 0) && p.food >= (cost.food ?? 0);
@@ -979,9 +1049,10 @@ export class World {
     // in that position does. Everything else still wants its prerequisites.
     const royalLicence = builderIsRoyal && ROYAL_LICENCE.has(def);
     if (!royalLicence) for (const r of d.requires) if (!this.hasBuilding(player, r)) return `Requires ${BUILDINGS[r]!.name}`;
-    if (!this.canAfford(player, d.cost)) return "Not enough resources";
+    if (!this.canAfford(player, d.cost)) return this.lacking(player, d.cost);
     if (!this.map.canPlace(tx, ty, d.size)) return "Cannot build there";
     if (d.coastal && !this.map.touchesWater(tx, ty, d.size)) return "Must be built on the shoreline";
+    if (d.oilGround && this.map.oilUnder(tx, ty, d.size) < Math.ceil((d.size * d.size) / 3)) return "Oil rigs must be built on oil ground — look for the dark tar seeps";
     // Room to work the seam.
     //
     // A hall dropped on top of a gold mine walls the seam in: the miners cannot
@@ -1041,12 +1112,13 @@ export class World {
     return { x: pick[0], y: pick[1], resource: isGold ? "gold" : "lumber" };
   }
 
-  private findResourceNear(tx: number, ty: number, tile: Tile, radius = 8): [number, number] | null {
+  private findResourceNear(tx: number, ty: number, tile: Tile, radius = 8, exclude?: [number, number]): [number, number] | null {
     let best: [number, number] | null = null;
     let bestD = Infinity;
     for (let y = ty - radius; y <= ty + radius; y++)
       for (let x = tx - radius; x <= tx + radius; x++) {
         if (!this.map.inBounds(x, y) || this.map.get(x, y) !== tile || this.map.amount[this.map.idx(x, y)]! <= 0) continue;
+        if (exclude && x === exclude[0] && y === exclude[1]) continue;
         // Must have a walkable neighbour to harvest from.
         if (!this.adjacentWalkable(x, y, 1)) continue;
         const d = (x - tx) ** 2 + (y - ty) ** 2;
@@ -1240,7 +1312,7 @@ export class World {
           break;
         }
         if (!this.canAfford(c.player, d.cost)) {
-          this.emit(c.player, "Not enough resources");
+          this.emit(c.player, this.lacking(c.player, d.cost));
           break;
         }
         this.spend(c.player, d.cost);
@@ -1290,7 +1362,7 @@ export class World {
         }
         const next = levelDef(b.def, b.level + 1);
         if (!this.canAfford(c.player, next.cost)) {
-          this.emit(c.player, "Not enough resources");
+          this.emit(c.player, this.lacking(c.player, next.cost));
           break;
         }
         this.spend(c.player, next.cost);
@@ -1312,7 +1384,7 @@ export class World {
         }
         const lv = up.levels[have]!;
         if (!this.canAfford(c.player, lv.cost)) {
-          this.emit(c.player, "Not enough resources");
+          this.emit(c.player, this.lacking(c.player, lv.cost));
           break;
         }
         this.spend(c.player, lv.cost);
@@ -1417,6 +1489,7 @@ export class World {
     this.checkRelics();
     this.stepLatecomers();
     this.stepPatrols();
+    this.stepDragons();
     this.stepWanderers();
     this.stepShelters();
     this.decayPaths();
@@ -1854,6 +1927,11 @@ export class World {
       for (let j = i + 1; j < units.length; j++) {
         const b = units[j]!;
         if (UNITS[b.def]!.domain !== da) continue; // a boat never jostles a footman
+        // Workers on a resource run slip through their own side. Two men meeting
+        // head-on in a narrow tree line used to shove each other to a standstill,
+        // and a busy mine turned into a scrum where nobody reached the ore. A
+        // gathering worker now walks through friends the way Warcraft peons do.
+        if (a.owner === b.owner && (a.task.kind === "gather" || b.task.kind === "gather")) continue;
         let dx = b.pos.x - a.pos.x;
         let dy = b.pos.y - a.pos.y;
         let d = Math.hypot(dx, dy);
@@ -2137,13 +2215,14 @@ export class World {
             const amt = this.map.inBounds(t.tx, t.ty) ? this.map.amount[this.map.idx(t.tx, t.ty)]! : 0;
             const tile = t.resource === "gold" ? Tile.Gold : Tile.Tree;
             if (amt <= 0 || this.map.get(t.tx, t.ty) !== tile) {
-              const alt = this.findResourceNear(t.tx, t.ty, tile);
+              const alt = this.findResourceNear(t.tx, t.ty, tile) ?? this.findResourceNear(t.tx, t.ty, tile, 20);
               if (!alt) {
+                if (u.carrying?.amount && this.nearestDropOff(u, t.resource)) { t.phase = "toDrop"; u.path = []; return; }
                 u.task = { kind: "idle" };
                 return;
               }
               [t.tx, t.ty] = alt;
-              this.pathTo(u, t.tx, t.ty);
+              this.pathTo(u, t.tx, t.ty, true);
               return;
             }
             if (this.isAdjacentTo(u, t.tx, t.ty, 1)) {
@@ -2153,17 +2232,28 @@ export class World {
               return;
             }
             if (this.followPath(u)) {
-              // Path exhausted but not adjacent: the node is unreachable from here.
-              // Try another node of the same kind, or give up.
-              const alt = this.findResourceNear(t.tx, t.ty, tile);
-              if (!alt || (alt[0] === t.tx && alt[1] === t.ty)) {
-                if (u.repathIn-- > 0) return;
-                u.task = { kind: "idle" };
-                return;
+              // Path exhausted but not adjacent. Usually that is the crowd, not
+              // the ground: another worker shouldered this one off the last tile,
+              // or a throttled re-path left it holding nothing. It used to count
+              // down and quit to idle, which is why men "stopped harvesting
+              // randomly" -- mostly while jostling at a busy mine or tree line.
+              // Now: ask for the same node again, then any other node nearby,
+              // then further out; with a load in hand take it home; only a
+              // worker with genuinely nothing left to cut stands down.
+              this.pathTo(u, t.tx, t.ty, true);
+              if (u.path.length > 0) return;
+              const alt = this.findResourceNear(t.tx, t.ty, tile, 8, [t.tx, t.ty]) ?? this.findResourceNear(t.tx, t.ty, tile, 20, [t.tx, t.ty]);
+              if (alt) {
+                [t.tx, t.ty] = alt;
+                this.pathTo(u, t.tx, t.ty, true);
+                if (u.path.length > 0) return;
               }
-              [t.tx, t.ty] = alt;
-              this.pathTo(u, t.tx, t.ty);
-              u.repathIn = 20;
+              if (u.carrying?.amount) {
+                t.phase = "toDrop";
+                const drop = this.nearestDropOff(u, t.resource);
+                if (drop) { this.pathTo(u, drop.tx + Math.floor(drop.size / 2), drop.ty + Math.floor(drop.size / 2), true); return; }
+              }
+              u.task = { kind: "idle" };
             }
             return;
           }
@@ -2191,7 +2281,7 @@ export class World {
               const alt = this.findResourceNear(t.tx, t.ty, t.resource === "gold" ? Tile.Gold : Tile.Tree);
               if (alt) {
                 [t.tx,t.ty] = alt; t.phase = "toNode";
-                this.pathTo(u,t.tx,t.ty); return;
+                this.pathTo(u,t.tx,t.ty,true); return;
               }
             }
             t.phase = "toDrop";
@@ -2235,7 +2325,7 @@ export class World {
               u.carrying = null;
             }
             t.phase = "toNode";
-            this.pathTo(u, t.tx, t.ty);
+            this.pathTo(u, t.tx, t.ty, true);
             return;
           }
         }
@@ -2451,34 +2541,49 @@ export class World {
     // Watch Towers become genuine defensive structures rather than expensive
     // vision posts. Higher tiers shoot farther, harder and more frequently.
     if (b.def === "tower") {
+      // A watch tower is a platform with archers on it, and it fights like one.
+      // Every archer draws and looses on his own count, staggered so a tower's
+      // arrows land as a steady rain rather than one volley. Upgrading puts
+      // more men up there: three on a wooden tower, one more per level. Three
+      // archers see off six footmen who walk into them -- that is the tower's
+      // job, and why it is worth the timber.
       const level = Math.max(1, b.level);
-      const range = (4.5 + level * 0.55) * SUB;
-      const interval = Math.max(18, 44 - level * 2);
-      if (this.tick % interval === b.id % interval) {
-        const origin = centerOf(b);
-        let target: Entity | null = null;
-        let bestD = Infinity;
-        for (const e of this.entities.values()) {
-          // Only fire on another actual player. Wildlife remains wildlife rather
-          // than causing every border tower to spend the match shooting deer.
-          if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner,e)) continue;
-          if (e.kind === "unit" && UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) continue;
-          if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
-          const p = this.posOf(e);
-          const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
-          if (d > range) continue;
-          if (e.id === b.attackTarget) { target=e; break; }
-          if (d >= bestD) continue;
-          bestD = d;
-          target = e;
+      const archers = towerArchers(level);
+      const range = (5.5 + level * 0.4) * SUB;
+      const interval = TOWER_ARCHER_INTERVAL;
+      const origin = centerOf(b);
+      let targets: Entity[] | null = null;
+      for (let k = 0; k < archers; k++) {
+        const phase = (b.id * 7 + Math.floor((k * interval) / archers)) % interval;
+        if (this.tick % interval !== phase) continue;
+        if (!targets) {
+          targets = [];
+          const scored: Array<{ e: Entity; d: number }> = [];
+          for (const e of this.entities.values()) {
+            // Only fire on another actual player. Wildlife remains wildlife rather
+            // than causing every border tower to spend the match shooting deer.
+            if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner,e)) continue;
+            if (e.kind === "unit" && UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) continue;
+            if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
+            const p = this.posOf(e);
+            const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
+            if (d > range) continue;
+            // Men before walls: a tower shoots the soldiers, not the siege line's
+            // buildings, unless it has been told to.
+            scored.push({ e, d: e.id === b.attackTarget ? -Infinity : d + (e.kind === "building" ? range * 2 : 0) });
+          }
+          scored.sort((x, y) => x.d - y.d || x.e.id - y.e.id);
+          for (const t of scored) targets.push(t.e);
         }
-        if (target) {
-          const p = this.posOf(target);
-          const damage = 8 + level * 4;
-          this.fx.push({ kind: "attack", x: origin.x, y: origin.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
-          this.projectiles.push({ from: origin, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
-          this.dealDamage(target, damage, b.owner, 0.18);
-        }
+        const target = targets.find((t) => t.hp > 0);
+        if (!target) break;
+        const p = this.posOf(target);
+        const damage = TOWER_ARROW_DAMAGE + level * 2;
+        // Each archer stands at his own spot on the platform.
+        const from = { x: origin.x + ((k % 3) - 1) * SUB * 0.35, y: origin.y - SUB * 0.8 };
+        this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
+        this.projectiles.push({ from, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
+        this.dealDamage(target, damage, b.owner, 0.12);
       }
     }
 

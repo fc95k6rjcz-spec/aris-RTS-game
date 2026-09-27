@@ -1,3 +1,4 @@
+import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
 import { constructionFrame } from './constructionFrame';
 import { BUILDINGS } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
@@ -140,6 +141,7 @@ export class Renderer {
     if (settings.animations) this.drawWaterMotion();
     // Tracks go on the ground, under everything that stands on it.
     this.drawPaths();
+    this.drawOilGround();
     this.drawOreCarts(alpha);
     this.drawGoldMines();
     this.drawTrees();
@@ -635,6 +637,44 @@ export class Renderer {
    * Drawn live rather than baked, because wear and mud change constantly and
    * rebaking a terrain chunk every time somebody walks over it would be absurd.
    */
+  /** Tar-dark seeps where oil comes up through the ground: where oil rigs go. */
+  private drawOilGround(): void {
+    const map = this.world.map;
+    if (!map.oil) return;
+    const s = this.cam.zoom;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const ctx = this.ctx;
+    const t = this.world.tick / 20;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = map.idx(x, y);
+        if (!map.oil[i] || map.isHidden(x, y)) continue;
+        const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
+        // Irregular per tile, so a seep reads as a stain, not a grid.
+        const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        const ox = ((h % 17) / 17 - 0.5) * s * 0.25, oy = (((h >> 5) % 17) / 17 - 0.5) * s * 0.25;
+        const r = s * (0.72 + ((h >> 9) % 7) / 30);
+        const g = ctx.createRadialGradient(p.x + ox, p.y + oy, r * 0.1, p.x + ox, p.y + oy, r);
+        g.addColorStop(0, "rgba(14,10,8,0.8)");
+        g.addColorStop(0.6, "rgba(34,24,14,0.5)");
+        g.addColorStop(1, "rgba(40,30,18,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(p.x + ox, p.y + oy, r, r * 0.8, (h % 10) / 3, 0, Math.PI * 2);
+        ctx.fill();
+        // A slow oily sheen.
+        if ((h & 3) === 0) {
+          ctx.fillStyle = `rgba(120,110,160,${0.12 + 0.08 * Math.sin(t * 0.8 + h)})`;
+          ctx.beginPath();
+          ctx.ellipse(p.x + ox - r * 0.2, p.y + oy - r * 0.15, r * 0.28, r * 0.12, -0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+  }
+
   private drawPaths(): void {
     const s = this.cam.zoom;
     const map = this.world.map;
@@ -1538,7 +1578,8 @@ export class Renderer {
     const ctx = this.ctx;
     const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
       && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
-    const s = this.cam.zoom * (person ? 1.18 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
+    const land = UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious";
+    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? 1.18 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
       if (selected) {
@@ -1823,7 +1864,7 @@ export class Renderer {
     const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
     const src=redesignedArt(def,'build',stage);if(!src)return false;
     const image=spriteImage(src);if(!image)return false;
-    const draw=(img:HTMLImageElement)=>{const width=w*(def==='barracks'?1.5:1),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x+(w-width)/2,y+w*1.06-height,width,height);};
+    const draw=(img:HTMLImageElement)=>{const width=w*buildingDrawScale(def),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x+(w-width)/2,y+w*1.06-height,width,height);};
     draw(image);
     const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
     if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}
@@ -1836,14 +1877,14 @@ export class Renderer {
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
     const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
-    const dw = w * scale * (b.def === "townhall" ? 1.28 : b.def === "tower" ? 1.05 : b.def === "barracks" ? 1.5 : 1);
+    const dw = w * scale * buildingDrawScale(b.def);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
     this.ctx.drawImage(sprite, x + (w - dw) / 2, y + w + w * 0.06 - dh, dw, dh);
     if(b.upgrade){
       const next=tierSprite(b.def,b.upgrade.toLevel,color,faction);
       if(next){const progress=1-b.upgrade.remaining/b.upgrade.total;
-        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*(b.def==='townhall'?1.28:b.def==='tower'?1.05:b.def==='barracks'?1.5:1),nextH=next.height/next.width*nextW;
+        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*buildingDrawScale(b.def),nextH=next.height/next.width*nextW;
         this.ctx.save();this.ctx.beginPath();this.ctx.rect(x+(w-nextW)/2,y+w*1.06-nextH*progress,nextW,nextH*progress);this.ctx.clip();
         this.ctx.drawImage(next,x+(w-nextW)/2,y+w*1.06-nextH,nextW,nextH);this.ctx.restore();
       }
@@ -2006,6 +2047,16 @@ export class Renderer {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(fog, x, y, size, size);
       ctx.imageSmoothingEnabled = true;
+    }
+    // Oil ground shows on the minimap once explored, so a player can plan a rig.
+    if (map.oil) {
+      ctx.fillStyle = "#15100c";
+      for (let ty = 0; ty < map.height; ty++)
+        for (let tx = 0; tx < map.width; tx++) {
+          if (!map.oil[map.idx(tx, ty)]) continue;
+          if (v && v.at(tx, ty) === UNEXPLORED) continue;
+          ctx.fillRect(x + tx * sx, y + ty * sy, Math.max(1.5, sx), Math.max(1.5, sy));
+        }
     }
     for (const b of this.world.buildings()) {
       // Buildings are remembered: explored ground is enough.

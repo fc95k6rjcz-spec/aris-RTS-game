@@ -545,6 +545,8 @@ function drawObjective(ctx: CanvasRenderingContext2D, world: World, player: Play
 export interface CommandEntry {
   label: string;
   cost: string | null;
+  /** What the player is short of, e.g. "Need 120 gold · 40 wood", or undefined when affordable. */
+  need?: string;
   hotkey: string;
   enabled: boolean;
   description: string;
@@ -571,6 +573,18 @@ function costLine(c: { gold: number; lumber: number; oil?: number; food?: number
  * thirteen-button wall is gone and every tile can afford to carry its cost and
  * its key without shrinking to an illegible square.
  */
+/** "Need 120 gold · 40 wood" for whatever the player is short of, or undefined. */
+export function shortfall(world: World, player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): string | undefined {
+  const p = world.players.get(player);
+  if (!p) return undefined;
+  const parts: string[] = [];
+  if (p.gold < cost.gold) parts.push(`${cost.gold - Math.floor(p.gold)} gold`);
+  if (p.lumber < cost.lumber) parts.push(`${cost.lumber - Math.floor(p.lumber)} wood`);
+  if (p.oil < (cost.oil ?? 0)) parts.push(`${(cost.oil ?? 0) - Math.floor(p.oil)} oil`);
+  if (p.food < (cost.food ?? 0)) parts.push(`${(cost.food ?? 0) - Math.floor(p.food)} food`);
+  return parts.length ? `Need ${parts.join(" · ")}` : undefined;
+}
+
 export function commandSets(world: World, player: PlayerId, selUnits: Unit[], selBuildings: Building[]): CommandSets {
   const faction = world.players.get(player)!.faction;
   const orders: CommandEntry[] = [];
@@ -599,14 +613,16 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
         const afford = world.canAfford(player, d.cost);
         const nm = buildingName(id, faction);
+        const need = missing ? undefined : shortfall(world, player, d.cost);
         const why = missing
           ? `Requires ${buildingName(missing, faction)}.`
-          : !afford
-            ? "Not enough resources yet."
+          : need
+            ? `${need} more to build this.`
             : "";
         return {
           label: nm,
           cost: costLine(d.cost),
+          need,
           hotkey: d.hotkey,
           enabled: !missing && afford,
           description: `${d.description}${why ? " " + why : ""}`,
@@ -633,7 +649,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
       if (LEVELLED[b.def]) {
         const table=LEVELLED[b.def]!;const next=table[b.level];
         if(b.upgrade) out.push({label:"Cancel Upgrade",cost:null,hotkey:"U",enabled:true,description:"Cancel the current building upgrade.",action:{type:"cancelUpgrade"}});
-        else if(next) out.push({label:"Upgrade to Level "+next.level,cost:costLine(next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:next.name+" — "+next.blurb,action:{type:"upgrade"}});
+        else if(next) out.push({label:"Upgrade to Level "+next.level,cost:costLine(next.cost),need:shortfall(world,player,next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:next.name+" — "+next.blurb,action:{type:"upgrade"}});
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
       } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
       for (const uid of d.trains) {
@@ -641,9 +657,10 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         out.push({
           label: unitName(uid, faction),
           cost: costLine(u.cost),
+          need: shortfall(world, player, u.cost),
           hotkey: u.hotkey,
           enabled: world.canAfford(player, u.cost),
-          description: u.description,
+          description: u.description + (shortfall(world, player, u.cost) ? ` ${shortfall(world, player, u.cost)} more.` : ""),
           action: { type: "train", def: uid },
         });
       }
@@ -654,6 +671,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         out.push({
           label: `${up.name} ${have + 1}`,
           cost: costLine(next.cost),
+          need: shortfall(world, player, next.cost),
           hotkey: up.hotkey,
           enabled: world.canAfford(player, next.cost) && b.research === null,
           description: up.description,

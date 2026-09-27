@@ -32,6 +32,8 @@ export interface ShellCommand {
   label: string;
   /** "1200 · 800", or null for orders, which cost nothing. */
   cost: string | null;
+  /** Shortfall text when the player cannot afford this, shown in red on the tile. */
+  need?: string;
   hotkey: string;
   enabled: boolean;
   description: string;
@@ -74,6 +76,8 @@ export interface ShellState {
   commands: ShellCommand[];
   /** The line across the top of the map: what is happening right now. */
   banner: string | null;
+  /** A short-lived warning ("Not enough — need 120 more gold"), shown big and red regardless of objectives. */
+  alert?: { text: string; level: "info" | "error" } | null;
   /** The big centred proclamation, if one is up. */
   proclaim: { title: string; line: string } | null;
   /** The standing objective, while there is one. */
@@ -198,6 +202,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
    out and sat in the sky as an empty box. The settings panel learned this the
    same way. */
 .rv-banner[hidden] { display: none; }
+.rv-alert {
+  position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px; max-width: 80%; text-align: center;
+  background: rgba(14,22,14,0.92); border: 1px solid #6fae6f; color: #d8f5d0;
+  font: 600 15px/1.3 Georgia, serif; letter-spacing: 0.02em; pointer-events: none;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.6); z-index: 5;
+}
+.rv-alert.err { background: rgba(60,10,10,0.94); border-color: #e04c4c; color: #ffd9d2; font-size: 16px; }
+.rv-alert[hidden] { display: none; }
 
 /* The shell carries its own pause and settings buttons, so the free-floating
    ones from before would be a second pair in the same corner. */
@@ -310,6 +323,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   color: #8b8676; cursor: not-allowed;
 }
 .rv-tile.off .ct, .rv-tile.off .ky { color: var(--fainter); }
+.rv-tile.short { border-color: rgba(224,76,76,0.75); box-shadow: inset 0 0 0 1px rgba(224,76,76,0.35); }
+.rv-tile.short .ct, .rv-tile.off.short .ct { color: #ff7a6b; font-weight: 700; font-size: 9px; text-shadow: 0 1px 2px #000; }
+.rv-tile.short::after { background: linear-gradient(0deg, rgba(70,8,8,0.92) 0%, rgba(40,8,8,0.5) 60%, rgba(8,8,10,0) 100%) !important; }
 .rv-tile.upgrade { border:1px solid #d6b159; background:radial-gradient(ellipse at 50% 52%,#66502a 0%,#292219 46%,#121216 80%); box-shadow:inset 0 0 0 3px #141314,inset 0 0 0 4px #79643b; }
 .rv-tile.upgrade::before { content:'⇧'; position:absolute; top:30%; left:calc(50% - 26px); width:52px; height:58px; text-align:center; font:bold 50px/58px Georgia,serif; color:#ffe199; text-shadow:0 2px 2px #17110a,0 0 18px #da9f4266; pointer-events:none; }
 .rv-tile.upgrade .lb { color:#ffe3a0; font-weight:bold; }
@@ -418,6 +434,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const bannerText = el("span");
   banner.append(bannerDot, bannerText);
   banner.hidden = true;
+  const alertBox = el("div", "rv-alert");
+  alertBox.hidden = true;
   const objective = el("div", "rv-obj");
   const objT = el("div", "t");
   const objL = el("div", "l");
@@ -428,7 +446,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const procL = el("div", "l");
   proclaim.append(procT, procL);
   proclaim.hidden = true;
-  view.append(vig, banner, objective, proclaim);
+  view.append(vig, banner, objective, proclaim, alertBox);
 
   // ── bottom ──
   const bottom = el("div", "rv-bottom");
@@ -485,6 +503,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   // times a second, so tiles are reused and only their contents change.
   const tiles: Array<{ node: HTMLButtonElement; lb: HTMLElement; ct: HTMLElement; ky: HTMLElement; cmd: ShellCommand | null }> = [];
   let hovered: string | null = null;
+  /** A shortfall warning raised by clicking a tile the player cannot afford. */
+  let flash: { text: string; until: number } | null = null;
 
   const ensureTiles = (n: number) => {
     while (tiles.length < n) {
@@ -508,6 +528,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         // A dimmed tile is hoverable, so its description can say what it wants,
         // but it does nothing when pressed.
         if (entry.cmd?.enabled) onCmd(entry.cmd.action);
+        else if (entry.cmd?.need) flash = { text: `Can't afford ${entry.cmd.label} — ${entry.cmd.need.replace(/^Need /, "need ")} more`, until: performance.now() + 3500 };
       });
       tiles.push(entry);
       grid.appendChild(node);
@@ -634,8 +655,11 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         const t = tiles[i]!;
         t.cmd = c;
         if (t.lb.textContent !== c.label) t.lb.textContent = c.label;
-        const cost = c.cost ?? "";
+        // Short of resources: say exactly what is missing, in red, on the tile
+        // itself -- a greyed tile alone read the same as "not unlocked yet".
+        const cost = c.need ? c.need.replace(" gold", "g").replace(" wood", "w").replace(" oil", " oil").replace(" food", "f") : c.cost ?? "";
         if (t.ct.textContent !== cost) t.ct.textContent = cost;
+        t.node.classList.toggle("short", !!c.need);
         if (t.ky.textContent !== c.hotkey) t.ky.textContent = c.hotkey;
         t.node.classList.toggle("off", !c.enabled);
         t.node.classList.toggle("upgrade", c.action.type==='upgrade'||c.action.type==='cancelUpgrade');
@@ -650,6 +674,13 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       // small blank box in the middle of the sky.
       banner.hidden = !s.banner;
       if (s.banner) bannerText.textContent = s.banner;
+      const al = flash && performance.now() < flash.until ? { text: flash.text, level: "error" as const } : s.alert ?? null;
+      if (flash && performance.now() >= flash.until) flash = null;
+      alertBox.hidden = !al;
+      if (al) {
+        if (alertBox.textContent !== al.text) alertBox.textContent = al.text;
+        alertBox.classList.toggle("err", al.level === "error");
+      }
       objective.hidden = !s.objective?.title;
       if (s.objective) {
         objT.textContent = s.objective.title;

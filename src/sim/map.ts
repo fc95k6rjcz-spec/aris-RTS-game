@@ -97,6 +97,12 @@ export class GameMap {
    * about it exactly.
    */
   readonly mud: Uint8Array;
+  /**
+   * Oil ground: 1 where crude seeps up through the soil. An oil rig is a deep
+   * well, so it goes on land -- but only where there is oil under it. Tar-dark
+   * patches, a few per map, one within reach of every seat.
+   */
+  readonly oil: Uint8Array;
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -135,6 +141,7 @@ export class GameMap {
     this.felled = new Uint8Array(width * height);
     this.wear = new Uint8Array(width * height);
     this.mud = new Uint8Array(width * height);
+    this.oil = new Uint8Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 
@@ -359,6 +366,13 @@ export class GameMap {
    * A hundred seeds of one layout is a hundred maps that all feel the same, so
    * the interesting variation lives here rather than in the noise.
    */
+  /** How many of a footprint's tiles sit on oil ground. */
+  oilUnder(tx: number, ty: number, size: number): number {
+    let n = 0;
+    for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) if (this.inBounds(x, y) && this.oil?.[this.idx(x, y)]) n++;
+    return n;
+  }
+
   static generate(width: number, height: number, seed: number, kind: MapKind = "lakeland", stockade = false): GameMap {
     const m = new GameMap(width, height);
     const rng = new Rng(seed);
@@ -659,9 +673,53 @@ export class GameMap {
       m.secret = { x: sx, y: sy, found: false };
       break;
     }
+    // Oil seeps. One a fair walk out from every seat -- far enough that it is a
+    // second base to hold, near enough to be yours -- and more out in the wild
+    // country, where the fighting over them happens.
+    {
+      const seep = (cx: number, cy: number): boolean => {
+        let n = 0;
+        for (let y = -3; y <= 3; y++)
+          for (let x = -3; x <= 3; x++) {
+            const px = cx + x, py = cy + y;
+            if (!m.inBounds(px, py)) continue;
+            const t = m.get(px, py);
+            if (t !== Tile.Grass && t !== Tile.Dirt) continue;
+            if (m.occupant[m.idx(px, py)] !== 0) continue;
+            const r = 2.2 + Math.sin(Math.atan2(y, x) * 3 + cx) * 0.7;
+            if (Math.hypot(x, y) > r) continue;
+            m.oil[m.idx(px, py)] = 1;
+            n++;
+          }
+        return n >= 9;
+      };
+      const clear = (cx: number, cy: number): boolean => {
+        let open = 0;
+        for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
+          const t = m.inBounds(cx + x, cy + y) ? m.get(cx + x, cy + y) : Tile.Water;
+          if ((t === Tile.Grass || t === Tile.Dirt) && m.occupant[m.idx(cx + x, cy + y)] === 0) open++;
+        }
+        return open >= 18;
+      };
+      for (const seat of m.starts) {
+        for (let attempt = 0; attempt < 300; attempt++) {
+          const a = rng.next() * Math.PI * 2, d = 13 + rng.int(8);
+          const cx = Math.round(seat.x + Math.cos(a) * d), cy = Math.round(seat.y + Math.sin(a) * d);
+          if (!m.inBounds(cx, cy) || !clear(cx, cy)) continue;
+          if (m.starts.some((o) => o !== seat && Math.hypot(o.x - cx, o.y - cy) < d + 4)) continue;
+          if (seep(cx, cy)) break;
+        }
+      }
+      const wild = Math.max(2, Math.round((width * height) / 2600));
+      for (let k = 0, attempt = 0; k < wild && attempt < 600; attempt++) {
+        const cx = 4 + rng.int(width - 8), cy = 4 + rng.int(height - 8);
+        if (m.starts.some((o) => Math.hypot(o.x - cx, o.y - cy) < 18) || !clear(cx, cy)) continue;
+        if (seep(cx, cy)) k++;
+      }
+    }
     const flipX=(seed & 1)!==0,flipY=(seed & 2)!==0;
     if(flipX||flipY){
-      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.hidden]){
+      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.oil,m.hidden]){
         const source=grid.slice();
         for(let y=0;y<height;y++)for(let x=0;x<width;x++)grid[(flipY?height-1-y:y)*width+(flipX?width-1-x:x)]=source[y*width+x]!;
       }

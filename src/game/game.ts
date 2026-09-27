@@ -539,7 +539,7 @@ export class Game {
   }
 
   private toast(text: string, level: "info" | "error" = "error"): void {
-    this.message = { text, until: performance.now() + 2500, level };
+    this.message = { text, until: performance.now() + (level === "error" ? 3500 : 2500), level };
   }
 
   private proclaim(title: string, line: string, ms: number): void {
@@ -653,10 +653,28 @@ export class Game {
       }
     });
     c.addEventListener("mousedown", (e) => this.onMouseDown(e));
-    c.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    // A selection box has to survive the pointer drifting over something that is
+    // not the canvas -- a banner, the pause button, a tooltip, the HUD bar. The
+    // release used to be caught on the canvas only, and anywhere else simply
+    // threw the box away, which is most of "the selection box sometimes doesn't
+    // work". Track the drag and finish it at window level, in canvas pixels.
+    window.addEventListener("mousemove", (e) => {
+      if (!this.drag || e.target === c) return;
+      const p = this.canvasPoint(e);
+      this.drag.x1 = p.x;
+      this.drag.y1 = p.y;
+    });
     window.addEventListener("mouseup", (e) => {
       if (e.button === 1) this.panDrag = null;
-      if(e.button===0 && e.target !== this.canvas) { this.wallStart=null; this.drag=null; }
+      if (e.target === c) { this.onMouseUp(e); return; }
+      if (e.button === 0 && this.drag) {
+        const p = this.canvasPoint(e);
+        this.drag.x1 = p.x;
+        this.drag.y1 = p.y;
+        this.onMouseUp(e);
+        return;
+      }
+      if (e.button === 0) this.wallStart = null;
     });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -683,6 +701,14 @@ export class Game {
    */
   private inViewport(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < this.canvas.width && y < this.canvas.height;
+  }
+
+  /** A window-level mouse event in canvas pixels (offsetX is relative to whatever element was hit). */
+  private canvasPoint(e: MouseEvent): { x: number; y: number } {
+    const r = this.canvas.getBoundingClientRect();
+    const sx = r.width > 0 ? this.canvas.width / r.width : 1;
+    const sy = r.height > 0 ? this.canvas.height / r.height : 1;
+    return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
   }
 
   private onMouseDown(e: MouseEvent): void {
@@ -760,7 +786,14 @@ export class Game {
     const shift = e.shiftKey;
     if (isClick) {
       const w = this.cam.toWorld(d.x0, d.y0);
-      const hit = this.pick(w.x, w.y, true);
+      let hit = this.pick(w.x, w.y, true);
+      // With left-click-to-move on, a click that just misses your own man would
+      // march the selection there instead of picking him. Forgive a near miss
+      // on your own people before treating the click as a move order.
+      if (hit === null || this.world.entities.get(hit)?.owner !== this.player) {
+        const near = this.pickOwnNear(w.x, w.y);
+        if (near !== null) hit = near;
+      }
       const clicked = hit === null ? undefined : this.world.entities.get(hit);
       if (settings.clickToMove && !shift && this.selectedUnits().some(u => u.owner === this.player) && (!clicked || clicked.owner !== this.player)) {
         const destination = clicked?.kind === "unit" ? clicked.pos : clicked ? centerOf(clicked) : w;
@@ -795,13 +828,36 @@ export class Game {
       const a = this.cam.toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
       const b = this.cam.toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
       const ids: EntityId[] = [];
+      // Test the body the player sees, not the point at his feet: a box drawn
+      // around a man's torso used to miss him because his feet were below it.
+      const mx = SUB * 0.3, up = SUB * 0.25, down = SUB * 0.9;
       for (const u of this.world.units())
-        if (u.owner === this.player && u.pos.x >= a.x && u.pos.x <= b.x && u.pos.y >= a.y && u.pos.y <= b.y) ids.push(u.id);
+        if (u.owner === this.player && u.pos.x >= a.x - mx && u.pos.x <= b.x + mx && u.pos.y >= a.y - up && u.pos.y <= b.y + down) ids.push(u.id);
+      // Boxing only a building of your own selects it, rather than nothing.
+      if (ids.length === 0) {
+        const tx = Math.floor((a.x + b.x) / 2 / SUB), ty = Math.floor((a.y + b.y) / 2 / SUB);
+        for (const bld of this.world.buildings())
+          if (bld.owner === this.player && tx >= bld.tx && tx < bld.tx + bld.size && ty >= bld.ty && ty < bld.ty + bld.size) { ids.push(bld.id); break; }
+      }
       if (!shift) this.selected.clear();
       for (const id of ids) this.selected.add(id);
     }
     // Mixed selections collapse to units (Warcraft behaviour).
     if (this.selectedUnits().length > 0) for (const b of this.selectedBuildings()) this.selected.delete(b.id);
+  }
+
+  /** Nearest of the player's own units within a generous, zoom-aware radius of a click. */
+  private pickOwnNear(wx: number, wy: number): EntityId | null {
+    const r = Math.max(SUB * 0.7, 22 / this.cam.scale);
+    let best: EntityId | null = null, bestD = r;
+    for (const u of this.world.units()) {
+      // Units already selected are excluded: clicking just beside your own
+      // group is a short move order, not a request to shrink the selection.
+      if (u.owner !== this.player || this.selected.has(u.id)) continue;
+      const d = Math.hypot(u.pos.x - wx, u.pos.y - SUB * 0.3 - wy);
+      if (d < bestD) { bestD = d; best = u.id; }
+    }
+    return best;
   }
 
   /** Entity under a world point: units first (they're smaller), then buildings. */
@@ -1685,7 +1741,8 @@ export class Game {
     const msg = this.message && performance.now() < this.message.until ? this.message.text : null;
     const mode = this.buildMode ? `Placing ${buildingName(this.buildMode, p.faction)} — click to place, right-click to cancel` : null;
     const site = this.world.buildings().find((x) => x.owner === this.player && !x.complete);
-    const banner = mode ?? msg ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
+    const alert = this.message && performance.now() < this.message.until ? { text: this.message.text, level: this.message.level } : null;
+    const banner = mode ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
 
     const relic = this.world.relics.find((r) => r.owner === this.player && !r.taken);
     let objective: { title: string; line: string } | null = null;
@@ -1735,6 +1792,7 @@ export class Game {
       activeTab: this.tab,
       commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action, b, p.faction) })) as ShellCommand[],
       banner: netBanner ?? (objective || !banner ? null : banner),
+      alert,
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
       mapName: this.map.name,

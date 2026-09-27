@@ -1,3 +1,4 @@
+import { buildingDrawScale } from "./proportions";
 import source from "../assets/royal/construction-1.webp";
 import { spriteImage } from "./sprites";
 
@@ -59,7 +60,7 @@ export function drawFoundingHall(ctx: CanvasRenderingContext2D, x: number, y: nu
   const fraction = frame - first;
   const mix = fraction * fraction * (3 - 2 * fraction);
   const sw = sheet.width / 4, sh = sheet.height / 2;
-  const size = w * 1.28;
+  const size = w * buildingDrawScale("townhall");
   const draw = (i: number, opacity: number) => {
     ctx.globalAlpha = opacity;
     ctx.drawImage(sheet, (i % 4) * sw, Math.floor(i / 4) * sh, sw, sh,

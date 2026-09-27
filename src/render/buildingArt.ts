@@ -1,3 +1,4 @@
+import { buildingDrawScale } from "./proportions";
 /**
  * Procedural 3/4-view building art (Warcraft II style: top-down-ish with a visible
  * front wall). Each drawer paints into a square of side `w` pixels at (x, y).
@@ -546,7 +547,7 @@ const styled =
 const HUMAN_ART: Record<string, Drawer> = {
   ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
   gryphonaviary,
-  townhall: a => {if(!paintedCamp(a,grandHall,1.28))townhall(a);},
+  townhall: a => {if(!paintedCamp(a,grandHall,buildingDrawScale('townhall')))townhall(a);},
   tower: a => {paintedCamp(a,outpost,1.05);},
   wall: (a) => {
     if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
@@ -571,7 +572,7 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
 
 export function artFor(faction: string, def: string): Drawer | undefined {
   const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
-  if(redesigned)return a=>{paintedCamp(a,redesigned,def==='barracks'?1.5:1);};
+  if(redesigned)return a=>{paintedCamp(a,redesigned,buildingDrawScale(def));};
   return (FACTION_ART[faction] ?? HUMAN_ART)[def];
 }
 

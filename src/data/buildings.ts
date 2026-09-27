@@ -24,6 +24,8 @@ export interface BuildingDef {
   supply: number;
   /** Must touch water on at least one edge (docks). Trained units spawn on water. */
   coastal: boolean;
+  /** Must stand on oil ground (at least a third of its footprint). */
+  oilGround?: boolean;
   description: string;
 }
 
@@ -95,7 +97,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     id: "barracks",
     name: "Barracks",
     hotkey: "B",
-    size: 3,
+    size: 4,
     cost: { gold: 450, lumber: 270 },
     hp: 800,
     buildTime: 20 * 45,
@@ -146,11 +148,12 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     hp: 700,
     buildTime: 20 * 55,
     trains: [],
-    requires: ["shipyard"],
+    requires: ["lumbermill"],
     dropOff: [],
     supply: 0,
-    coastal: true,
-    description: "Built on the shoreline. Pumps crude oil every second.",
+    coastal: false,
+    oilGround: true,
+    description: "A deep well. Build it on dark oil ground (tar seeps on the map). Pumps crude oil every second.",
   },
   refinery: {
     id: "refinery",
