@@ -10,6 +10,18 @@ export class Callouts {
   constructor() {
     onSettingsChange(() => { if (!settings.voices || sfxGain() === 0) window.speechSynthesis?.cancel(); });
   }
+  /** A worker answering an order: spoken at once, but never the same line twice in three seconds. */
+  private lastSaid = new Map<string, number>();
+  say(text: string): void {
+    const now = performance.now();
+    if (now < (this.lastSaid.get(text) ?? 0)) return;
+    this.lastSaid.set(text, now + 3000);
+    if (!settings.voices || sfxGain() === 0 || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const line = new SpeechSynthesisUtterance(text); line.lang = "en-GB"; line.rate = 0.95; line.pitch = 0.8; line.volume = Math.min(1, sfxGain());
+    window.speechSynthesis.speak(line);
+  }
+
   update(world: World, player: number, visible: Unit[]): string | null {
     const now = performance.now();
     // Urgent warnings work off-screen and bypass the ambient chatter cooldown.

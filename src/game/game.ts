@@ -8,7 +8,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, TICKS_PER_SECOND, WILD, World } from "../sim/world";
+import { Faction, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -459,7 +459,10 @@ export class Game {
       y: this.cam.y + this.cam.viewH / this.cam.scale / 2,
       r: this.cam.viewW / this.cam.scale / 2,
     });
-    for (const ev of this.world.events) if (ev.player === this.player) this.toast(ev.text, ev.level);
+    for (const ev of this.world.events) if (ev.player === this.player) {
+      this.toast(ev.text, ev.level);
+      if (ev.text === NO_STORE_LINE) this.callouts.say(ev.text);
+    }
     const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
       if(u.owner !== this.player) return false;
       const p=this.cam.toScreen(u.pos.x,u.pos.y);
@@ -1145,6 +1148,11 @@ export class Game {
         const gatherers = this.selectedUnits().filter((u) => UNITS[u.def]!.canGather);
         if (gatherers.length === 0) {
           this.toast("Select a Worker first");
+          break;
+        }
+        if (!this.world.hasDropOff(this.player, "gold") && !this.world.hasDropOff(this.player, "lumber")) {
+          this.toast(NO_STORE_LINE);
+          this.callouts.say(NO_STORE_LINE);
           break;
         }
         let sent = 0;

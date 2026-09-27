@@ -170,6 +170,9 @@ const TOWER_ARCHER_INTERVAL = 24;
 /** Base arrow damage from a tower archer (before armour); +2 per tower level. */
 const TOWER_ARROW_DAMAGE = 23;
 
+/** What a worker says when told to gather with no Town Hall (or mill/depot) to take it to. */
+export const NO_STORE_LINE = "I don't have anywhere to store that, sir.";
+
 export class World {
   tick = 0;
   readonly map: GameMap;
@@ -1077,6 +1080,11 @@ export class World {
     return null;
   }
 
+  /** Whether this player has a finished building that takes this resource. */
+  hasDropOff(player: PlayerId, resource: "gold" | "lumber"): boolean {
+    return this.buildings().some((b) => b.owner === player && b.complete && BUILDINGS[b.def]!.dropOff.includes(resource));
+  }
+
   private nearestDropOff(u: Unit, resource: "gold" | "lumber"): Building | null {
     let best: Building | null = null;
     let bestD = Infinity;
@@ -1236,12 +1244,17 @@ export class World {
         // snap to the nearest harvestable tile of the same kind instead.
         const node: [number, number] | null = this.adjacentWalkable(c.tx, c.ty, 1) ? [c.tx, c.ty] : this.findResourceNear(c.tx, c.ty, t);
         if (!node) break;
+        let homeless = false;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (!UNITS[u.def]!.canGather) continue;
+          // Nowhere to take it: a worker will not cut wood he has nowhere to
+          // put, and says so rather than silently standing there.
+          if (!this.nearestDropOff(u, resource)) { homeless = true; continue; }
           u.moveQueue = [];
           u.task = { kind: "gather", tx: node[0], ty: node[1], resource, phase: "toNode", timer: 0 };
           this.pathTo(u, node[0], node[1], true);
         }
+        if (homeless) this.emit(c.player, NO_STORE_LINE);
         break;
       }
       case "build": {
@@ -2290,6 +2303,7 @@ export class World {
             const drop = this.nearestDropOff(u, t.resource);
             if (!drop) {
               u.task = { kind: "idle" };
+              this.emit(u.owner, NO_STORE_LINE);
               return;
             }
             this.pathTo(u, drop.tx + Math.floor(drop.size / 2), drop.ty + Math.floor(drop.size / 2));
