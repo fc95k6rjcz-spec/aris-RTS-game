@@ -211,6 +211,19 @@ const LOW_MINE_GOLD = 1500;
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
+/** What must be standing before a Town Hall can reach each level. */
+const HALL_NEEDS: Record<number, string[]> = {
+  2: ["farm", "barracks"],
+  3: ["lumbermill", "tower"],
+  4: ["church", "stables"],
+  5: ["foundry", "magetower"],
+  6: ["shipyard", "golddepot"],
+  7: ["gryphonaviary"],
+  8: ["oilrig", "refinery"],
+  9: ["airfactory"],
+  10: [],
+};
+
 export class World {
   tick = 0;
   readonly map: GameMap;
@@ -836,6 +849,24 @@ export class World {
   }
 
   /**
+   * Why a building may not go up a level yet, or null if it may.
+   *
+   * A Town Hall grows with the town: each level wants the buildings of the
+   * stage before it standing (a farm and a barracks before it can become a
+   * Timber Hall, and so on). Every other building can rise no higher than the
+   * Town Hall itself -- a village does not get a cathedral.
+   */
+  upgradeBlocked(player: PlayerId, b: Building): string | null {
+    const to = b.level + 1;
+    if (b.def === "townhall") {
+      const need = (HALL_NEEDS[to] ?? []).filter((d) => !this.hasBuilding(player, d));
+      return need.length ? `To grow the Town Hall you first need: ${need.map((d) => BUILDINGS[d]!.name).join(", ")}` : null;
+    }
+    const hall = Math.max(0, ...this.buildings().filter((h) => h.owner === player && h.def === "townhall" && h.complete).map((h) => h.level));
+    return to > hall ? `Upgrade your Town Hall to level ${to} first` : null;
+  }
+
+  /**
    * A traveller walks into the realm.
    *
    * Someone coming back finds their own people where they left them. Someone
@@ -863,14 +894,29 @@ export class World {
     this.realmSeats.set(peer, id);
     const spot = this.freeStart();
     if (!spot) return id;
-    this.spawnStart(id, spot.x, spot.y);
+    // You arrive with your King and two workers and the means to found a hall
+    // -- where to put it is your first decision, not the map's.
+    this.homes.set(id, { x: spot.x, y: spot.y });
+    const p = this.players.get(id)!;
+    p.gold = BUILDINGS.townhall!.cost.gold + 300;
+    p.lumber = BUILDINGS.townhall!.cost.lumber + 200;
+    const cx = (spot.x + 2) * SUB, cy = (spot.y + 2) * SUB;
+    this.spawnUnit(id, "king", { x: cx, y: cy });
+    this.spawnUnit(id, "worker", { x: cx - SUB, y: cy + SUB });
+    this.spawnUnit(id, "worker", { x: cx + SUB, y: cy + SUB });
     return id;
   }
 
   /** Somewhere to found a new town: open ground by unclaimed gold, far from everyone. */
   private freeStart(): { x: number; y: number } | null {
     const map = this.map;
-    const taken = this.buildings().filter((b) => b.owner !== WILD).map((b) => centerOf(b));
+    // Everyone's towns, and everyone's people -- a newcomer with no hall yet
+    // still has a camp, and nobody should be dropped on top of it.
+    const taken = [
+      ...this.buildings().filter((b) => b.owner !== WILD).map((b) => centerOf(b)),
+      ...this.units().filter((u) => u.owner !== WILD && UNITS[u.def]!.canBuild).map((u) => u.pos),
+      ...[...this.homes.values()].map((h) => ({ x: (h.x + 2) * SUB, y: (h.y + 2) * SUB })),
+    ];
     const far = (x: number, y: number) => Math.min(Infinity, ...taken.map((c) => Math.hypot(c.x / SUB - x, c.y / SUB - y)));
     // Candidate spots: beside every gold seam, plus the map's own seats.
     const seeds: Array<{ x: number; y: number }> = [...map.starts];
@@ -1775,6 +1821,8 @@ export class World {
           break;
         }
         const next = levelDef(b.def, b.level + 1);
+        const blocked = this.upgradeBlocked(c.player, b);
+        if (blocked) { this.emit(c.player, blocked); break; }
         if (!this.canAfford(c.player, next.cost)) {
           this.emit(c.player, this.lacking(c.player, next.cost));
           break;

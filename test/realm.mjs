@@ -50,7 +50,7 @@ await run([A,B],3000);
 assert(B.world,'B received a copy of the realm');
 const seatB=B.world.realmSeats.get(B.net.seat);assert(seatB!==undefined&&seatB!==A.world.realmSeats.get(A.net.seat),'B has its own seat');
 // both give orders
-const aw=A.world.units().find(u=>u.owner===A.world.realmSeats.get(A.net.seat)&&u.def==='worker');
+const aw=A.world.units().find(u=>u.owner===A.world.realmSeats.get(A.net.seat)&&u.def==='worker');if(!aw)console.log('A units',A.world.units().filter(u=>u.owner!==9).map(u=>u.owner+u.def),[...A.world.realmSeats]);
 const bw=B.world.units().find(u=>u.owner===seatB&&u.def==='worker');
 A.net.issue({type:'move',player:aw.owner,units:[aw.id],x:aw.pos.x+640,y:aw.pos.y});
 B.net.issue({type:'move',player:bw.owner,units:[bw.id],x:bw.pos.x-640,y:bw.pos.y});

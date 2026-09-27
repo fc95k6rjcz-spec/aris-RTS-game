@@ -357,6 +357,10 @@ export class RealmNet {
       if (!turn && this.keeper && Date.now() > this.adoptingUntil) {
         turn = this.writeTurn();
       }
+      // Having run dry, wait for a small cushion before moving again, so an
+      // uneven connection becomes one short pause rather than constant
+      // stop-start stutter.
+      if (turn && !this.keeper && this.stalledSince !== 0 && this.backlog() < 3 && now - this.stalledSince < 700) turn = undefined;
       if (!turn) {
         if (this.stalledSince === 0) this.stalledSince = now;
         return null;

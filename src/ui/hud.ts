@@ -664,7 +664,8 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
           if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
           if((next.oilPerSecond??0)>(cur.oilPerSecond??0))gains.push("more oil");
           if((next.trainSpeed??0)>(cur.trainSpeed??0))gains.push("faster training");
-          out.push({label:"⇧ "+next.name,cost:costLine(next.cost),need:shortfall(world,player,next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:`Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
+          const blocked=world.upgradeBlocked(player,b);
+          out.push({label:"⇧ "+next.name,cost:costLine(next.cost),need:blocked?undefined:shortfall(world,player,next.cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,next.cost)&&!b.research,description:`${blocked?blocked+". ":""}Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
         }
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
       } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});

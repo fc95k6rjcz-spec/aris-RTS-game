@@ -276,6 +276,9 @@ export class Game {
     }
     requestAnimationFrame(this.frame);
     this.keepTimeWhenHidden();
+    // Leaving or hiding the tab is the moment to write the ledger, not mid-battle.
+    addEventListener("pagehide", () => void this.storeLedger());
+    document.addEventListener("visibilitychange", () => { if (document.hidden) void this.storeLedger(); });
   }
 
   /**
@@ -456,9 +459,12 @@ export class Game {
       this.acc -= step;
       if (!this.paused) this.tick();
     }
-    // Behind the realm's keeper (just joined, or a slow moment): catch up.
+    // Behind the realm's keeper (just joined, or a slow moment): catch up --
+    // gently. Running a whole backlog in one frame made units leap across the
+    // screen; a tick or two extra per frame is a quick walk, not a teleport.
     if (this.realm && !this.menu) {
-      let extra = Math.min(80, this.realm.backlog() * 4);
+      const behind = this.realm.backlog();
+      let extra = behind > 40 ? 6 : behind > 8 ? 2 : behind > 3 ? 1 : 0;
       while (extra-- > 0) this.tick();
     }
     this.render(this.paused ? 1 : this.acc / step);
@@ -484,7 +490,7 @@ export class Game {
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
-    if (this.realm && performance.now() - this.realmSavedAt > 30000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
+    if (this.realm && performance.now() - this.realmSavedAt > 90000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
     // One tick's happenings, handed to the two things that show them. Neither
     // can write back, so the sim stays the only author of state.
     // The one moment the whole opening is waiting on.
@@ -1598,7 +1604,9 @@ export class Game {
     this.start("none");
     this.realmSavedAt = performance.now();
     const hall = this.world.buildings().find((b) => b.owner === this.player && b.def === "townhall");
+    const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal);
     if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
+    else if (king) this.cam.centerOn(king.pos.x, king.pos.y);
     this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
   }
 
