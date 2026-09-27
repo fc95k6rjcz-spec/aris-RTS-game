@@ -352,7 +352,7 @@ export const UNITS: Record<string, UnitDef> = {
     // A King outpaces everything else on foot. He is one man crossing a
     // continent alone for the first part of the game, and the whole opening is
     // watching him do it.
-    speed: 16,
+    speed: 6, // walks with his men, not ahead of them
     trainTime: 0,
     supply: 0,
     domain: "land",
@@ -374,7 +374,7 @@ export const UNITS: Record<string, UnitDef> = {
     hotkey: "R",
     cost: { gold: 788, lumber: 270 },
     hp: 300,
-    speed: 9,
+    speed: 6, // walks with his men, not ahead of them
     trainTime: 20 * 50,
     supply: 3,
     domain: "land",
