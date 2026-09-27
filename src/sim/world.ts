@@ -70,7 +70,9 @@ const DECAY_SLICE = 256;
  */
 const MUD_SLICE = 64;
 
-const HARVEST_TICKS = 20 * 3; // 3 s per trip
+const HARVEST_TICKS = 20 * 3; // 3 s per trip at a gold mine
+/** Felling timber is slow work: ten seconds of chopping before the wood comes down. */
+const CHOP_TICKS = 20 * 10;
 const DEPOSIT_TICKS = 10;
 const CANCEL_REFUND = 0.75;
 /** Princes alive at once. */
@@ -2228,7 +2230,7 @@ export class World {
             if (this.isAdjacentTo(u, t.tx, t.ty, 1)) {
               u.path = [];
               t.phase = "harvest";
-              t.timer = this.paced(HARVEST_TICKS);
+              t.timer = this.paced(t.resource === "lumber" ? CHOP_TICKS : HARVEST_TICKS);
               return;
             }
             if (this.followPath(u)) {

@@ -40,9 +40,9 @@ const SETTINGS: Record<
   // Peaceful builds and defends its ground but never launches an attack, so the
   // numbers below only govern how briskly it develops.
   peaceful: { think: 30, armySize: 99, workers: 12, patience: 1e9 },
-  easy: { think: 40, armySize: 5, workers: 6, patience: 90 },
-  normal: { think: 20, armySize: 8, workers: 10, patience: 55 },
-  hard: { think: 12, armySize: 12, workers: 14, patience: 30 },
+  easy: { think: 40, armySize: 5, workers: 8, patience: 90 },
+  normal: { think: 20, armySize: 8, workers: 14, patience: 55 },
+  hard: { think: 12, armySize: 12, workers: 18, patience: 30 },
 };
 
 /** The order it builds in. Repeats the last entries once the list is exhausted. */
@@ -136,7 +136,38 @@ export class SkirmishAI {
 
   // ───────────────────────────── economy ─────────────────────────────
 
+  /**
+   * Keep the split between gold and wood where the purse needs it. Idle workers
+   * were the only ones ever reassigned, so a crew that started on gold stayed
+   * on gold forever: the AI sat on thousands of gold and could not afford a
+   * barracks for want of wood. Every few seconds a worker or two moves across.
+   */
+  private rebalance(out: Command[]): void {
+    if (this.world.tick % 100 !== 0) return;
+    const hall = this.mine().find((b) => b.def === "townhall");
+    if (!hall) return;
+    const p = this.world.players.get(this.player)!;
+    const ws = this.workers().filter((u) => u.task.kind === "gather");
+    if (ws.length < 3) return;
+    const onWood = ws.filter((u) => u.task.kind === "gather" && u.task.resource === "lumber");
+    const onGold = ws.filter((u) => u.task.kind === "gather" && u.task.resource === "gold");
+    // Wood is slow to cut, so it takes more hands than gold to keep up.
+    const woodShare = p.lumber < 600 || p.lumber < p.gold * 0.5 ? 0.65 : p.gold < p.lumber * 0.5 ? 0.3 : 0.5;
+    const want = Math.round(ws.length * woodShare);
+    const c = centerOf(hall);
+    if (onWood.length < want && onGold.length > 1) {
+      const node = this.nearestResource(c.x, c.y, Tile.Tree);
+      const mover = onGold.find((u) => !u.carrying);
+      if (node && mover) out.push({ type: "gather", player: this.player, units: [mover.id], tx: node[0], ty: node[1] });
+    } else if (onWood.length > want + 1 && onWood.length > 1) {
+      const node = this.nearestResource(c.x, c.y, Tile.Gold);
+      const mover = onWood.find((u) => !u.carrying);
+      if (node && mover) out.push({ type: "gather", player: this.player, units: [mover.id], tx: node[0], ty: node[1] });
+    }
+  }
+
   private keepWorkersBusy(out: Command[]): void {
+    this.rebalance(out);
     const idle = this.workers().filter((u) => u.task.kind === "idle");
     if (idle.length === 0) return;
     const hall = this.mine().find((b) => b.def === "townhall");
@@ -144,7 +175,7 @@ export class SkirmishAI {
     const c = centerOf(hall);
     // Split roughly two thirds onto gold, since gold gates almost everything.
     const p = this.world.players.get(this.player)!;
-    const wantLumber = p.lumber < p.gold * 0.6;
+    const wantLumber = p.lumber < p.gold * 0.8 || p.lumber < 600;
     for (const u of idle) {
       // Try the resource we want, then the other one, then anything at all.
       // Falling through matters: a worker that finds no tree within range used
@@ -305,7 +336,7 @@ export class SkirmishAI {
     // Then soldiers from every idle barracks.
     for (const b of this.mine()) {
       if (!b.complete || b.queue.length > 0) continue;
-      const trains = BUILDINGS[b.def]!.trains.filter((u) => !UNITS[u]!.canGather && (UNITS[u]!.damage > 0 || (UNITS[u]!.heal ?? 0) > 0));
+      const trains = BUILDINGS[b.def]!.trains.filter((u) => !UNITS[u]!.canGather && !UNITS[u]!.royal && (UNITS[u]!.damage > 0 || (UNITS[u]!.heal ?? 0) > 0));
       if (trains.length === 0) continue;
       const unit = trains[this.wave % trains.length]!;
       if (headroom < UNITS[unit]!.supply) continue;
@@ -363,7 +394,11 @@ export class SkirmishAI {
 
     // Supply block trumps the build order — an army that cannot be fed is no army.
     let want: string | null = null;
-    if (supply.max - supply.used <= 2) want = "farm";
+    // ...but not before the first barracks: with building costs doubled, a
+    // farm every time supply got tight ate all the wood and the AI never
+    // raised a single soldier.
+    const hasBarracks = this.mine().some((b) => b.def === "barracks");
+    if (supply.max - supply.used <= 2 && hasBarracks) want = "farm";
     else {
       const built = this.mine();
       for (const def of BUILD_ORDER) {

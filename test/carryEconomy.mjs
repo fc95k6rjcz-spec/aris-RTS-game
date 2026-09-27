@@ -9,8 +9,8 @@ for(const [resource,tile,expected] of [['gold',4,50],['lumber',3,25]]){
  w.map.set(15,13,tile);w.map.amount[w.map.idx(15,13)]=40;
  u.task={kind:'gather',resource,tx:15,ty:12,phase:'harvest',timer:1};
  let maximum=0,full=false;const before=w.players.get(1)[resource];
- for(let i=0;i<3000;i++){w.step([]);maximum=Math.max(maximum,u.carrying?.amount??0);if(u.carrying?.amount===expected)full=true;if(w.players.get(1)[resource]>before)break;}
+ for(let i=0;i<6000;i++){w.step([]);maximum=Math.max(maximum,u.carrying?.amount??0);if(u.carrying?.amount===expected)full=true;if(w.players.get(1)[resource]>before)break;}
  assert.equal(maximum,expected);assert(full);assert.equal(w.players.get(1)[resource]-before,expected);
 }
-assert.equal(START_PURSE.gold,1035);assert.equal(START_PURSE.lumber,563);
+const UNITS_WORKER_GOLD=135;const {BUILDINGS}=await import('data:text/javascript;base64,'+Buffer.from((await build({entryPoints:['src/data/buildings.ts'],bundle:true,write:false,platform:'node',format:'esm'})).outputFiles[0].text).toString('base64'));assert.equal(START_PURSE.gold,BUILDINGS.townhall.cost.gold+UNITS_WORKER_GOLD);assert.equal(START_PURSE.lumber,BUILDINGS.townhall.cost.lumber);
 console.log('PASS: 50 gold, 25 wood across two trees, exact deposits, playable founding budget.');

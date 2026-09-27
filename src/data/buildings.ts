@@ -29,7 +29,7 @@ export interface BuildingDef {
   description: string;
 }
 
-export const BUILDINGS: Record<string, BuildingDef> = {
+const BASE_BUILDINGS: Record<string, BuildingDef> = {
   wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 100, lumber: 90 }, hp: 650, buildTime: 20 * 10, trains: [], requires: ["barracks"], dropOff: [], supply: 0, coastal: false, description: "Defensive stone wall. Kings build 50% faster and repair twice as quickly, without needing Barracks. Hold Shift to place more." },
   shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 100, lumber: 158 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
   townhall: {
@@ -276,6 +276,16 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     description: "Shoots nearby enemies automatically. Select this tower and right-click an enemy to focus fire. Sees over trees at 20–38 tiles; attack range grows from 5 to 10 tiles with upgrades.",
   },
 };
+
+/**
+ * Every building costs twice the gold and wood it used to. Building was cheap
+ * enough that a base went up in a couple of minutes and nothing about where or
+ * what to build was a real decision; at double the price, each one is.
+ */
+export const BUILDING_COST_MULTIPLIER = 2;
+export const BUILDINGS: Record<string, BuildingDef> = Object.fromEntries(
+  Object.entries(BASE_BUILDINGS).map(([id, d]) => [id, { ...d, cost: { ...d.cost, gold: d.cost.gold * BUILDING_COST_MULTIPLIER, lumber: d.cost.lumber * BUILDING_COST_MULTIPLIER } }]),
+);
 
 /** Display name for a building in a given faction's language. */
 export function buildingName(def: string, faction: string): string {
