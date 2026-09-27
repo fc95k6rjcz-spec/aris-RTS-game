@@ -111,9 +111,12 @@ const BEAST_AGGRO = 6;
 /** How far a beast will drift from where it was born, in tiles. */
 const BEAST_RANGE = 9;
 /** Seconds before the first dragon arrives, between arrivals, and between raids. */
-const DRAGON_FIRST = 6 * 60;
-const DRAGON_GAP = 4 * 60;
-const DRAGON_RAID = 150;
+// A dragon is an event, not weather: one in the realm, and it raids about
+// once an hour -- the first raid a few minutes after it arrives.
+const DRAGON_FIRST = 12 * 60;
+const DRAGON_GAP = 60 * 60;
+const DRAGON_RAID = 60 * 60;
+const DRAGON_FIRST_RAID = 16 * 60;
 /** Seconds a dragon spends burning a town, the fraction of health its fire stops at, and how far its terror reaches (tiles). */
 const DRAGON_BURN = 35;
 const DRAGON_FLOOR = 0.25;
@@ -202,6 +205,9 @@ export const NO_STORE_LINE = "I don't have anywhere to store that, sir.";
 export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from this mine.";
 /** Gold left in a seam when the miners start to worry. */
 const LOW_MINE_GOLD = 1500;
+
+/** Banner colours for travellers in a shared realm, in the order they arrive. */
+const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
 export class World {
   tick = 0;
@@ -509,6 +515,13 @@ export class World {
   patrolsEnabled = false;
   /** The Orc Horde scouts, raids and finally invades. On for every normal match. */
   hordeEnabled = true;
+  /**
+   * Shared realm: the world lives on everyone's computer and people come and
+   * go. No one ever "wins" it, and each traveller keeps a seat -- keyed by a
+   * private id their browser remembers -- to come back to.
+   */
+  realm = false;
+  readonly realmSeats = new Map<string, PlayerId>();
   /** Mines whose crews have already warned they are nearly worked out. */
   readonly warnedMines = new Set<number>();
   /** How many Horde raids have been sent so far: each one is bigger. */
@@ -553,7 +566,8 @@ export class World {
     const first = DRAGON_FIRST * TICKS_PER_SECOND, gap = DRAGON_GAP * TICKS_PER_SECOND;
     const dragons = this.units().filter((u) => u.def === "dragon" && u.owner === WILD);
     // Raids: each dragon in turn leaves its roost to burn somebody's town.
-    if (this.tick > first && this.tick % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
+    const firstRaid = DRAGON_FIRST_RAID * TICKS_PER_SECOND;
+    if (this.tick >= firstRaid && (this.tick - firstRaid) % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
       for (const d of dragons) {
         if (d.dragon && d.dragon.phase !== "roost") continue;
         const towns = this.buildings().filter((b) => b.owner !== WILD && this.players.has(b.owner));
@@ -568,7 +582,7 @@ export class World {
       }
     }
     if (this.tick < first || (this.tick - first) % gap !== 0) return;
-    const cap = Math.min(3, 1 + Math.floor((this.tick - first) / (gap * 2)));
+    const cap = 1;
     if (dragons.length >= cap) return;
     for (let attempt = 0; attempt < 200; attempt++) {
       const x = 3 + this.rng.int(this.map.width - 6), y = 3 + this.rng.int(this.map.height - 6);
@@ -795,6 +809,73 @@ export class World {
       }
       if (wall) u.task = { kind: "attack", target: wall.id };
     }
+  }
+
+  /**
+   * A traveller walks into the realm.
+   *
+   * Someone coming back finds their own people where they left them. Someone
+   * new -- or someone whose town was burned to the ground while they were
+   * away -- is given a fresh start: a Town Hall, four workers and a King,
+   * beside a gold mine nobody has built near, well away from everyone else.
+   */
+  claimSeat(peer: string): PlayerId | null {
+    const had = this.realmSeats.get(peer);
+    if (had !== undefined && this.players.has(had)) {
+      const alive = [...this.entities.values()].some((e) => e.owner === had && (e.kind === "building" || UNITS[e.def]!.canBuild));
+      if (alive) return had;
+    }
+    // A player number: reuse theirs if they had one, otherwise the next free one.
+    let id = had;
+    if (id === undefined) {
+      id = 1;
+      while (this.players.has(id) || id === WILD) id++;
+      if (id > 60) return null;
+      this.addPlayer(id, Faction.Human, REALM_COLOURS[(id - 1) % REALM_COLOURS.length]!);
+    } else {
+      const p = this.players.get(id)!;
+      Object.assign(p, { ...START_PURSE, research: {} });
+    }
+    this.realmSeats.set(peer, id);
+    const spot = this.freeStart();
+    if (!spot) return id;
+    this.spawnStart(id, spot.x, spot.y);
+    return id;
+  }
+
+  /** Somewhere to found a new town: open ground by unclaimed gold, far from everyone. */
+  private freeStart(): { x: number; y: number } | null {
+    const map = this.map;
+    const taken = this.buildings().filter((b) => b.owner !== WILD).map((b) => centerOf(b));
+    const far = (x: number, y: number) => Math.min(Infinity, ...taken.map((c) => Math.hypot(c.x / SUB - x, c.y / SUB - y)));
+    // Candidate spots: beside every gold seam, plus the map's own seats.
+    const seeds: Array<{ x: number; y: number }> = [...map.starts];
+    for (let y = 0; y < map.height; y += 1)
+      for (let x = 0; x < map.width; x += 1)
+        if (map.get(x, y) === Tile.Gold && !map.isHidden(x, y) && (x === 0 || map.get(x - 1, y) !== Tile.Gold) && (y === 0 || map.get(x, y - 1) !== Tile.Gold)) seeds.push({ x: x + 5, y: y + 1 }, { x: x - 6, y: y + 1 }, { x: x + 1, y: y + 5 }, { x: x + 1, y: y - 6 });
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const s of seeds) {
+      for (const [ox, oy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [3, 3], [-3, -3]] as const) {
+        const tx = s.x + ox, ty = s.y + oy;
+        if (!map.canPlace(tx, ty, 4)) continue;
+        let room = true;
+        for (let y = ty - 1; y < ty + 7 && room; y++) for (let x = tx - 2; x < tx + 6 && room; x++) if (!map.isWalkable(x, y, "land") && !(map.get(x, y) === Tile.Tree)) room = false;
+        if (!room) continue;
+        const d = far(tx, ty);
+        if (d < 18) continue;
+        if (!best || d > best.d) best = { x: tx, y: ty, d };
+        break;
+      }
+    }
+    if (best) return best;
+    // Crowded realm: clear a patch in the least crowded place we can find.
+    for (let k = 0; k < 400; k++) {
+      const tx = 6 + this.rng.int(map.width - 14), ty = 6 + this.rng.int(map.height - 14);
+      if (far(tx, ty) < 12) continue;
+      for (let y = ty - 1; y < ty + 7; y++) for (let x = tx - 2; x < tx + 6; x++) if (map.get(x, y) === Tile.Tree || map.get(x, y) === Tile.Rock) { map.set(x, y, Tile.Grass); map.amount[map.idx(x, y)] = 0; }
+      if (map.canPlace(tx, ty, 4)) return { x: tx, y: ty };
+    }
+    return null;
   }
 
   isSheltered(u: Unit): boolean {
@@ -1454,6 +1535,10 @@ export class World {
           u.task = { kind: "move", target };
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
         }
+        break;
+      }
+      case "joinRealm": {
+        this.claimSeat(c.peer);
         break;
       }
       case "garrison": {
@@ -2437,6 +2522,7 @@ export class World {
 
   /** A player with nothing left that could build has lost. */
   private checkVictory(): void {
+    if (this.realm) return;
     if (this.winner !== null || this.tick % 20 !== 0) return;
     // Alive means "can still do something": a standing building, or a worker who
     // could raise one. Counting buildings alone declared a winner on the first

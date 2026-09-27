@@ -32,6 +32,7 @@ import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
+import { RealmNet } from "../net/realm";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -46,6 +47,9 @@ const EDGE_SPEED = 14;
  * The local player's commands are queued and applied on the next tick,
  * exactly as they would be in a lockstep session.
  */
+/** Where this computer keeps its copy of the shared realm. */
+const REALM_LEDGER = "rov-realm-ledger";
+
 export class Game {
   world: World;
   cam: Camera;
@@ -69,6 +73,10 @@ export class Game {
    * cannot rot while nobody is looking at multiplayer.
    */
   private net: Lockstep = new Lockstep(new LocalTransport());
+  /** The shared realm this machine is part of, when playing New Campaign. */
+  private realm: RealmNet | null = null;
+  private realmNote = "";
+  private realmSavedAt = 0;
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
   private buildMode: string | null = null;
@@ -267,6 +275,39 @@ export class Game {
       });
     }
     requestAnimationFrame(this.frame);
+    this.keepTimeWhenHidden();
+  }
+
+  /**
+   * A shared realm cannot stop because someone switched tabs.
+   *
+   * Browsers stop animation frames in a hidden tab and slow ordinary timers to
+   * a crawl, so a keeper who looked at their email would freeze the realm for
+   * everyone. A worker's timer keeps running, so while the tab is hidden it
+   * drives the ticks instead (no drawing -- nobody is looking).
+   */
+  private keepTimeWhenHidden(): void {
+    if (typeof Worker === "undefined" || typeof Blob === "undefined") return;
+    try {
+      const src = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0),50)"], { type: "text/javascript" }));
+      const worker = new Worker(src);
+      let last = performance.now();
+      worker.onmessage = () => {
+        const now = performance.now();
+        const dt = Math.min(1000, now - last);
+        last = now;
+        if (!document.hidden || !this.realm || this.menu) return;
+        this.acc += dt;
+        const step = TICK_MS / Math.max(0.1, settings.gameSpeed);
+        let n = 0;
+        while (this.acc >= step && n++ < 40) { this.acc -= step; this.tick(); }
+        let extra = Math.min(80, this.realm.backlog() * 4);
+        while (extra-- > 0) this.tick();
+        this.last = now;
+      };
+    } catch {
+      /* no workers: a hidden tab simply pauses, as before */
+    }
   }
 
   /** The map the settings ask for, resolving "random" against the catalogue. */
@@ -371,7 +412,7 @@ export class Game {
     this.crowned = saved ? !this.world.relics.some(r=>r.owner===this.player&&!r.taken) : false;
     this.crowningAt = null;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
-    if (!saved && (this.setup?.crowning ?? settings.crowning)) {
+    if (!saved && !this.realm && (this.setup?.crowning ?? settings.crowning)) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
     }
     this.last = performance.now();
@@ -415,6 +456,11 @@ export class Game {
       this.acc -= step;
       if (!this.paused) this.tick();
     }
+    // Behind the realm's keeper (just joined, or a slow moment): catch up.
+    if (this.realm && !this.menu) {
+      let extra = Math.min(80, this.realm.backlog() * 4);
+      while (extra-- > 0) this.tick();
+    }
     this.render(this.paused ? 1 : this.acc / step);
     requestAnimationFrame(this.frame);
   };
@@ -428,8 +474,9 @@ export class Game {
    * going, so the game does not appear frozen; it simply stops advancing.
    */
   tick(): void {
-    if (this.menu) this.start();
-    const turn = this.net.nextTick(performance.now(), () => this.world.checksum());
+    if (this.menu && !this.realm) this.start();
+    if (this.menu) return;
+    const turn = this.realm ? this.realm.nextTick(performance.now()) : this.net.nextTick(performance.now(), () => this.world.checksum());
     if (!turn) return;
     this.renderer.snapshot();
     const cmds = turn.commands;
@@ -437,6 +484,7 @@ export class Game {
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
+    if (this.realm && performance.now() - this.realmSavedAt > 30000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
     // One tick's happenings, handed to the two things that show them. Neither
     // can write back, so the sim stays the only author of state.
     // The one moment the whole opening is waiting on.
@@ -511,6 +559,7 @@ export class Game {
 
   setPaused(paused: boolean): void {
     if (this.paused === paused) return;
+    if (this.realm && paused) { this.toast("The realm does not pause — it lives on everyone's computer", "info"); return; }
     this.paused = paused;
     // Hand time back cleanly: without this the accumulated milliseconds spent
     // paused are spent all at once on resume, and the game lurches forward.
@@ -520,7 +569,8 @@ export class Game {
   }
 
   issue(c: Command): void {
-    this.net.issue(c);
+    if (this.realm) this.realm.issue(c);
+    else this.net.issue(c);
   }
 
   stop(): void {
@@ -1348,6 +1398,7 @@ export class Game {
   // ───────────────────────────── menu ─────────────────────────────
 
   private async saveGame(): Promise<void> {
+    if (this.realm) { await this.storeLedger(); this.toast("The realm is saved on this computer too", "info"); return; }
     if (this.menu || this.saving) return;
     this.saving=true;
     try {
@@ -1405,6 +1456,9 @@ export class Game {
         void this.loadGame();
         break;
       case "begin":
+        void this.enterRealm();
+        break;
+      case "skirmish":
         this.start(this.difficulty);
         break;
       case "pane":
@@ -1467,6 +1521,91 @@ export class Game {
       nomad: settings.nomad,
       wildlife: settings.wildlife,
     };
+  }
+
+  /**
+   * New Campaign: walk into the shared realm.
+   *
+   * If somebody is already there, this machine is handed a copy of their
+   * world and a seat in it. If nobody is, it picks the realm up from its own
+   * saved copy -- or, the very first time, founds a new one.
+   */
+  private async enterRealm(): Promise<void> {
+    if (this.realm) return;
+    this.closeRoom();
+    this.transport = null;
+    this.setup = null;
+    this.front.net = { code: "", typed: "", status: "Looking for the realm…", busy: true };
+    const realm = new RealmNet({
+      snapshot: () => {
+        const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] });
+        return packSave(json);
+      },
+      load: async (packed, _n) => {
+        const saved = await unpackSave(packed);
+        const mine = saved.world.realmSeats.get(realm.seat);
+        this.installRealmWorld(saved.world, saved.map, mine);
+      },
+      checksum: () => this.world.checksum(),
+      claim: (seat) => { this.world.claimSeat(seat); },
+      status: (text) => { this.realmNote = text; this.toast(text, "info"); },
+    });
+    this.realm = realm;
+    this.realmNote = "Looking for the realm…";
+    const how = await realm.connect();
+    if (this.realm !== realm) return;
+    if (how === "joining") {
+      // Stay on the front screen until the copy arrives; load() takes it from there.
+      this.front.net.status = "Entering the realm…";
+      return;
+    }
+    // Alone: our own copy of the realm, or a brand new one.
+    let world: World | null = null;
+    let map: MapDef | null = null;
+    try {
+      const packed = localStorage.getItem(REALM_LEDGER);
+      if (packed) { const saved = await unpackSave(packed); world = saved.world; map = saved.map; }
+    } catch { world = null; }
+    if (!world || !world.realm) {
+      map = this.chooseMap();
+      world = this.buildRealmWorld(map);
+    }
+    const mine = world.claimSeat(realm.seat) ?? undefined;
+    this.installRealmWorld(world, map!, mine);
+    if (how === "offline") this.toast("Could not reach the realm — playing your own copy for now", "info");
+  }
+
+  /** A fresh realm: a big map, its wildlife, and nobody in it yet. */
+  private buildRealmWorld(def: MapDef): World {
+    const n = Math.max(def.size ?? 64, 128);
+    const w = new World(n, n, def.seed, def.kind, 1, false);
+    w.realm = true;
+    w.addPlayer(WILD, Faction.Human, "#8a6b3f");
+    w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
+    w.updateVision(true);
+    return w;
+  }
+
+  /** Put a realm world on screen as this player's. */
+  private installRealmWorld(world: World, map: MapDef, player: PlayerId | undefined): void {
+    this.player = player ?? this.player;
+    this.pendingSave = { version: 1, world, map, player: -1, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] };
+    this.start("none");
+    this.realmSavedAt = performance.now();
+    const hall = this.world.buildings().find((b) => b.owner === this.player && b.def === "townhall");
+    if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
+    this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
+  }
+
+  /** Keep this computer's copy of the realm: the ledger it resumes from when alone. */
+  private async storeLedger(): Promise<void> {
+    if (!this.realm || this.menu) return;
+    try {
+      const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: this.cam.x, y: this.cam.y, zoom: this.cam.zoom }, selected: [] });
+      localStorage.setItem(REALM_LEDGER, await packSave(json));
+    } catch {
+      /* storage full or blocked: the realm lives on in everyone else's copy */
+    }
   }
 
   /** Open a room and wait for a friend to walk in. */
@@ -1796,6 +1935,11 @@ export class Game {
     // advancing looks exactly like a game that has crashed unless it says
     // otherwise, so it says otherwise.
     let netBanner: string | null = null;
+    if (this.realm) {
+      const st = this.realm.state(performance.now());
+      if (st.kind === "joining") netBanner = "Re-syncing with the realm…";
+      else if (st.kind === "stalled" && st.ms > 1500) netBanner = `Waiting for the realm — ${(st.ms / 1000).toFixed(0)}s`;
+    }
     if (this.transport) {
       const st = this.net.state(performance.now());
       if (st.kind === "stalled" && st.ms > 350) netBanner = `Waiting for the other player — ${(st.ms / 1000).toFixed(1)}s`;

@@ -26,5 +26,7 @@ export type Command =
   /** Send archers up a watch tower. */
   | { type: "garrison"; player: PlayerId; units: EntityId[]; building: EntityId }
   /** Bring every garrisoned archer down from a tower. */
-  | { type: "ungarrison"; player: PlayerId; building: EntityId };
+  | { type: "ungarrison"; player: PlayerId; building: EntityId }
+  /** Shared realm: a traveller arrives. Gives them back their old seat, or a new one. */
+  | { type: "joinRealm"; player: PlayerId; peer: string };
 
