@@ -331,15 +331,6 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
         },
         {
           numeral: numeral(1),
-          label: "Skirmish",
-          hint: "vs computer",
-          enabled: true,
-          marked: false,
-          action: { kind: "skirmish" },
-          note: "A private match against the computer, on your own map.",
-        },
-        {
-          numeral: numeral(2),
           label: "Load Saved Game",
           hint: state.saveAvailable ? "Resume" : "No save",
           enabled: !!state.saveAvailable,
@@ -348,7 +339,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Resume your latest save in this browser. Multiplayer saves open a room for your friend to rejoin.",
         },
         {
-          numeral: numeral(3),
+          numeral: numeral(2),
           label: "Settings",
           hint: "Gear",
           enabled: true,
@@ -357,7 +348,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Sound, speed, the opponent, and which of the hundred realms you fight over.",
         },
         {
-          numeral: numeral(4),
+          numeral: numeral(3),
           label: "Credits",
           hint: "",
           enabled: true,
@@ -366,7 +357,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Who made this, and what with.",
         },
         {
-          numeral: numeral(5),
+          numeral: numeral(4),
           label: "Quit",
           hint: "Esc",
           enabled: true,
