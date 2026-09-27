@@ -88,13 +88,19 @@ function paintGround(c: CanvasRenderingContext2D, map: GameMap, x: number, y: nu
  * whose neighbour differs, after the base ground is down.
  */
 function blendEdges(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number): void {
-  const here = map.get(x, y);
+  // Trees and mines sit on grass, not a separate ground material.
+  // Comparing their raw tile IDs creates solid green strips around forests.
+  const material = (tx: number, ty: number): Tile => {
+    const tile = map.get(tx, ty);
+    return map.isHidden(tx, ty) || tile === Tile.Tree || tile === Tile.Gold ? Tile.Grass : tile;
+  };
+  const here = material(x, y);
   if (here === Tile.Water) return;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const nx = x + dx;
     const ny = y + dy;
     if (!map.inBounds(nx, ny)) continue;
-    const there = map.get(nx, ny);
+    const there = material(nx, ny);
     if (there === here || there === Tile.Water) continue;
     const pal = there === Tile.Dirt ? DIRT : there === Tile.Rock ? ROCKC : GRASS;
     // Sprinkle the neighbour's material into a strip along the shared edge, with
