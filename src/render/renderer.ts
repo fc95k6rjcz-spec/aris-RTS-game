@@ -1239,7 +1239,8 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'?this.wallConnections(b.tx,b.ty,b.owner):undefined };
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
+      open: b.def==='gate' && this.world.units().some((u)=>this.world.allied(u.owner,b.owner)&&Math.abs(u.pos.x-(b.tx+.5)*SUB)<SUB*1.3&&Math.abs(u.pos.y-(b.ty+.5)*SUB)<SUB*1.3) };
     if (!b.complete) {
       if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
@@ -1652,7 +1653,7 @@ export class Renderer {
       if(pending.some(g=>g.ok&&g.owner===owner&&g.tx===tx&&g.ty===ty))return true;
       if(!this.world.map.inBounds(tx,ty))return false;
       const b=this.world.entities.get(this.world.map.occupant[this.world.map.idx(tx,ty)]!);
-      return b?.kind==='building'&&b.def==='wall'&&b.owner===owner;
+      return b?.kind==='building'&&(b.def==='wall'||b.def==='gate')&&b.owner===owner;
     });
   }
 
@@ -1665,7 +1666,7 @@ export class Renderer {
     const w = d.size * s;
     ctx.globalAlpha = 0.55;
     const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1,wallMask:g.def==='wall'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1,wallMask:g.def==='wall'||g.def==='gate'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
     ctx.globalAlpha = 1;
     if (g.def === "tower") {
       ctx.save();

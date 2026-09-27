@@ -295,7 +295,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-hints { margin-left: auto; display: flex; gap: 18px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--fainter); }
 .rv-grid {
   /* Fixed-size tiles: three orders no longer stretch into three giant posters. */
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
   grid-auto-rows: minmax(0, 1fr); gap: 5px; min-height: 0; overflow: hidden;
 }
 .rv-tile {

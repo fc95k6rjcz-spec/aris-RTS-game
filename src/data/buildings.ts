@@ -30,7 +30,8 @@ export interface BuildingDef {
 }
 
 const BASE_BUILDINGS: Record<string, BuildingDef> = {
-  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 100, lumber: 90 }, hp: 650, buildTime: 20 * 10, trains: [], requires: ["barracks"], dropOff: [], supply: 0, coastal: false, description: "Defensive stone wall. Kings build 50% faster and repair twice as quickly, without needing Barracks. Hold Shift to place more." },
+  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 10, lumber: 15 }, hp: 650, buildTime: 20 * 6, trains: [], requires: ["townhall"], dropOff: [], supply: 0, coastal: false, description: "Cheap stone wall. Drag to lay a line. Put a Gate in it so your own people can get through. Kings build 50% faster and repair twice as quickly." },
+  gate: { id: "gate", name: "Gate", hotkey: "E", size: 1, cost: { gold: 40, lumber: 40 }, hp: 900, buildTime: 20 * 8, trains: [], requires: ["townhall"], dropOff: [], supply: 0, coastal: false, description: "Build on one of your wall sections. Your own units walk straight through it; to everyone else it is a wall." },
   shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 100, lumber: 158 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
   townhall: {
     id: "townhall",
@@ -284,7 +285,11 @@ const BASE_BUILDINGS: Record<string, BuildingDef> = {
  */
 export const BUILDING_COST_MULTIPLIER = 2;
 export const BUILDINGS: Record<string, BuildingDef> = Object.fromEntries(
-  Object.entries(BASE_BUILDINGS).map(([id, d]) => [id, { ...d, cost: { ...d.cost, gold: d.cost.gold * BUILDING_COST_MULTIPLIER, lumber: d.cost.lumber * BUILDING_COST_MULTIPLIER } }]),
+  Object.entries(BASE_BUILDINGS).map(([id, d]) => {
+    // Walls and gates stay cheap: defence should be something you can afford to lay down.
+    const k = id === "wall" || id === "gate" ? 1 : BUILDING_COST_MULTIPLIER;
+    return [id, { ...d, cost: { ...d.cost, gold: d.cost.gold * k, lumber: d.cost.lumber * k } }];
+  }),
 );
 
 /** Display name for a building in a given faction's language. */
@@ -313,6 +318,6 @@ export function buildingName(def: string, faction: string): string {
  * things you build in any match; everything with a prerequisite behind it is a
  * tab away.
  */
-export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch", "wall", "shelter"];
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch", "wall", "gate", "shelter"];
 export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];

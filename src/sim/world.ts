@@ -785,6 +785,16 @@ export class World {
     const c = centerOf(best);
     u.task = { kind: "attackMove", target: c };
     this.pathTo(u, best.tx + Math.floor(best.size / 2), best.ty + best.size, true);
+    if (u.path.length === 0) {
+      // Walled out: hack through the nearest wall or gate instead.
+      let wall: Building | null = null, wd = Infinity;
+      for (const b of this.buildings()) {
+        if (b.owner === WILD || (b.def !== "wall" && b.def !== "gate")) continue;
+        const d2 = Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y);
+        if (d2 < wd) { wd = d2; wall = b; }
+      }
+      if (wall) u.task = { kind: "attack", target: wall.id };
+    }
   }
 
   isSheltered(u: Unit): boolean {
@@ -1194,6 +1204,7 @@ export class World {
     };
     this.entities.set(b.id, b);
     this.map.occupy(tx, ty, d.size, b.id);
+    if (def === "gate") this.map.setGate(tx, ty, d.size, owner);
     return b;
   }
 
@@ -1297,6 +1308,11 @@ export class World {
     const royalLicence = builderIsRoyal && ROYAL_LICENCE.has(def);
     if (!royalLicence) for (const r of d.requires) if (!this.hasBuilding(player, r)) return `Requires ${BUILDINGS[r]!.name}`;
     if (!this.canAfford(player, d.cost)) return this.lacking(player, d.cost);
+    // A gate goes into a wall: on one of your own finished wall sections.
+    if (def === "gate") {
+      const w = this.entities.get(this.map.inBounds(tx, ty) ? this.map.occupant[this.map.idx(tx, ty)]! : 0);
+      if (w?.kind === "building" && w.def === "wall" && w.owner === player && w.complete) return null;
+    }
     if (!this.map.canPlace(tx, ty, d.size)) return "Cannot build there";
     if (d.coastal && !this.map.touchesWater(tx, ty, d.size)) return "Must be built on the shoreline";
     if (d.oilGround && this.map.oilUnder(tx, ty, d.size) < Math.ceil((d.size * d.size) / 3)) return "Oil rigs must be built on oil ground — look for the dark tar seeps";
@@ -1535,6 +1551,10 @@ export class World {
         }
         const d = BUILDINGS[c.building]!;
         this.spend(c.player, d.cost);
+        if (c.building === "gate") {
+          const w = this.entities.get(this.map.occupant[this.map.idx(c.tx, c.ty)]!);
+          if (w?.kind === "building" && w.def === "wall") this.removeEntity(w.id);
+        }
         const b = this.placeBuilding(c.player, c.building, c.tx, c.ty)!;
         this.fx.push({ kind: "buildStart", x: (c.tx + b.size / 2) * SUB, y: (c.ty + b.size / 2) * SUB, def: b.def });
         for (const u of workers) {
@@ -1801,6 +1821,7 @@ export class World {
     }
     if (e.kind === "building") {
       this.map.release(e.tx, e.ty, e.size);
+      if (e.def === "gate") this.map.setGate(e.tx, e.ty, e.size, 0);
       // Refund queued training.
       for (const j of e.queue) this.refund(e.owner, UNITS[j.unit]!.cost);
       if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost);
@@ -1827,7 +1848,10 @@ export class World {
     }
     const sx = Math.floor(u.pos.x / SUB);
     const sy = Math.floor(u.pos.y / SUB);
+    const was = this.map.passer;
+    this.map.passer = u.owner;
     u.path = findPath(this.map, sx, sy, tx, ty, UNITS[u.def]!.domain);
+    this.map.passer = was;
     u.repathIn = u.path.length === 0 ? 40 : 0;
   }
 
@@ -1838,7 +1862,10 @@ export class World {
     this.fx = [];
     for (const c of commands) this.applyCommand(c);
     for (const b of this.buildings()) b.builders = 0;
-    for (const u of this.units()) this.stepUnit(u);
+    this.map.teams = [];
+    for (const [pid, team] of this.teams) this.map.teams[pid] = team;
+    for (const u of this.units()) { this.map.passer = u.owner; this.stepUnit(u); }
+    this.map.passer = -1;
     for (const b of this.buildings()) this.stepBuilding(b);
     this.separate();
     this.updateVision();
@@ -2330,7 +2357,10 @@ export class World {
       }
       const nx = Math.round(u.pos.x + dx);
       const ny = Math.round(u.pos.y + dy);
-      if (this.map.isWalkable(Math.floor(nx / SUB), Math.floor(ny / SUB), UNITS[u.def]!.domain)) {
+      this.map.passer = u.owner;
+      const ok = this.map.isWalkable(Math.floor(nx / SUB), Math.floor(ny / SUB), UNITS[u.def]!.domain);
+      this.map.passer = -1;
+      if (ok) {
         u.pos.x = nx;
         u.pos.y = ny;
       }

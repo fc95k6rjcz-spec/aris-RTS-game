@@ -103,6 +103,26 @@ export class GameMap {
    * patches, a few per map, one within reach of every seat.
    */
   readonly oil: Uint8Array;
+  /**
+   * Gates: the owner of a gate on this tile (0 = none). A gate is a wall to
+   * everyone but its own side, so walkability depends on who is asking --
+   * `passer` is set to that player while a unit plans or takes its step, and
+   * `allies` answers whether a gate's owner lets them through. The region map
+   * (passer -2) treats gates as open, so a route through your own gate is
+   * never ruled out before the search even starts.
+   */
+  gateOwner: Int16Array;
+  passer = -1;
+  /** Team of each player id (index), mirrored from the World for gate checks. */
+  teams: number[] = [];
+  allies(a: number, b: number): boolean {
+    return a === b || (this.teams[a] !== undefined && this.teams[a] === this.teams[b]);
+  }
+  /** Mark a gate's tiles (owner 0 clears them). */
+  setGate(tx: number, ty: number, size: number, owner: number): void {
+    for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) this.gateOwner[this.idx(x, y)] = owner;
+    this.version++;
+  }
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -142,6 +162,7 @@ export class GameMap {
     this.wear = new Uint8Array(width * height);
     this.mud = new Uint8Array(width * height);
     this.oil = new Uint8Array(width * height);
+    this.gateOwner = new Int16Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 
@@ -204,6 +225,9 @@ export class GameMap {
   private regionCache = new Map<string, { version: number; label: Int32Array }>();
 
   private regions(domain: Domain): Int32Array {
+    const was = this.passer;
+    this.passer = -2;
+    try {
     const hit = this.regionCache.get(domain);
     if (hit && hit.version === this.version) return hit.label;
     const label = new Int32Array(this.width * this.height).fill(-1);
@@ -242,6 +266,7 @@ export class GameMap {
     }
     this.regionCache.set(domain, { version: this.version, label });
     return label;
+    } finally { this.passer = was; }
   }
 
   /** Whether two walkable tiles have any route between them at all. */
@@ -289,7 +314,7 @@ export class GameMap {
       // waits on was the one man who could not walk out of it. The King could.
       // The speed penalty in World.followPath already covers both domains.
       if (t === Tile.Gold || t === Tile.Rock) return false;
-      return this.occupant[this.idx(x, y)] === 0;
+      return this.occupant[this.idx(x, y)] === 0 || this.gateOpen(this.idx(x, y));
     }
     if (domain === "sea") return t === Tile.Water && this.occupant[this.idx(x, y)] === 0;
     if (domain === "icebreaker") {
@@ -310,7 +335,14 @@ export class GameMap {
     // A man can push through a wood; it just takes him three times as long. See
     // the speed penalty in World.followPath.
     if (t === Tile.Water || t === Tile.Gold || t === Tile.Rock) return false;
-    return this.occupant[this.idx(x, y)] === 0;
+    return this.occupant[this.idx(x, y)] === 0 || this.gateOpen(this.idx(x, y));
+  }
+
+  /** Whether the gate on this tile (if any) opens for whoever is currently asking. */
+  gateOpen(i: number): boolean {
+    const g = this.gateOwner?.[i] ?? 0;
+    if (!g) return false;
+    return this.passer === -2 || (this.passer >= 0 && this.allies(g, this.passer));
   }
 
   /** True if this single tile has open water or ice against it. */
@@ -755,7 +787,7 @@ export class GameMap {
     }
     const flipX=(seed & 1)!==0,flipY=(seed & 2)!==0;
     if(flipX||flipY){
-      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.oil,m.hidden]){
+      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.oil,m.hidden] as Array<Uint8Array|Int32Array>){
         const source=grid.slice();
         for(let y=0;y<height;y++)for(let x=0;x<width;x++)grid[(flipY?height-1-y:y)*width+(flipX?width-1-x:x)]=source[y*width+x]!;
       }
