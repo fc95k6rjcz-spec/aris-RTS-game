@@ -30,5 +30,14 @@ export function constructionFrame(image: HTMLImageElement): HTMLCanvasElement {
     }
     if(!fringe)data[i*4+3]=0;
   }
-  ctx.putImageData(pixels,0,0);frames.set(image,canvas);return canvas;
+  ctx.putImageData(pixels,0,0);
+  // Some stages were cut from their sheet with the ground patch running off
+  // the bottom of the slice, leaving a hard straight edge under the site. Fade
+  // the lowest strip out so every stage settles into the grass.
+  const fade=Math.round(canvas.height*0.14);
+  const g=ctx.createLinearGradient(0,canvas.height-fade,0,canvas.height);
+  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,1)');
+  ctx.globalCompositeOperation='destination-out';ctx.fillStyle=g;ctx.fillRect(0,canvas.height-fade,canvas.width,fade);
+  ctx.globalCompositeOperation='source-over';
+  frames.set(image,canvas);return canvas;
 }

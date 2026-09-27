@@ -157,7 +157,9 @@ export type FxEvent =
   | { kind: "deposit"; x: number; y: number; resource: "gold" | "lumber" }
   | { kind: "chop"; id: EntityId; x: number; y: number }
   | { kind: "battleRally"; x: number; y: number; owner: PlayerId }
-  | { kind: "crowned"; x: number; y: number; owner: PlayerId };
+  | { kind: "crowned"; x: number; y: number; owner: PlayerId }
+  /** A building finished an upgrade: the moment the new tier is revealed. */
+  | { kind: "levelUp"; id: EntityId; x: number; y: number; def: string; level: number; owner: PlayerId };
 
 /**
  * The whole game state. `step()` advances exactly one tick given the commands
@@ -165,6 +167,10 @@ export type FxEvent =
  */
 /** Archers standing on a watch tower of the given level: three, and one more per upgrade. */
 export function towerArchers(level: number): number { return 2 + Math.max(1, level); }
+/** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
+export function towerRange(level: number): number { return 8 + Math.max(1, level) * 0.5; }
+/** How many of your own archers a tower can take on top of its crew. */
+export function towerGarrisonCap(level: number): number { return 2 + Math.floor(Math.max(1, level) / 2); }
 /** Ticks between one tower archer's shots. */
 const TOWER_ARCHER_INTERVAL = 24;
 /** Base arrow damage from a tower archer (before armour); +2 per tower level. */
@@ -1198,6 +1204,24 @@ export class World {
         }
         break;
       }
+      case "garrison": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.def !== "tower" || !b.complete || b.owner !== c.player) break;
+        for (const u of this.ownedUnits(c.player, c.units)) {
+          if (u.def !== "archer") continue;
+          u.enterTower = b.id;
+          u.moveQueue = [];
+          u.task = { kind: "move", target: centerOf(b) };
+          this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + b.size, true);
+        }
+        break;
+      }
+      case "ungarrison": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.owner !== c.player) break;
+        this.releaseGarrison(b);
+        break;
+      }
       case "towerAttack": {
         const b=this.entities.get(c.building),target=this.entities.get(c.target);
         if (!b || b.kind!=='building' || b.def!=='tower' || !b.complete || b.owner!==c.player || !target || !this.hostile(b,target) || !this.canSeeEntity(c.player,target)) break;
@@ -1430,6 +1454,38 @@ export class World {
         break;
       }
     }
+  }
+
+  /** An archer on his way up a tower: climb in when he reaches its foot. */
+  private tryEnterTower(u: Unit): boolean {
+    const b = this.entities.get(u.enterTower!);
+    if (!b || b.kind !== "building" || !b.complete || b.owner !== u.owner || u.task.kind !== "move") { u.enterTower = undefined; return false; }
+    if ((b.garrison?.length ?? 0) >= towerGarrisonCap(b.level)) {
+      u.enterTower = undefined;
+      this.emit(u.owner, "That tower is full");
+      return false;
+    }
+    if (!this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
+      if (u.path.length === 0) this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + b.size);
+      return false;
+    }
+    (b.garrison ??= []).push({ def: u.def, hp: u.hp, maxHp: u.maxHp });
+    this.removeEntity(u.id);
+    return true;
+  }
+
+  /** Everyone down from the tower, standing round its foot. */
+  releaseGarrison(b: Building, hurt = false): void {
+    const g = b.garrison;
+    if (!g?.length) return;
+    b.garrison = [];
+    g.forEach((m, i) => {
+      const a = (i / g.length) * Math.PI * 2;
+      const x = (b.tx + b.size / 2 + Math.cos(a) * (b.size / 2 + 0.8)) * SUB;
+      const y = (b.ty + b.size / 2 + Math.sin(a) * (b.size / 2 + 0.8)) * SUB;
+      const u = this.spawnUnit(b.owner, m.def, { x, y });
+      u.hp = Math.max(1, Math.min(u.maxHp, hurt ? Math.round(m.hp / 2) : m.hp));
+    });
   }
 
   removeEntity(id: EntityId): void {
@@ -1783,6 +1839,8 @@ export class World {
     if (target.kind === "building") {
       this.emit(target.owner, `${BUILDINGS[target.def]!.name} destroyed`);
       this.emit(attackerOwner, `${BUILDINGS[target.def]!.name} destroyed`, "info");
+      // Archers on a falling tower jump for it, and land hurt.
+      this.releaseGarrison(target, true);
     }
     this.removeEntity(target.id);
   }
@@ -2082,6 +2140,7 @@ export class World {
 
   private stepUnit(u: Unit): void {
     if (u.cooldown > 0) u.cooldown--;
+    if (u.enterTower !== undefined && this.tryEnterTower(u)) return;
     const supportCast = this.tryHeal(u);
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) this.stepBeast(u);
@@ -2564,8 +2623,10 @@ export class World {
       // archers see off six footmen who walk into them -- that is the tower's
       // job, and why it is worth the timber.
       const level = Math.max(1, b.level);
-      const archers = towerArchers(level);
-      const range = (5.5 + level * 0.4) * SUB;
+      const crew = towerArchers(level);
+      const garrison = b.garrison?.length ?? 0;
+      const archers = crew + garrison;
+      const range = towerRange(level) * SUB;
       const interval = TOWER_ARCHER_INTERVAL;
       const origin = centerOf(b);
       let targets: Entity[] | null = null;
@@ -2594,7 +2655,9 @@ export class World {
         const target = targets.find((t) => t.hp > 0);
         if (!target) break;
         const p = this.posOf(target);
-        const damage = TOWER_ARROW_DAMAGE + level * 2;
+        // Garrisoned archers are trained soldiers shooting from height: they
+        // hit harder than the tower's own watchmen.
+        const damage = TOWER_ARROW_DAMAGE + level * 2 + (k >= crew ? 6 : 0);
         // Each archer stands at his own spot on the platform.
         const from = { x: origin.x + ((k % 3) - 1) * SUB * 0.35, y: origin.y - SUB * 0.8 };
         this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
@@ -2632,6 +2695,7 @@ export class World {
         b.maxHp = lv.hp;
         b.hp = Math.round(lv.hp * frac);
         this.emit(b.owner, `${lv.name} complete (level ${b.level})`, "info");
+        { const c = centerOf(b); this.fx.push({ kind: "levelUp", id: b.id, x: c.x, y: c.y, def: b.def, level: b.level, owner: b.owner }); }
         if (lv.armour) this.refreshArmour(b.owner);
       }
       return; // upgrading halts training

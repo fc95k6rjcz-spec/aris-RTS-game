@@ -1,4 +1,5 @@
 import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
+import { towerRange } from "../sim/world";
 import { constructionFrame } from './constructionFrame';
 import { BUILDINGS } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
@@ -637,6 +638,55 @@ export class Renderer {
    * Drawn live rather than baked, because wear and mud change constantly and
    * rebaking a terrain chunk every time somebody walks over it would be absurd.
    */
+  /**
+   * The level-up reveal. Behind the building: a warm halo and slowly turning
+   * rays. In front: a ring of light that sweeps outward and a shimmer that
+   * rises off the roof. Everything fades over the reveal's second or so.
+   */
+  private drawLevelUpGlow(cx: number, cy: number, w: number, f: number, behind: boolean): void {
+    const ctx = this.ctx;
+    const fade = 1 - f;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    if (behind) {
+      const r = w * (1.1 + f * 0.6);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(255,220,120,${0.55 * fade})`);
+      g.addColorStop(0.5, `rgba(255,180,60,${0.25 * fade})`);
+      g.addColorStop(1, "rgba(255,160,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,230,150,${0.22 * fade})`;
+      const rays = 12;
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2 + f * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a - 0.08) * r * 1.3, cy + Math.sin(a - 0.08) * r * 1.3);
+        ctx.lineTo(cx + Math.cos(a + 0.08) * r * 1.3, cy + Math.sin(a + 0.08) * r * 1.3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      ctx.strokeStyle = `rgba(255,226,140,${0.8 * fade})`;
+      ctx.lineWidth = Math.max(2, w * 0.05 * fade);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + w * 0.35, w * (0.3 + f * 1.1), w * (0.12 + f * 0.45), 0, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 10; i++) {
+        const ox = Math.sin(i * 2.3) * w * 0.45;
+        const oy = -f * w * (0.8 + (i % 3) * 0.3) - w * 0.2;
+        ctx.fillStyle = `rgba(255,240,180,${0.9 * fade})`;
+        ctx.beginPath();
+        ctx.arc(cx + ox, cy + oy, Math.max(1.5, w * 0.022), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   /** Tar-dark seeps where oil comes up through the ground: where oil rigs go. */
   private drawOilGround(): void {
     const map = this.world.map;
@@ -1147,9 +1197,23 @@ export class Renderer {
       if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
       });
-      this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
-    } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
-      artFor(faction, b.def)?.(art);
+      // Under the site, where the eye already is -- not floating a tile above it.
+      this.bar(p.x + w * 0.15, p.y + w + 4, w * 0.7, art.progress, "#e8c547");
+    } else {
+      // A fresh tier swells up and settles, lit gold from behind: the upgrade
+      // should feel like getting something, not a quiet swap of pictures.
+      const lu = this.fx.levelUpProgress(b.id, this.world.tick + alpha);
+      if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, true);
+      const swell = lu !== null && lu < 0.45 ? 1 + 0.14 * Math.sin((Math.PI * lu) / 0.45) : 1;
+      if (swell !== 1) {
+        ctx.save();
+        ctx.translate(p.x + w / 2, p.y + w);
+        ctx.scale(swell, swell);
+        ctx.translate(-(p.x + w / 2), -(p.y + w));
+      }
+      if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
+      if (swell !== 1) ctx.restore();
+      if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
     }
     if (b.complete && settings.animations && !redesignedArt(b.def,'level',1)) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
     if (selected) {
@@ -1175,7 +1239,22 @@ export class Renderer {
     // Show a levelled building's area of effect while it is selected.
     if (selected && b.complete) {
       const lv = LEVELLED[b.def] ? levelDef(b.def, b.level) : null;
-      if (lv?.radius) {
+      if (b.def === "tower") {
+        // The reach of the archers on top: a red ring on the ground, so you
+        // can see exactly what the tower covers.
+        const c = { x: p.x + w / 2, y: p.y + w / 2 };
+        const r = towerRange(b.level) * s;
+        ctx.save();
+        ctx.fillStyle = "rgba(255,90,60,0.06)";
+        ctx.strokeStyle = "rgba(255,120,90,0.75)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 6]);
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      } else if (lv?.radius) {
         const c = { x: p.x + w / 2, y: p.y + w / 2 };
         ctx.strokeStyle = lv.heal ? "rgba(150,230,150,0.55)" : "rgba(150,200,255,0.45)";
         ctx.setLineDash([6, 5]);
@@ -1195,7 +1274,9 @@ export class Renderer {
     }
     // A damaged building shows its health, selected or not, unless the player
     // has asked for bars only on selection.
-    if (this.wantsBar(b.hp / b.maxHp, selected)) this.bar(p.x, p.y - 6, w, b.hp / b.maxHp, b.hp / b.maxHp < 0.35 ? "#e04c4c" : "#4ce04c");
+    // A site's health rises with the work, so a half-built barracks always
+    // "looks damaged"; only show its health when it is actually selected.
+    if ((b.complete || selected) && this.wantsBar(b.hp / b.maxHp, selected)) this.bar(p.x, p.y - 6, w, b.hp / b.maxHp, b.hp / b.maxHp < 0.35 ? "#e04c4c" : "#4ce04c");
     if (b.research) this.bar(p.x, p.y + w - 9, w, 1 - b.research.remaining / b.research.total, "#c98bff");
     // Training / upgrade progress.
     if (b.complete) {
@@ -1539,6 +1620,16 @@ export class Renderer {
     const faction = this.world.players.get(g.owner)!.faction;
     artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1,wallMask:g.def==='wall'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
     ctx.globalAlpha = 1;
+    if (g.def === "tower") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,120,90,0.7)";
+      ctx.setLineDash([10, 6]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x + w / 2, p.y + w / 2, towerRange(1) * s, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     // Per-tile validity overlay.
     for (let y = 0; y < d.size; y++)
       for (let x = 0; x < d.size; x++) {

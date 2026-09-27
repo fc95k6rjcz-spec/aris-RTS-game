@@ -2,7 +2,7 @@ import grunt from "../assets/motion-v2/grunt.webp";
 import knight from "../assets/motion-v2/knight.webp";
 import planes from "../assets/motion-v2/planes.webp";
 import wolf from "../assets/motion-v2/direwolf.webp";
-import dragon from "../assets/motion-v2/dragon.webp";
+import dragonClean from "../assets/motion-v2/dragon-clean.webp";
 import cow from "../assets/motion-v2/cow.webp";
 import walk from "../assets/motion-v2/worker-natural.webp";
 import chop from "../assets/motion-v2/worker-chop.webp";
@@ -63,7 +63,8 @@ export function drawCreature(ctx:CanvasRenderingContext2D,def:string,facing:numb
    ctx.save();ctx.translate(x,y+s*.45);if(direction.mirror)ctx.scale(-1,1);
    ctx.drawImage(img,frame*sw,row*sh,sw,sh,-sw*scale/2,-sh*scale*.96,sw*scale,sh*scale);ctx.restore();return height;
  }
- const src=def==="grunt"?grunt:def==="direwolf"?wolf:def==="dragon"?dragon:def==="cow"?cow:null;if(!src)return null;
+ if(def==="dragon")return drawDragon(ctx,facing,state,x,y,s,phase,tick,enabled);
+ const src=def==="grunt"?grunt:def==="direwolf"?wolf:def==="cow"?cow:null;if(!src)return null;
  const img=atlas(src,def==="direwolf"||def==="dragon",def==="cow"?3:4);if(!img)return null;
  const moving=["walk","run","fly","flee"].includes(state),dead=state==="die",attacking=state==="attack"||state==="cast";
  const row=def==="cow"?(moving?(facing===6?2:1):0):dead?3:attacking?2:moving?1:0;
@@ -78,4 +79,26 @@ export function drawCreature(ctx:CanvasRenderingContext2D,def:string,facing:numb
  const scale=height/(def==="cow"?220:def==="dragon"?230:220),dw=sw*scale,dh=sh*scale;
  ctx.save();ctx.translate(x,y+s*.45);if(facing===0||facing===1||facing===7)ctx.scale(-1,1);
  ctx.drawImage(img,sx,sy,sw,sh,-dw/2,-dh*baseline,dw,dh);ctx.restore();return height;
+}
+
+/**
+ * The dragon flies. It is drawn well above the ground with its shadow on the
+ * grass beneath, bobbing on its wingbeats, and big -- it should dwarf a
+ * footman. The frames come from a cleaned atlas (tools/clean_dragon.py) so no
+ * wing or flame is cut off at a cell edge; its fire is drawn live by the fx
+ * layer, aimed at whatever it is burning.
+ */
+function drawDragon(ctx:CanvasRenderingContext2D,facing:number,state:AnimState,x:number,y:number,s:number,phase:number,tick:number,enabled:boolean):number|null {
+ const img=atlas(dragonClean,false,4,6);if(!img)return null;
+ const dead=state==="die",attacking=state==="attack"||state==="cast";
+ const row=dead?3:attacking?2:1;
+ const index=!enabled?0:dead?Math.min(5,Math.floor(tick/5)):Math.floor(((tick/4)%6+6)%6);
+ const sw=img.width/6,sh=img.height/4,height=s*4,scale=height/(sh*.92),dw=sw*scale,dh=sh*scale;
+ const lift=dead?Math.max(0,1-tick/30)*s*1.1:s*(1.15+(enabled?Math.sin(tick/7)*0.12:0));
+ // Shadow on the ground: shrinks as it climbs, so height reads.
+ ctx.save();ctx.fillStyle="rgba(0,0,0,0.32)";ctx.beginPath();
+ ctx.ellipse(x,y+s*.45,s*1.1*(1-lift/(s*3)),s*.34*(1-lift/(s*3)),0,0,Math.PI*2);ctx.fill();ctx.restore();
+ ctx.save();ctx.translate(x,y+s*.45-lift);if(facing===0||facing===1||facing===7)ctx.scale(-1,1);
+ ctx.drawImage(img,index*sw,row*sh,sw,sh,-dw/2,-dh*.98,dw,dh);ctx.restore();
+ return height+lift;
 }

@@ -1,3 +1,4 @@
+import { LEVELLED, levelDef } from "../data/levels";
 import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, type SavedGame } from './saveGame';
 import { createGamePanel } from '../ui/createGamePanel';
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
@@ -8,7 +9,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World } from "../sim/world";
+import { Faction, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -450,6 +451,13 @@ export class Game {
           break;
         }
       }
+    }
+    // Your own building going up a tier is an occasion: name it, and play it.
+    for (const e of this.world.fx) {
+      if (e.kind !== "levelUp" || e.owner !== this.player) continue;
+      const lv = levelDef(e.def, e.level);
+      this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
+      this.audio.play("crown", 0.8);
     }
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
@@ -1019,6 +1027,13 @@ export class Game {
       const occ = map.occupant[map.idx(tx, ty)]!;
       const b = occ ? this.world.entities.get(occ) : undefined;
       if (b?.kind === "building" && b.owner === this.player) {
+        const bowmen = units.filter((u) => u.def === "archer").map((u) => u.id);
+        if (b.def === "tower" && b.complete && bowmen.length > 0) {
+          this.issue({ type: "garrison", player: this.player, units: bowmen, building: b.id });
+          this.marker(wx, wy, "move");
+          this.toast(`Archers climbing the tower (${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} places taken)`, "info");
+          return;
+        }
         const builders = units.filter((u) => UNITS[u.def]!.canBuild).map((u) => u.id);
         if (builders.length > 0 && (!b.complete || b.hp < b.maxHp)) {
           this.issue({ type: "repair", player: this.player, units: builders, target: b.id });
@@ -1179,6 +1194,11 @@ export class Game {
       case "upgrade": {
         const b = this.selectedBuildings()[0];
         if (b) this.issue({ type: "upgrade", player: this.player, building: b.id });
+        break;
+      }
+      case "ungarrison": {
+        const b = this.selectedBuildings()[0];
+        if (b) this.issue({ type: "ungarrison", player: this.player, building: b.id });
         break;
       }
       case "cancelUpgrade": {
@@ -1730,10 +1750,10 @@ export class Game {
       const d = BUILDINGS[b.def]!;
       selection = {
         name: buildingName(b.def, p.faction).toUpperCase(),
-        sub: b.complete ? "Structure" : "Under construction",
+        sub: !b.complete ? "Under construction" : b.def === "tower" ? `Level ${b.level} · ${towerArchers(b.level)} archers + ${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} yours` : LEVELLED[b.def] ? `${levelDef(b.def, b.level).name} · Level ${b.level}` : "Structure",
         hp: b.hp,
         maxHp: b.maxHp,
-        portrait: null,
+        portrait: commandArt({ type: "upgrade" } as never, { ...b, level: b.level - 1, upgrade: null } as never, p.faction),
         members: [],
       };
       if (!b.complete) {

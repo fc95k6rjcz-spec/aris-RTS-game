@@ -72,10 +72,15 @@ interface Puff {
  * Holds every in-flight effect. One instance per renderer; `apply` is fed the
  * sim's list once per tick and `prune` drops what has expired.
  */
+/** Ticks the level-up reveal lasts: glow, rays and a little swell. */
+const LEVEL_UP = 60;
+
 export class Fx {
   private lunges = new Map<EntityId, Lunge>();
   private flashes = new Map<EntityId, number>();
   private strokes = new Map<EntityId, number>();
+  /** Buildings that have just gone up a tier, and when: drives the reveal glow. */
+  private levelUps = new Map<EntityId, number>();
   private slashes: Slash[] = [];
   private puffs: Puff[] = [];
   private numbers: Array<{ x: number; y: number; text: string; crit: boolean; heal: boolean; t0: number; drift: number }> = [];
@@ -85,7 +90,18 @@ export class Fx {
   apply(events: readonly FxEvent[], tick: number): void {
     for (const e of events) {
       switch (e.kind) {
-        case "attack": {
+        case "attack":
+          // Dragonfire: a roaring cone from the jaws (well above the ground,
+          // where the dragon is drawn) down onto the target.
+          if (e.def === "dragon") {
+            const side = e.tx >= e.x ? 1 : -1, mx = e.x + side * 64 * 1.1, my = e.y - 64 * 2.9;
+            for (let k = 0; k < 12; k++) {
+              const f = k / 11;
+              this.puffs.push({ x: mx + (e.tx - mx) * f, y: my + (e.ty - my) * f, t0: tick + k * 0.6, life: 16 + k, color: k < 3 ? "#fff1a8" : k < 7 ? "#ffb13b" : "#ff5a1f", n: 5 + k, size: 0.05 + f * 0.06, spread: 0.2 + f * 0.7 });
+            }
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 6, life: 30, color: "#3a2a22", n: 10, size: 0.08, spread: 0.9 });
+          }
+           {
           const dx = e.tx - e.x;
           const dy = e.ty - e.y;
           const len = Math.hypot(dx, dy) || 1;
@@ -150,6 +166,11 @@ export class Fx {
             size: 0.045,
             spread: 0.4,
           });
+          break;
+        case "levelUp":
+          this.levelUps.set(e.id, tick);
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 40, color: "#ffd86b", n: 26, size: 0.07, spread: 1.4 });
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 28, color: "#fff4c8", n: 14, size: 0.045, spread: 0.9 });
           break;
         case "chop":
           this.strokes.set(e.id, tick);
@@ -320,7 +341,16 @@ export class Fx {
   }
 
   /** Drop anything that has finished. Cheap, and keeps the lists from growing. */
+  /** 0..1 through a building's level-up reveal, or null when there is none. */
+  levelUpProgress(id: EntityId, tick: number): number | null {
+    const t0 = this.levelUps.get(id);
+    if (t0 === undefined) return null;
+    const f = (tick - t0) / LEVEL_UP;
+    return f >= 0 && f <= 1 ? f : null;
+  }
+
   prune(tick: number): void {
+    for (const [id, t0] of this.levelUps) if (tick - t0 > LEVEL_UP) this.levelUps.delete(id);
     this.slashes = this.slashes.filter((s) => tick - s.t0 <= SLASH);
     this.puffs = this.puffs.filter((p) => tick - p.t0 <= p.life);
     this.numbers = this.numbers.filter((n) => tick - n.t0 <= NUMBER);

@@ -110,7 +110,8 @@ export interface HudButton {
     | { type: "research"; id: string }
     | { type: "cancelResearch" }
     | { type: "attack" }
-    | { type: "harvest" };
+    | { type: "harvest" }
+    | { type: "ungarrison" };
 }
 
 /** Which page of the build menu a worker's command card is showing. */
@@ -649,9 +650,28 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
       if (LEVELLED[b.def]) {
         const table=LEVELLED[b.def]!;const next=table[b.level];
         if(b.upgrade) out.push({label:"Cancel Upgrade",cost:null,hotkey:"U",enabled:true,description:"Cancel the current building upgrade.",action:{type:"cancelUpgrade"}});
-        else if(next) out.push({label:"Upgrade to Level "+next.level,cost:costLine(next.cost),need:shortfall(world,player,next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:next.name+" — "+next.blurb,action:{type:"upgrade"}});
+        else if(next) {
+          // Sell the next tier: its name on the tile, its picture behind it, and
+          // exactly what it brings in the description.
+          const cur=table[b.level-1]!;const gains:string[]=[];
+          if(next.hp>cur.hp)gains.push(`+${next.hp-cur.hp} health`);
+          if(next.supply>cur.supply)gains.push(`+${next.supply-cur.supply} supply`);
+          if(b.def==="tower")gains.push("+1 archer on the platform");
+          if((next.heal??0)>(cur.heal??0))gains.push("stronger healing");
+          if((next.radius??0)>(cur.radius??0)&&b.def!=="tower")gains.push("wider reach");
+          if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
+          if((next.oilPerSecond??0)>(cur.oilPerSecond??0))gains.push("more oil");
+          if((next.trainSpeed??0)>(cur.trainSpeed??0))gains.push("faster training");
+          out.push({label:"⇧ "+next.name,cost:costLine(next.cost),need:shortfall(world,player,next.cost),hotkey:"U",enabled:world.canAfford(player,next.cost)&&!b.research,description:`Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
+        }
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
       } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
+      if (b.def === "tower") {
+        const n = b.garrison?.length ?? 0;
+        out.push({ label: n ? `Release Archers (${n})` : "Garrison", cost: null, hotkey: "R", enabled: n > 0,
+          description: n ? "Bring your archers down from the tower." : "Select archers and right-click this tower to send them up. Each one adds another bow, shooting harder and further than he could from the ground.",
+          action: { type: "ungarrison" } });
+      }
       for (const uid of d.trains) {
         const u = UNITS[uid]!;
         out.push({

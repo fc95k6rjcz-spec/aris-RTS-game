@@ -22,5 +22,9 @@ export type Command =
   | { type: "attackMove"; player: PlayerId; units: EntityId[]; x: number; y: number }
   | { type: "setRally"; player: PlayerId; building: EntityId; x: number; y: number }
   | { type: "research"; player: PlayerId; building: EntityId; upgrade: string }
-  | { type: "cancelResearch"; player: PlayerId; building: EntityId };
+  | { type: "cancelResearch"; player: PlayerId; building: EntityId }
+  /** Send archers up a watch tower. */
+  | { type: "garrison"; player: PlayerId; units: EntityId[]; building: EntityId }
+  /** Bring every garrisoned archer down from a tower. */
+  | { type: "ungarrison"; player: PlayerId; building: EntityId };
 

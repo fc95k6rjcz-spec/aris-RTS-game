@@ -567,6 +567,7 @@ export class Audio {
           break;
         case "battleRally":
         case "crowned":
+        case "levelUp":
           this.play("crown", vol);
           break;
         case "chop":

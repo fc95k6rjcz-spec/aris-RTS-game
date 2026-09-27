@@ -48,6 +48,8 @@ export interface Unit {
   buildQueue?: EntityId[];
   /** A work pause followed by a short walk to the next part of the structure. */
   constructionWork?: { building: EntityId; ticks: number; travel: number; target?: [number, number] };
+  /** Walking to a watch tower to climb up and shoot from it. */
+  enterTower?: EntityId;
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */
@@ -96,6 +98,8 @@ export interface Building {
   research: { id: string; toLevel: number; remaining: number; total: number } | null;
   /** Workers currently applying construction this tick (for the renderer / progress rate). */
   builders: number;
+  /** Archers who have climbed a watch tower. Stored off the map while inside. */
+  garrison?: Array<{ def: string; hp: number; maxHp: number }>;
 }
 
 export type Entity = Unit | Building;
