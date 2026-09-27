@@ -50,6 +50,8 @@ export interface Unit {
   constructionWork?: { building: EntityId; ticks: number; travel: number; target?: [number, number] };
   /** Walking to a watch tower to climb up and shoot from it. */
   enterTower?: EntityId;
+  /** One of the Orc Horde: what it was sent to do, to whom, and where it came from. */
+  horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean };
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */

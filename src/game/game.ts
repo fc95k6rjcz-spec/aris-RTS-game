@@ -9,7 +9,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
+import { Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -320,7 +320,7 @@ export class Game {
     }
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
-    if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
+    if (wild) w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
     w.spawnWanderers();
     w.updateVision(true);
     return w;
@@ -460,6 +460,7 @@ export class Game {
       this.audio.play("crown", 0.8);
     }
     this.renderer.noteAttacks(this.world.fx);
+    if (this.world.fx.some((e) => e.kind === "alarm" && e.owner === this.player)) this.audio.play("warning");
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);
@@ -470,7 +471,7 @@ export class Game {
     });
     for (const ev of this.world.events) if (ev.player === this.player) {
       this.toast(ev.text, ev.level);
-      if (ev.text === NO_STORE_LINE) this.callouts.say(ev.text);
+      if (ev.text === NO_STORE_LINE || ev.text === LOW_MINE_LINE || ev.text.startsWith("Orc scouts are watching")) this.callouts.say(ev.text);
     }
     const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
       if(u.owner !== this.player) return false;

@@ -673,6 +673,42 @@ export class GameMap {
       m.secret = { x: sx, y: sy, found: false };
       break;
     }
+    // More gold out in the world. The home mine runs dry, so there has to be
+    // somewhere to go next: one expansion mine a fair walk from every seat,
+    // and rich seams scattered through the wild country, where holding one is
+    // worth a fight.
+    {
+      const placed: Array<{ x: number; y: number }> = [];
+      const fits = (tx: number, ty: number): boolean => {
+        for (let y = -1; y <= 3; y++)
+          for (let x = -1; x <= 3; x++) {
+            if (!m.inBounds(tx + x, ty + y)) return false;
+            const t = m.get(tx + x, ty + y);
+            if (t !== Tile.Grass && t !== Tile.Dirt && t !== Tile.Tree) return false;
+            if (m.occupant[m.idx(tx + x, ty + y)] !== 0) return false;
+          }
+        return !placed.some((p) => Math.hypot(p.x - tx, p.y - ty) < 12);
+      };
+      const lay = (tx: number, ty: number, each: number) => {
+        for (let y = -1; y <= 3; y++) for (let x = -1; x <= 3; x++) { m.set(tx + x, ty + y, Tile.Grass); m.amount[m.idx(tx + x, ty + y)] = 0; }
+        for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) { m.set(tx + x, ty + y, Tile.Gold); m.amount[m.idx(tx + x, ty + y)] = each; }
+        placed.push({ x: tx, y: ty });
+      };
+      for (const seat of m.starts) {
+        for (let k = 0; k < 300; k++) {
+          const a = rng.next() * Math.PI * 2, d = 17 + rng.int(8);
+          const tx = Math.round(seat.x + Math.cos(a) * d), ty = Math.round(seat.y + Math.sin(a) * d);
+          if (m.starts.some((o) => o !== seat && Math.hypot(o.x - tx, o.y - ty) < d + 6)) continue;
+          if (fits(tx, ty)) { lay(tx, ty, 2200); break; }
+        }
+      }
+      const wildMines = Math.max(3, Math.round((width * height) / 1900));
+      for (let k = 0, tries = 0; k < wildMines && tries < 3000; tries++) {
+        const tx = 3 + rng.int(width - 7), ty = 3 + rng.int(height - 7);
+        if (m.starts.some((o) => Math.hypot(o.x - tx, o.y - ty) < 20)) continue;
+        if (fits(tx, ty)) { lay(tx, ty, 3000); k++; }
+      }
+    }
     // Oil seeps. One a fair walk out from every seat -- far enough that it is a
     // second base to hold, near enough to be yours -- and more out in the wild
     // country, where the fighting over them happens.

@@ -114,6 +114,20 @@ const BEAST_RANGE = 9;
 const DRAGON_FIRST = 6 * 60;
 const DRAGON_GAP = 4 * 60;
 const DRAGON_RAID = 150;
+/** The Orc Horde's timetable, in seconds: scouts, then raids, then the warhost. */
+const HORDE_SCOUTS = 4 * 60;
+const HORDE_SCOUT_GAP = 150;
+const HORDE_RAIDS = 10 * 60;
+const HORDE_RAID_GAP = 200;
+const HORDE_HOST = 30 * 60;
+const HORDE_RAID_GAP_LATE = 140;
+
+/** "north-east" for a tile offset (y grows southward). */
+function compassFrom(dx: number, dy: number): string {
+  const a = Math.atan2(-dy, dx);
+  const names = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"];
+  return names[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]!;
+}
 
 /** A farm yields this much food, this often. */
 const FARM_FOOD = 10;
@@ -159,7 +173,9 @@ export type FxEvent =
   | { kind: "battleRally"; x: number; y: number; owner: PlayerId }
   | { kind: "crowned"; x: number; y: number; owner: PlayerId }
   /** A building finished an upgrade: the moment the new tier is revealed. */
-  | { kind: "levelUp"; id: EntityId; x: number; y: number; def: string; level: number; owner: PlayerId };
+  | { kind: "levelUp"; id: EntityId; x: number; y: number; def: string; level: number; owner: PlayerId }
+  /** A threat seen coming: flashes on that player's map and minimap. */
+  | { kind: "alarm"; x: number; y: number; owner: PlayerId };
 
 /**
  * The whole game state. `step()` advances exactly one tick given the commands
@@ -178,6 +194,10 @@ const TOWER_ARROW_DAMAGE = 23;
 
 /** What a worker says when told to gather with no Town Hall (or mill/depot) to take it to. */
 export const NO_STORE_LINE = "I don't have anywhere to store that, sir.";
+/** What the miners say when a seam is nearly worked out. */
+export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from this mine.";
+/** Gold left in a seam when the miners start to worry. */
+const LOW_MINE_GOLD = 1500;
 
 export class World {
   tick = 0;
@@ -483,6 +503,12 @@ export class World {
   private readonly grinding = new Map<number, number>();
   /** Where each wild animal was born, so it has somewhere to wander around. */
   patrolsEnabled = false;
+  /** The Orc Horde scouts, raids and finally invades. On for every normal match. */
+  hordeEnabled = true;
+  /** Mines whose crews have already warned they are nearly worked out. */
+  readonly warnedMines = new Set<number>();
+  /** How many Horde raids have been sent so far: each one is bigger. */
+  hordeRaids = 0;
   /** Dragons arrive in the wild mid-game and raid settlements. On for every normal match. */
   dragonsEnabled = true;
 
@@ -551,6 +577,117 @@ export class World {
       for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, "A DRAGON has come to the realm — guard your towns");
       return;
     }
+  }
+
+  /**
+   * The Orc Horde.
+   *
+   * Out past the edge of the map is an enemy nobody can reach, and it is
+   * coming. First its scouts: a pair of grunts who find your town, look it
+   * over and run back to report. Then raids, a bigger war band every few
+   * minutes, sent at each settlement in turn -- the computer's as much as
+   * yours. At the half-hour the Horde itself arrives: a warhost at every gate.
+   * Every sighting is shouted, and flashes where they are coming from.
+   */
+  private stepHordeArrivals(): void {
+    if (!this.hordeEnabled || !this.players.has(WILD)) return;
+    const t = this.tick, S = TICKS_PER_SECOND;
+    const seats = [...this.players.keys()].filter((p) => p !== WILD && this.buildings().some((b) => b.owner === p));
+    if (!seats.length) return;
+    const pick = (n: number) => seats[n % seats.length]!;
+    if (t >= HORDE_SCOUTS * S && (t - HORDE_SCOUTS * S) % (HORDE_SCOUT_GAP * S) === 0) {
+      const n = Math.floor((t - HORDE_SCOUTS * S) / (HORDE_SCOUT_GAP * S));
+      this.sendHorde(pick(n), "scout", ["grunt", "grunt"], "Orc scouts sighted");
+    }
+    if (t === HORDE_HOST * S) {
+      for (const p of seats) {
+        const host = Array.from({ length: 16 }, (_, i) => (i % 4 === 3 ? "direwolf" : "grunt"));
+        this.sendHorde(p, "raid", host, "THE HORDE IS HERE — a warhost marches");
+      }
+      return;
+    }
+    const gap = (t > HORDE_HOST * S ? HORDE_RAID_GAP_LATE : HORDE_RAID_GAP) * S;
+    if (t >= HORDE_RAIDS * S && (t - HORDE_RAIDS * S) % gap === 0) {
+      const n = this.hordeRaids++;
+      const size = Math.min(16, 3 + n * 2);
+      const band = Array.from({ length: size }, (_, i) => (i % 5 === 4 ? "direwolf" : "grunt"));
+      this.sendHorde(pick(n), "raid", band, "An Orc war band approaches");
+    }
+  }
+
+  /** Bring a Horde party in over the map edge furthest from everyone, aimed at one player. */
+  private sendHorde(target: PlayerId, role: "scout" | "raid", defs: string[], shout: string): void {
+    const home = this.buildings().find((b) => b.owner === target && b.def === "townhall") ?? this.buildings().find((b) => b.owner === target);
+    if (!home) return;
+    const hc = centerOf(home);
+    const hx = Math.floor(hc.x / SUB), hy = Math.floor(hc.y / SUB);
+    const W = this.map.width, H = this.map.height;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let k = 0; k < 60; k++) {
+      const side = this.rng.int(4), along = 2 + this.rng.int((side % 2 ? H : W) - 4);
+      const x = side === 0 ? along : side === 1 ? W - 2 : side === 2 ? along : 1;
+      const y = side === 0 ? 1 : side === 1 ? along : side === 2 ? H - 2 : along;
+      if (!this.map.isWalkable(x, y, "land")) continue;
+      const near = Math.min(...this.map.starts.map((st) => Math.hypot(st.x - x, st.y - y)));
+      if (near < 22) continue;
+      const d = Math.hypot(x - hx, y - hy);
+      // Far from everybody, but not the far side of the world from the target.
+      const score = near - Math.max(0, d - W * 0.75);
+      if (best && score <= best.d) continue;
+      if (!this.map.connected(x, y, hx, hy + Math.ceil(home.size / 2) + 1, "land") && !this.map.connected(x, y, hx, hy - Math.ceil(home.size / 2) - 1, "land")) continue;
+      best = { x, y, d: score };
+    }
+    if (!best) return;
+    const at = { x: (best.x + 0.5) * SUB, y: (best.y + 0.5) * SUB };
+    defs.forEach((def, i) => {
+      const u = this.spawnUnit(WILD, def, { x: at.x + ((i % 4) - 1.5) * SUB * 0.8, y: at.y + (Math.floor(i / 4) - 1) * SUB * 0.8 });
+      u.horde = { role, target, home: { ...at } };
+      u.patrolHome = { ...at };
+    });
+    const dir = compassFrom(best.x - hx, best.y - hy);
+    this.emit(target, `${shout} — from the ${dir}!`);
+    this.fx.push({ kind: "alarm", x: at.x, y: at.y, owner: target });
+  }
+
+  /** One Horde fighter's turn: fight what is near, otherwise do the job it was sent for. */
+  private stepHorde(u: Unit): void {
+    if ((this.tick + u.id) % 10 !== 0) return;
+    const h = u.horde!;
+    if (u.task.kind === "attack" && this.entities.has(u.task.target)) return;
+    const foe = this.findTarget(u, (h.role === "scout" ? 3.5 : 7) * SUB);
+    if (foe) { u.task = { kind: "attack", target: foe.id }; return; }
+    const theirs = this.buildings().filter((b) => b.owner === h.target);
+    if (h.role === "scout") {
+      if (!h.spotted) {
+        const near = theirs.some((b) => Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < 9 * SUB);
+        if (near) { h.spotted = true; this.emit(h.target, "Orc scouts are watching your town!"); this.fx.push({ kind: "alarm", x: u.pos.x, y: u.pos.y, owner: h.target }); }
+        else if (u.task.kind !== "move" || u.path.length === 0) {
+          const hall = theirs.find((b) => b.def === "townhall") ?? theirs[0];
+          if (!hall) { h.spotted = true; return; }
+          const c = centerOf(hall);
+          this.pathTo(u, Math.floor(c.x / SUB) + 5, Math.floor(c.y / SUB) + 5, true);
+          u.task = { kind: "move", target: c };
+        }
+        return;
+      }
+      // Seen enough: back over the edge to tell the warchief.
+      if (Math.hypot(u.pos.x - h.home.x, u.pos.y - h.home.y) < 3 * SUB) { this.removeEntity(u.id); return; }
+      if (u.task.kind !== "move" || u.path.length === 0) {
+        this.pathTo(u, Math.floor(h.home.x / SUB), Math.floor(h.home.y / SUB), true);
+        u.task = { kind: "move", target: { ...h.home } };
+      }
+      return;
+    }
+    // A raid goes for the nearest thing its target has built; with that gone,
+    // for anyone's.
+    if (u.task.kind === "attackMove" && u.path.length > 0) return;
+    const pool = theirs.length ? theirs : this.buildings().filter((b) => b.owner !== WILD);
+    let best: Building | null = null, bd = Infinity;
+    for (const b of pool) { const c = centerOf(b); const d = Math.hypot(c.x - u.pos.x, c.y - u.pos.y); if (d < bd) { bd = d; best = b; } }
+    if (!best) return;
+    const c = centerOf(best);
+    u.task = { kind: "attackMove", target: c };
+    this.pathTo(u, best.tx + Math.floor(best.size / 2), best.ty + best.size, true);
   }
 
   isSheltered(u: Unit): boolean {
@@ -808,6 +945,7 @@ export class World {
    * an animal with a patch of country it considers its own.
    */
   private stepBeast(u: Unit): void {
+    if (u.horde) { this.stepHorde(u); return; }
     const def = UNITS[u.def]!;
     if (u.def === "barbarian" || u.def === "grunt") { this.stepBarbarian(u); return; }
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
@@ -1456,6 +1594,57 @@ export class World {
     }
   }
 
+  /**
+   * A gold mine is one seam, not nine separate rocks.
+   *
+   * Each tile of a mine used to run dry on its own and turn to boulders, so a
+   * worked mine became a ring of grey rocks round a centre tile nobody could
+   * reach -- with its gold still in it. Now a face that runs dry is refilled
+   * from the rest of the seam, and only when the whole mine is empty does it
+   * collapse, all at once, into open ground.
+   */
+  private drainMine(tx: number, ty: number, owner: PlayerId): void {
+    const map = this.map;
+    const seam: number[] = [];
+    const seen = new Set<number>([map.idx(tx, ty)]);
+    const q: Array<[number, number]> = [[tx, ty]];
+    while (q.length) {
+      const [x, y] = q.pop()!;
+      seam.push(map.idx(x, y));
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (!map.inBounds(nx, ny)) continue;
+        const ni = map.idx(nx, ny);
+        if (seen.has(ni) || map.get(nx, ny) !== Tile.Gold) continue;
+        seen.add(ni);
+        q.push([nx, ny]);
+      }
+    }
+    const here = map.idx(tx, ty);
+    let total = 0;
+    for (const k of seam) total += map.amount[k]!;
+    const key = Math.min(...seam);
+    if (total > 0 && total < LOW_MINE_GOLD && !this.warnedMines.has(key)) {
+      this.warnedMines.add(key);
+      this.emit(owner, LOW_MINE_LINE);
+    }
+    let donor = -1;
+    for (const k of seam) if (k !== here && map.amount[k]! > 0 && (donor < 0 || map.amount[k]! > map.amount[donor]!)) donor = k;
+    if (donor >= 0) {
+      // Move a good share across so this face keeps working a while.
+      const moved = Math.min(map.amount[donor]!, Math.max(200, Math.floor(map.amount[donor]! / 2)));
+      map.amount[donor]! -= moved;
+      map.amount[here] = moved;
+      return;
+    }
+    // The seam is spent: the whole mine caves in to bare ground.
+    for (const k of seam) {
+      map.amount[k] = 0;
+      map.set(k % map.width, Math.floor(k / map.width), Tile.Dirt);
+    }
+    this.emit(owner, "The gold mine has run dry — find another seam");
+  }
+
   /** An archer on his way up a tower: climb in when he reaches its foot. */
   private tryEnterTower(u: Unit): boolean {
     const b = this.entities.get(u.enterTower!);
@@ -1561,6 +1750,7 @@ export class World {
     this.stepLatecomers();
     this.stepPatrols();
     this.stepDragons();
+    this.stepHordeArrivals();
     this.stepWanderers();
     this.stepShelters();
     this.decayPaths();
@@ -2343,10 +2533,11 @@ export class World {
             const take = Math.min(capacity - held, this.map.amount[i]!);
             this.map.amount[i]! -= take;
             if (this.map.amount[i]! <= 0) {
-              // Trees are felled; gold mines become rock when exhausted.
-              this.map.set(t.tx, t.ty, t.resource === "lumber" ? Tile.Grass : Tile.Rock);
-              // Leave the stump, so the wood shows where it has been worked.
-              if (t.resource === "lumber") this.map.felled[i] = 1;
+              if (t.resource === "lumber") {
+                // Trees are felled; leave the stump, so the wood shows where it has been worked.
+                this.map.set(t.tx, t.ty, Tile.Grass);
+                this.map.felled[i] = 1;
+              } else this.drainMine(t.tx, t.ty, u.owner);
             }
             u.carrying = { resource: t.resource, amount: held + take };
             // A tree contains 40 wood: finish the load from another tree instead
@@ -2549,7 +2740,9 @@ export class World {
           if (!this.paved(u.owner)) speed *= 1 - (this.map.mud[i0]! / 255) * MUD_PENALTY;
           // And walking it wears it further. Capped, so a path becomes a path
           // and not a motorway.
-          this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);
+          // Animals and raiders do not beat roads: a deer grazing back and
+          // forth left lone worn patches that showed up as stray brown dots.
+          if (u.owner !== WILD) this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);
         }
       }
     }

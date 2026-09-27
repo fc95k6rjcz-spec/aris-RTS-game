@@ -701,7 +701,9 @@ export class Renderer {
     const now = performance.now();
     this.attackPings = this.attackPings.filter((p) => now - p.at < ATTACK_PING_MS);
     for (const e of events) {
-      if (e.kind !== "hit" || e.owner !== this.viewer || e.attackerOwner === this.viewer || e.x === undefined || e.y === undefined) continue;
+      const alarm = e.kind === "alarm" && e.owner === this.viewer;
+      if (!alarm && (e.kind !== "hit" || e.owner !== this.viewer || e.attackerOwner === this.viewer)) continue;
+      if (e.x === undefined || e.y === undefined) continue;
       const near = this.attackPings.find((p) => Math.hypot(p.x - e.x!, p.y - e.y!) < SUB * 7);
       if (near) { if (now - near.at > ATTACK_PING_MS * 0.6) { near.at = now; near.x = e.x; near.y = e.y; } continue; }
       this.attackPings.push({ x: e.x, y: e.y, at: now });
@@ -784,6 +786,10 @@ export class Renderer {
         const i = map.idx(x, y);
         const w = map.wear[i]!;
         if (w < 18 || map.isHidden(x, y)) continue;
+        // A lone worn tile is not a path, it is a smudge: only draw wear that
+        // joins up with a neighbour.
+        const joined = (x > 0 && map.wear[i - 1]! >= 18) || (x < map.width - 1 && map.wear[i + 1]! >= 18) || (y > 0 && map.wear[i - map.width]! >= 18) || (y < map.height - 1 && map.wear[i + map.width]! >= 18);
+        if (!joined) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
         const g = groundFor(w, map.mud[i]!, paved, rain);
