@@ -57,6 +57,9 @@ const TILE_COLORS: Record<number, string> = {
  * Canvas 2D renderer. Everything is drawn procedurally so the project has no
  * art dependencies yet; swap in sprite sheets later without touching the sim.
  */
+/** How long an attack alert pulses, in milliseconds. */
+const ATTACK_PING_MS = 4000;
+
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
   /** Previous-tick unit positions for interpolation. */
@@ -177,6 +180,7 @@ export class Renderer {
     // Keep visible people readable over the atmospheric terrain wash. The
     // visibility filter above still hides enemies outside our actual sight.
     for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
+    this.drawAttackPings();
     this.drawProjectiles();
     this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
     if (ghost) this.drawGhost(ghost);
@@ -685,6 +689,43 @@ export class Renderer {
       }
     }
     ctx.restore();
+  }
+
+  /**
+   * Attack alerts. Fed from the sim's hit events: anything of yours struck by
+   * someone else. One ping per patch of ground every few seconds, so a long
+   * fight is one pulsing alarm rather than a hundred.
+   */
+  private attackPings: Array<{ x: number; y: number; at: number }> = [];
+  noteAttacks(events: readonly { kind: string; owner?: number; attackerOwner?: number; x?: number; y?: number }[]): void {
+    const now = performance.now();
+    this.attackPings = this.attackPings.filter((p) => now - p.at < ATTACK_PING_MS);
+    for (const e of events) {
+      if (e.kind !== "hit" || e.owner !== this.viewer || e.attackerOwner === this.viewer || e.x === undefined || e.y === undefined) continue;
+      const near = this.attackPings.find((p) => Math.hypot(p.x - e.x!, p.y - e.y!) < SUB * 7);
+      if (near) { if (now - near.at > ATTACK_PING_MS * 0.6) { near.at = now; near.x = e.x; near.y = e.y; } continue; }
+      this.attackPings.push({ x: e.x, y: e.y, at: now });
+    }
+  }
+
+  /** Red rings pulsing on the ground where you are being hit. */
+  private drawAttackPings(): void {
+    const ctx = this.ctx, now = performance.now(), s = this.cam.zoom;
+    for (const pg of this.attackPings) {
+      const age = (now - pg.at) / ATTACK_PING_MS;
+      if (age > 1) continue;
+      const p = this.cam.toScreen(pg.x, pg.y);
+      ctx.save();
+      for (const lag of [0, 0.5]) {
+        const a = (age * 2.5 + lag) % 1;
+        ctx.strokeStyle = `rgba(255,50,40,${(1 - a) * 0.85 * (1 - age * 0.5)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + s * 0.3, s * (0.6 + a * 2.2), s * (0.25 + a * 0.95), 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   /** Tar-dark seeps where oil comes up through the ground: where oil rigs go. */
@@ -2160,6 +2201,24 @@ export class Renderer {
       if (v && u.owner !== this.viewer && !v.seesPoint(u.pos.x, u.pos.y)) continue;
       ctx.fillStyle = this.world.players.get(u.owner)!.color;
       ctx.fillRect(x + (u.pos.x / SUB) * sx - 1, y + (u.pos.y / SUB) * sy - 1, 2, 2);
+    }
+    // Where you are being hit: expanding red rings, so a glance at the corner
+    // tells you where the fight is.
+    const now = performance.now();
+    for (const pg of this.attackPings) {
+      const age = (now - pg.at) / ATTACK_PING_MS;
+      if (age > 1) continue;
+      const px = x + (pg.x / SUB) * sx, py = y + (pg.y / SUB) * sy;
+      for (const lag of [0, 0.33]) {
+        const a = ((age * 3 + lag) % 1);
+        ctx.strokeStyle = `rgba(255,60,50,${(1 - a) * (1 - age * 0.6)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 3 + a * 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = `rgba(255,70,60,${0.6 + 0.4 * Math.sin(now / 90)})`;
+      ctx.fillRect(px - 2, py - 2, 4, 4);
     }
     // Your own weapon is marked, always, fog or no fog. He is walking to his
     // own destiny: the game is waiting on him reaching it, and a player who

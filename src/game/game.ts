@@ -459,6 +459,7 @@ export class Game {
       this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
       this.audio.play("crown", 0.8);
     }
+    this.renderer.noteAttacks(this.world.fx);
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);
@@ -476,7 +477,7 @@ export class Game {
       const p=this.cam.toScreen(u.pos.x,u.pos.y);
       return p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH;
     }));
-    if(line) { this.toast(line,"info"); if(line === "We are under attack!") this.audio.play("warning"); }
+    if(line) { const alarm = line === "We are under attack!"; this.toast(line, alarm ? "error" : "info"); if (alarm) this.audio.play("warning"); }
     // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
     for (const [n, ids] of this.controlGroups) {
