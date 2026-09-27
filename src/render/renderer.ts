@@ -1085,7 +1085,8 @@ export class Renderer {
     const s = this.cam.zoom;
     const t = this.world.tick;
     for (const r of this.world.relics) {
-      if (r.taken || r.owner !== this.viewer) continue;
+      // Your own weapon, or any realm sword out in the open.
+      if (r.taken || (r.owner !== this.viewer && r.owner !== 0)) continue;
       const v = this.world.vision.get(this.viewer);
       if (this.world.fogEnabled && v && v.at(r.x, r.y) !== VISIBLE) continue;
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
@@ -1133,7 +1134,7 @@ export class Renderer {
    * still the walk.
    */
   private drawRelicPointer(viewH: number): void {
-    const r = this.world.relics.find((x) => !x.taken && x.owner === this.viewer);
+    const r = this.world.relicFor(this.viewer);
     if (!r) return;
     const ctx = this.ctx;
     const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
@@ -2251,8 +2252,8 @@ export class Renderer {
     // cannot find the thing the game is waiting on has no game at all. Where it
     // lies is knowledge his own people would have; what is between him and it is
     // not, and that stays dark.
-    for (const r of this.world.relics) {
-      if (r.taken || r.owner !== this.viewer) continue;
+    for (const r of [this.world.relicFor(this.viewer)]) {
+      if (!r) continue;
       const pulse = 0.6 + 0.4 * Math.sin(this.world.tick * 0.09);
       ctx.fillStyle = `rgba(255,226,140,${pulse})`;
       ctx.beginPath();

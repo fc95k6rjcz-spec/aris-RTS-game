@@ -11,7 +11,7 @@ for(const e of [...w.entities.values()])if(e.owner===b)w.removeEntity(e.id);
 assert(!w.seatAlive(b));
 w.step([{type:'restartSeat',player:b}]);
 assert(w.seatAlive(b));assert.equal(w.realmSeats.get('B'),b);
-assert.equal(w.units().filter(u=>u.owner===b).length,3);assert(!w.buildings().some(x=>x.owner===b));
+assert.equal(w.units().filter(u=>u.owner===b).length,1);assert(w.relicFor(b),'a sword to find');assert(!w.buildings().some(x=>x.owner===b));
 // a returning player's claim does not reset a living kingdom
-assert.equal(w.claimSeat('B'),b);assert.equal(w.units().filter(u=>u.owner===b).length,3);
+assert.equal(w.claimSeat('B'),b);assert.equal(w.units().filter(u=>u.owner===b).length,1);assert(w.relicFor(b),'a sword to find');
 console.log('PASS: fallen player restarts with the same banner as a new camp');

@@ -614,9 +614,10 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         const d = BUILDINGS[id]!;
         const royal = builders.some(u => !!UNITS[u.def]!.royal);
         const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
-        const afford = world.canAfford(player, d.cost);
+        const price = world.buildCost(player, id);
+        const afford = world.canAfford(player, price);
         const nm = buildingName(id, faction);
-        const need = missing ? undefined : shortfall(world, player, d.cost);
+        const need = missing ? undefined : shortfall(world, player, price);
         const why = missing
           ? `Requires ${buildingName(missing, faction)}.`
           : need
@@ -624,7 +625,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
             : "";
         return {
           label: nm,
-          cost: costLine(d.cost),
+          cost: price.gold === 0 && price.lumber === 0 && d.cost.gold > 0 ? "FREE" : costLine(price),
           need,
           hotkey: d.hotkey,
           enabled: !missing && afford,

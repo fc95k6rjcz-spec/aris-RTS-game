@@ -1597,6 +1597,8 @@ export class Game {
     w.realm = true;
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
     w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
+    // Swords all over the realm, for anyone who arrives without a King.
+    w.scatterSwords(Math.max(10, Math.round((n * n) / 1600)));
     w.updateVision(true);
     return w;
   }
@@ -1608,9 +1610,13 @@ export class Game {
     this.start("none");
     this.realmSavedAt = performance.now();
     const hall = this.world.buildings().find((b) => b.owner === this.player && b.def === "townhall");
-    const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal);
+    const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal) ?? this.world.units().find((u) => u.owner === this.player);
     if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
     else if (king) this.cam.centerOn(king.pos.x, king.pos.y);
+    if (this.world.relicFor(this.player)) {
+      this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
+      this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Find it, and be crowned.", 8000);
+    }
     this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
     this.fallenShown = false;
     if (this.world.buildings().some((b) => b.owner === this.player)) {
@@ -1624,12 +1630,12 @@ export class Game {
   /** Every second in the realm: has our kingdom fallen, and has a new camp arrived to look at? */
   private watchRealmSeat(): void {
     if (this.recenterOnKing) {
-      const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal);
+      const king = this.world.units().find((u) => u.owner === this.player);
       if (king) {
         this.recenterOnKing = false;
         this.cam.centerOn(king.pos.x, king.pos.y);
         this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
-        this.proclaim("A NEW BEGINNING", "Find good ground by gold, and found your hall.", 5000);
+        this.proclaim("A NEW BEGINNING", "One man, one weapon in the ground. Find it, and be crowned again.", 6000);
       }
       return;
     }
@@ -1989,7 +1995,7 @@ export class Game {
     const alert = this.message && performance.now() < this.message.until ? { text: this.message.text, level: this.message.level } : null;
     const banner = mode ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
 
-    const relic = this.world.relics.find((r) => r.owner === this.player && !r.taken);
+    const relic = this.world.relicFor(this.player);
     let objective: { title: string; line: string } | null = null;
     if (relic && this.world.winner === null) {
       const man = selUnits[0] ?? this.world.units().find((u) => u.owner === this.player) ?? null;
@@ -1999,7 +2005,7 @@ export class Game {
         const dy = relic.y + 0.5 - man.pos.y / SUB;
         objective = {
           title: `FIND YOUR ${weapon.toUpperCase()}`,
-          line: `No king, no hall — until he takes it up. It lies ${Math.round(Math.hypot(dx, dy))} paces to the ${compass(dx, dy)}.`,
+          line: `No king, no hall — until one of your people takes up a sword. ${relic.owner === 0 ? "The nearest" : "It"} lies ${Math.round(Math.hypot(dx, dy))} paces to the ${compass(dx, dy)}.`,
         };
       }
     }

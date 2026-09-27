@@ -537,6 +537,8 @@ export class World {
    */
   realm = false;
   readonly realmSeats = new Map<string, PlayerId>();
+  /** Clans that have ever raised a Town Hall: their next one is free if it falls. */
+  readonly hallsBuilt = new Set<PlayerId>();
   /** Mines whose crews have already warned they are nearly worked out. */
   readonly warnedMines = new Set<number>();
   /** How many Horde raids have been sent so far: each one is bigger. */
@@ -639,19 +641,29 @@ export class World {
       const n = Math.floor((t - HORDE_SCOUTS * S) / (HORDE_SCOUT_GAP * S));
       this.sendHorde(pick(n), "scout", ["grunt", "grunt"], "Orc scouts sighted");
     }
-    if (t === HORDE_HOST * S) {
+    if (t === HORDE_HOST * S && !this.realm) {
       for (const p of seats) {
-        const host = Array.from({ length: 16 }, (_, i) => (i % 4 === 3 ? "direwolf" : "grunt"));
+        const host = Array.from({ length: Math.min(30, 16 + 4 * (seats.length - 1)) }, (_, i) => (i % 4 === 3 ? "direwolf" : "grunt"));
         this.sendHorde(p, "raid", host, "THE HORDE IS HERE — a warhost marches");
       }
       return;
     }
-    const gap = (t > HORDE_HOST * S ? HORDE_RAID_GAP_LATE : HORDE_RAID_GAP) * S;
+    // The more kingdoms in the realm, the harder the Horde pushes: bigger war
+    // bands, sent more often. One family in the realm is a frontier; four is
+    // a war.
+    const crowd = Math.max(1, seats.length);
+    const gap = Math.round(((t > HORDE_HOST * S ? HORDE_RAID_GAP_LATE : HORDE_RAID_GAP) * S) / (1 + 0.3 * (crowd - 1)));
     if (t >= HORDE_RAIDS * S && (t - HORDE_RAIDS * S) % gap === 0) {
       const n = this.hordeRaids++;
-      const size = Math.min(16, 3 + n * 2);
+      const target = pick(n);
+      // Sized to the town it is sent at: a new hall faces a handful, a great
+      // city an army. In a realm that runs for days this matters -- a newcomer
+      // must not meet a war band built for someone else's fortress.
+      const built = this.buildings().filter((b) => b.owner === target).length;
+      const growth = this.realm ? Math.min(16, 1 + Math.round(built * 1.1)) : Math.min(16, 3 + n * 2);
+      const size = Math.max(2, Math.min(30, Math.round(growth * (1 + 0.5 * (crowd - 1)))));
       const band = Array.from({ length: size }, (_, i) => (i % 5 === 4 ? "direwolf" : "grunt"));
-      this.sendHorde(pick(n), "raid", band, "An Orc war band approaches");
+      this.sendHorde(target, "raid", band, "An Orc war band approaches");
     }
   }
 
@@ -917,20 +929,64 @@ export class World {
     this.seatCamp(id);
   }
 
-  /** A new camp for this player: King, two workers, and the means to found a hall. */
+  /**
+   * A new arrival in the realm: one man, no King, no hall. Swords lie all over
+   * the realm; the first one his people find, he takes up and is crowned.
+   * One is always placed within a fair walk, so no arrival is hopeless.
+   */
   private seatCamp(id: PlayerId): void {
     const spot = this.freeStart();
     if (!spot) return;
-    // You arrive with your King and two workers and the means to found a hall
-    // -- where to put it is your first decision, not the map's.
-    this.homes.set(id, { x: spot.x, y: spot.y });
     const p = this.players.get(id)!;
-    p.gold = BUILDINGS.townhall!.cost.gold + 300;
-    p.lumber = BUILDINGS.townhall!.cost.lumber + 200;
-    const cx = (spot.x + 2) * SUB, cy = (spot.y + 2) * SUB;
-    this.spawnUnit(id, "king", { x: cx, y: cy });
-    this.spawnUnit(id, "worker", { x: cx - SUB, y: cy + SUB });
-    this.spawnUnit(id, "worker", { x: cx + SUB, y: cy + SUB });
+    Object.assign(p, { ...START_PURSE, research: {} });
+    for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.owner === id && !this.relics[i]!.taken) this.relics.splice(i, 1);
+    const tx = spot.x + 1, ty = spot.y + 1;
+    this.homes.set(id, { x: tx, y: ty });
+    this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
+    this.scatterSwords(1, { x: tx, y: ty });
+  }
+
+  /** Whether this clan has a King or Prince living. */
+  hasRoyal(id: PlayerId): boolean {
+    return this.units().some((u) => u.owner === id && UNITS[u.def]!.royal);
+  }
+
+  /**
+   * Lay swords in the realm: anywhere walkable, or (with `near`) a fair walk
+   * from a spot -- far enough to be a search, close enough to be found.
+   */
+  scatterSwords(count: number, near?: { x: number; y: number }): void {
+    for (let k = 0; k < count; k++) {
+      for (let attempt = 0; attempt < 300; attempt++) {
+        let x: number, y: number;
+        if (near) {
+          const a = this.rng.next() * Math.PI * 2, d = 12 + this.rng.next() * 10;
+          x = Math.round(near.x + Math.cos(a) * d); y = Math.round(near.y + Math.sin(a) * d);
+          if (!this.map.connected(near.x, near.y, x, y, "land")) continue;
+        } else {
+          x = 3 + this.rng.int(this.map.width - 6); y = 3 + this.rng.int(this.map.height - 6);
+        }
+        if (!this.map.inBounds(x, y) || !this.map.isWalkable(x, y, "land") || this.map.occupant[this.map.idx(x, y)] !== 0) continue;
+        if (this.relics.some((r) => !r.taken && Math.hypot(r.x - x, r.y - y) < 8)) continue;
+        this.relics.push({ owner: 0, faction: Faction.Human, x, y, taken: false });
+        break;
+      }
+    }
+  }
+
+  /** The sword this clan is looking for: its own, or while it has no King the nearest in the realm. */
+  relicFor(id: PlayerId): Relic | null {
+    const own = this.relics.find((r) => r.owner === id && !r.taken);
+    if (own) return own;
+    if (!this.realm || this.hasRoyal(id)) return null;
+    const people = this.units().filter((u) => u.owner === id && UNITS[u.def]!.canGather);
+    if (!people.length) return null;
+    let best: Relic | null = null, bd = Infinity;
+    for (const r of this.relics) {
+      if (r.taken || r.owner !== 0) continue;
+      for (const u of people) { const d = Math.hypot((r.x + 0.5) * SUB - u.pos.x, (r.y + 0.5) * SUB - u.pos.y); if (d < bd) { bd = d; best = r; } }
+    }
+    return best;
   }
 
   /** Whether this player still has a kingdom: a building, or someone who could raise one. */
@@ -1106,7 +1162,10 @@ export class World {
       const cx = (r.x + 0.5) * SUB;
       const cy = (r.y + 0.5) * SUB;
       for (const u of this.units()) {
-        if (u.owner !== r.owner) continue;
+        if (r.owner === 0) {
+          // A realm sword: any clan with no King may claim it, with any of its people.
+          if (u.owner === WILD || !this.players.has(u.owner) || !UNITS[u.def]!.canGather || this.hasRoyal(u.owner)) continue;
+        } else if (u.owner !== r.owner) continue;
         const dx = u.pos.x - cx;
         const dy = u.pos.y - cy;
         if (dx * dx + dy * dy > (REACH * SUB) ** 2) continue;
@@ -1118,6 +1177,8 @@ export class World {
         u.task = { kind: "idle" };
         u.carrying = null;
         this.emit(u.owner, WEAPON_OF[r.faction].taken, "info");
+        // Another sword finds its way into the realm for whoever comes next.
+        if (r.owner === 0) this.scatterSwords(1);
         this.fx.push({ kind: "crowned", x: u.pos.x, y: u.pos.y, owner: u.owner });
         this.rally(u);
         break;
@@ -1388,6 +1449,7 @@ export class World {
     };
     this.entities.set(b.id, b);
     this.map.occupy(tx, ty, d.size, b.id);
+    if (def === "townhall") this.hallsBuilt.add(owner);
     if (def === "gate") this.map.setGate(tx, ty, d.size, owner);
     return b;
   }
@@ -1449,6 +1511,17 @@ export class World {
     return false;
   }
 
+  /**
+   * What a building costs this player. The one exception to the price list:
+   * a clan whose Town Hall has been destroyed raises its next one for free.
+   * Losing your hall is a disaster; it should not also be the end.
+   */
+  buildCost(player: PlayerId, def: string): { gold: number; lumber: number; oil?: number; food?: number } {
+    const d = BUILDINGS[def]!;
+    if (def === "townhall" && this.hallsBuilt.has(player) && !this.buildings().some((b) => b.owner === player && b.def === "townhall")) return { gold: 0, lumber: 0 };
+    return d.cost;
+  }
+
   /** "Not enough — need 120 more gold, 40 more wood". */
   lacking(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): string {
     const p = this.players.get(player)!;
@@ -1491,7 +1564,7 @@ export class World {
     // in that position does. Everything else still wants its prerequisites.
     const royalLicence = builderIsRoyal && ROYAL_LICENCE.has(def);
     if (!royalLicence) for (const r of d.requires) if (!this.hasBuilding(player, r)) return `Requires ${BUILDINGS[r]!.name}`;
-    if (!this.canAfford(player, d.cost)) return this.lacking(player, d.cost);
+    if (!this.canAfford(player, this.buildCost(player, def))) return this.lacking(player, this.buildCost(player, def));
     // A gate goes into a wall: on one of your own finished wall sections.
     if (def === "gate") {
       const w = this.entities.get(this.map.inBounds(tx, ty) ? this.map.occupant[this.map.idx(tx, ty)]! : 0);
@@ -1751,7 +1824,7 @@ export class World {
           break;
         }
         const d = BUILDINGS[c.building]!;
-        this.spend(c.player, d.cost);
+        this.spend(c.player, this.buildCost(c.player, c.building));
         if (c.building === "gate") {
           const w = this.entities.get(this.map.occupant[this.map.idx(c.tx, c.ty)]!);
           if (w?.kind === "building" && w.def === "wall") this.removeEntity(w.id);
