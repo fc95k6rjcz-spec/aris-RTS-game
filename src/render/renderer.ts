@@ -1823,7 +1823,7 @@ export class Renderer {
     const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
     const src=redesignedArt(def,'build',stage);if(!src)return false;
     const image=spriteImage(src);if(!image)return false;
-    const draw=(img:HTMLImageElement)=>{const height=w*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x,y+w*1.06-height,w,height);};
+    const draw=(img:HTMLImageElement)=>{const width=w*(def==='barracks'?1.5:1),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x+(w-width)/2,y+w*1.06-height,width,height);};
     draw(image);
     const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
     if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}
@@ -1836,14 +1836,14 @@ export class Renderer {
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
     const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
-    const dw = w * scale * (b.def === "townhall" ? 1.28 : b.def === "tower" ? 1.05 : 1);
+    const dw = w * scale * (b.def === "townhall" ? 1.28 : b.def === "tower" ? 1.05 : b.def === "barracks" ? 1.5 : 1);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
     this.ctx.drawImage(sprite, x + (w - dw) / 2, y + w + w * 0.06 - dh, dw, dh);
     if(b.upgrade){
       const next=tierSprite(b.def,b.upgrade.toLevel,color,faction);
       if(next){const progress=1-b.upgrade.remaining/b.upgrade.total;
-        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*(b.def==='townhall'?1.28:b.def==='tower'?1.05:1),nextH=next.height/next.width*nextW;
+        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*(b.def==='townhall'?1.28:b.def==='tower'?1.05:b.def==='barracks'?1.5:1),nextH=next.height/next.width*nextW;
         this.ctx.save();this.ctx.beginPath();this.ctx.rect(x+(w-nextW)/2,y+w*1.06-nextH*progress,nextW,nextH*progress);this.ctx.clip();
         this.ctx.drawImage(next,x+(w-nextW)/2,y+w*1.06-nextH,nextW,nextH);this.ctx.restore();
       }

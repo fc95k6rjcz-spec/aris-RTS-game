@@ -571,7 +571,7 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
 
 export function artFor(faction: string, def: string): Drawer | undefined {
   const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
-  if(redesigned)return a=>{paintedCamp(a,redesigned,1);};
+  if(redesigned)return a=>{paintedCamp(a,redesigned,def==='barracks'?1.5:1);};
   return (FACTION_ART[faction] ?? HUMAN_ART)[def];
 }
 
