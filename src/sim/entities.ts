@@ -110,6 +110,8 @@ export interface Building {
   builders: number;
   /** Archers who have climbed a watch tower. Stored off the map while inside. */
   garrison?: Array<{ def: string; hp: number; maxHp: number }>;
+  /** What was actually paid to place it (a replacement Town Hall is free), refunded on cancel. */
+  paid?: { gold: number; lumber: number; oil?: number; food?: number };
   /** Watch towers: a great harpoon ballista mounted on top. Dragons will not come near one. */
   dragonbane?: boolean;
 }

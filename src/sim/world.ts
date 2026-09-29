@@ -2009,12 +2009,17 @@ export class World {
           break;
         }
         const d = BUILDINGS[c.building]!;
-        this.spend(c.player, this.buildCost(c.player, c.building));
+        const paid = this.buildCost(c.player, c.building);
+        this.spend(c.player, paid);
         if (c.building === "gate") {
           const w = this.entities.get(this.map.occupant[this.map.idx(c.tx, c.ty)]!);
-          if (w?.kind === "building" && w.def === "wall") this.removeEntity(w.id);
+          if (w?.kind === "building" && w.def === "wall") {
+            this.releaseGarrison(w);
+            this.removeEntity(w.id);
+          }
         }
         const b = this.placeBuilding(c.player, c.building, c.tx, c.ty)!;
+        b.paid = paid;
         this.fx.push({ kind: "buildStart", x: (c.tx + b.size / 2) * SUB, y: (c.ty + b.size / 2) * SUB, def: b.def });
         for (const u of workers) {
           u.moveQueue = [];
@@ -2193,7 +2198,7 @@ export class World {
       case "cancelBuild": {
         const b = this.entities.get(c.building);
         if (!b || b.kind !== "building" || b.owner !== c.player || b.complete) break;
-        this.refund(c.player, BUILDINGS[b.def]!.cost, CANCEL_REFUND);
+        this.refund(c.player, b.paid ?? BUILDINGS[b.def]!.cost, CANCEL_REFUND);
         this.removeEntity(b.id);
         break;
       }
@@ -2946,10 +2951,14 @@ export class World {
       // The wild does not win wars. Counting it kept every match alive forever,
       // because there was always one more bear in the woods.
       if (p === WILD) continue;
+      // Workers only count while there is a King or heir to found a hall for
+      // them; kingless workers with no buildings can never do anything again.
+      let royal = false;
+      for (const e of this.entities.values()) if (e.owner === p && e.kind === "unit" && UNITS[e.def]!.royal) { royal = true; break; }
       let has = false;
       for (const e of this.entities.values()) {
         if (e.owner !== p) continue;
-        if (e.kind === "building" || (e.kind === "unit" && UNITS[e.def]!.canBuild)) {
+        if (e.kind === "building" || (e.kind === "unit" && UNITS[e.def]!.canBuild && royal)) {
           has = true;
           break;
         }

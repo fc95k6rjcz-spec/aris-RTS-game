@@ -593,6 +593,9 @@ export class Game {
     if (this.menu) return;
     const other = [...this.world.players.keys()].find((p) => !this.world.allied(p, this.player) && p !== WILD);
     this.world.winner = other ?? null;
+    // Online, say goodbye: otherwise the other side's lockstep waits forever for
+    // turns that will never come, instead of hearing that we left.
+    if (this.transport) this.net.close();
     this.setPaused(false);
     this.surrenderRect = null;
     this.selected.clear();

@@ -18,7 +18,7 @@ import { upgradesFor } from "../data/upgrades";
 import { UNITS } from "../data/units";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
-import { wallTierCost } from "../sim/world";
+import { wallTierCost, WILD } from "../sim/world";
 import { SUB, Tile, type PlayerId } from "../sim/types";
 import type { World } from "../sim/world";
 import { findPath } from "../sim/pathfinding";
@@ -563,8 +563,13 @@ export class SkirmishAI {
       .buildings()
       .filter((b) => b.owner !== this.player)
       .sort((a, b) => a.id - b.id)[0];
-    if (!enemy) return;
-    const c = centerOf(enemy);
+    // Nothing left standing: hunt down whoever survives rather than idle at home.
+    const straggler = enemy ? undefined : this.world
+      .units()
+      .filter((u) => u.owner !== this.player && u.owner !== WILD && !this.world.allied(u.owner, this.player))
+      .sort((a, b) => a.id - b.id)[0];
+    if (!enemy && !straggler) return;
+    const c = enemy ? centerOf(enemy) : straggler!.pos;
     // If the warband cannot walk there, it has to cut its way out first. On a
     // walled start the opponent is fenced into its own timber exactly as the
     // player is, and an army that could not reach anything simply milled about
