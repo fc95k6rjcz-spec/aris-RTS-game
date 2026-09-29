@@ -949,6 +949,49 @@ export class World {
     this.homes.set(id, { x: tx, y: ty });
     this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
     this.scatterSwords(1, { x: tx, y: ty });
+    this.clearBeastsFrom(tx + 1, ty + 1);
+  }
+
+  /**
+   * Move biting animals off a fresh camp's doorstep.
+   *
+   * Wildlife is only kept clear of the map's fixed seats, but realm camps are
+   * placed beside gold seams anywhere on the map -- so a newcomer's lone man
+   * could arrive inside a wolf's patch and die before he took a step. Any
+   * wolf or bear whose ground reaches the camp is walked out along the same
+   * line to a lair far enough that its wander plus its notice cannot reach.
+   * Deterministic (no dice), so every computer moves the same animals.
+   */
+  private clearBeastsFrom(cx: number, cy: number): void {
+    const keep = BEAST_RANGE + BEAST_AGGRO + 4;
+    for (const u of this.units()) {
+      if (u.owner !== WILD || u.horde || u.def === "dragon") continue;
+      const def = UNITS[u.def]!;
+      if (!def.beast || def.damage <= 0) continue;
+      const lair = this.lairs.get(u.id) ?? u.pos;
+      const lx = lair.x / SUB, ly = lair.y / SUB;
+      const d = Math.hypot(lx - cx, ly - cy);
+      if (d >= keep) continue;
+      const a = d < 0.5 ? (u.id % 8) * Math.PI / 4 : Math.atan2(ly - cy, lx - cx);
+      let moved = false;
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2, 2, -2, Math.PI]) {
+        for (const r of [keep + 2, keep + 6, keep + 10]) {
+          const nx = Math.floor(cx + Math.cos(a + turn) * r), ny = Math.floor(cy + Math.sin(a + turn) * r);
+          if (!this.map.inBounds(nx, ny) || !this.map.isWalkable(nx, ny, "land")) continue;
+          const pos = { x: (nx + 0.5) * SUB, y: (ny + 0.5) * SUB };
+          u.pos = { ...pos };
+          u.path = [];
+          u.moveQueue = [];
+          u.task = { kind: "idle" };
+          this.lairs.set(u.id, pos);
+          moved = true;
+          break;
+        }
+        if (moved) break;
+      }
+      // Nowhere to put it on a crowded map: it goes rather than ambush a newcomer.
+      if (!moved) this.removeEntity(u.id);
+    }
   }
 
   /** Whether this clan has a King or Prince living. */
