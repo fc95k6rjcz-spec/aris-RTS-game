@@ -262,6 +262,7 @@ export class Game {
     // Browsers will not start audio before a gesture, so this arms it on the
     // first click or key rather than trying (and failing) at load.
     this.audio.install();
+    this.audio.setScene(this.menu ? "menu" : "game");
     if (typeof document !== "undefined" && document.body) {
       this.pauseButton = createPauseButton(() => this.setPaused(!this.paused));
       this.pauseButton.sync(this.paused);
@@ -436,6 +437,8 @@ export class Game {
     if (this.menu !== this.shownMenu) {
       this.shownMenu = this.menu;
       this.shell?.setPlaying(!this.menu);
+      // Menu theme fades out as a match starts, and back in on return.
+      this.audio.setScene(this.menu ? "menu" : "game");
       this.resize();
     }
     if (this.menu) {
@@ -536,7 +539,7 @@ export class Game {
       const p=this.cam.toScreen(u.pos.x,u.pos.y);
       return p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH;
     }));
-    if(line) { const alarm = line === "We are under attack!"; this.toast(line, alarm ? "error" : "info"); if (alarm) this.audio.play("warning"); }
+    if(line) { const alarm = line === "The Realm is under attack!"; this.toast(line, alarm ? "error" : "info"); if (alarm) this.audio.play("warning"); }
     // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
     for (const [n, ids] of this.controlGroups) {

@@ -177,7 +177,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   syncs.push(slider(audio, "Effects", "sfxVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
   syncs.push(check(audio, "Score", "music"));
   syncs.push(slider(audio, "Score volume", "musicVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`));
-  audio.appendChild(el("p", "rts-note", "Sound starts on your first click. Off-screen fighting is quieter than what is in front of you. The score is a drone and a few scattered notes — it is meant to sit under the game, not over it."));
+  audio.appendChild(el("p", "rts-note", "Sound starts on your first click. Off-screen fighting is quieter than what is in front of you. The front screen plays the menu theme; in a match the score is a quiet drone meant to sit under the game."));
 
   const gfx = group("Display");
   syncs.push(check(gfx, "Unit animation", "animations", "Bob, lean and idle motion. Turn off for a steadier picture on a slow machine."));
