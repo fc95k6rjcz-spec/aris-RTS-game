@@ -36,6 +36,13 @@ import { RealmNet } from "../net/realm";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+/**
+ * The shared realm runs on one clock for everybody. The keeper's computer sets
+ * the pace every other machine follows, so a personal "Game speed" slider left
+ * at 2x or 3x on the keeper put the whole realm in fast forward. In the realm
+ * the slider is ignored and everyone runs at this speed instead.
+ */
+const REALM_SPEED = 0.75;
 /** How long the crowning plays for, in milliseconds. */
 const CROWNING_MS = 2600;
 
@@ -305,7 +312,7 @@ export class Game {
         last = now;
         if (!document.hidden || !this.realm || this.menu) return;
         this.acc += dt;
-        const step = TICK_MS / Math.max(0.1, settings.gameSpeed);
+        const step = this.tickStep();
         let n = 0;
         while (this.acc >= step && n++ < 40) { this.acc -= step; this.tick(); }
         let extra = Math.min(80, this.realm.backlog() * 4);
@@ -428,6 +435,11 @@ export class Game {
 
   // ───────────────────────────── loop ─────────────────────────────
 
+  /** Wall-clock milliseconds per sim tick: fixed in the realm, the player's own choice elsewhere. */
+  private tickStep(): number {
+    return TICK_MS / (this.realm ? REALM_SPEED : Math.max(0.1, settings.gameSpeed));
+  }
+
   private frame = (now: number): void => {
     if (!this.running) return;
     const dt = Math.min(250, now - this.last);
@@ -458,7 +470,7 @@ export class Game {
     const open = this.settingsPanel?.open === true;
     // Game speed is wall-clock only: it changes how often real time asks for a
     // tick, never what a tick computes, so the sim stays deterministic.
-    const step = TICK_MS / Math.max(0.1, settings.gameSpeed);
+    const step = this.tickStep();
     this.acc += open ? 0 : dt;
     if (!open) this.updateCamera(dt);
     while (this.acc >= step) {
