@@ -356,7 +356,7 @@ export class SkirmishAI {
       if (!b.complete || b.research || b.upgrade || b.queue.length > 0) continue;
       for (const up of upgradesFor(b.def)) {
         const have = p.research[up.id] ?? 0;
-        if (have >= up.levels.length) continue;
+        if (have >= up.levels.length || this.world.researching(this.player, up.id)) continue;
         const lv = up.levels[have]!;
         if (!this.world.canAfford(this.player, lv.cost)) continue;
         // Keep enough cash for at least one ordinary combat unit/building after

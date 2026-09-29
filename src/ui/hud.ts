@@ -702,17 +702,22 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
           action: { type: "train", def: uid },
         });
       }
+      if (b.research) {
+        const up = UPGRADES[b.research.id]!;
+        out.push({ label: "Cancel Research", cost: null, hotkey: "Esc", enabled: true, description: `Researching ${up.name} ${b.research.toLevel} — cancel for a 75% refund.`, action: { type: "cancelResearch" } });
+      }
       for (const up of upgradesFor(b.def)) {
         const have = world.players.get(player)!.research[up.id] ?? 0;
         const next = up.levels[have];
         if (!next) continue;
+        const elsewhere = b.research?.id !== up.id && world.researching(player, up.id);
         out.push({
           label: `${up.name} ${have + 1}`,
           cost: costLine(next.cost),
           need: shortfall(world, player, next.cost),
           hotkey: up.hotkey,
-          enabled: world.canAfford(player, next.cost) && b.research === null,
-          description: up.description,
+          enabled: world.canAfford(player, next.cost) && b.research === null && !b.upgrade && !elsewhere,
+          description: elsewhere ? `Already being researched at another ${d.name}.` : up.description,
           action: { type: "research", id: up.id },
         });
       }

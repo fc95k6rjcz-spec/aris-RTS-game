@@ -1696,6 +1696,11 @@ export class World {
     return parts.length ? `Not enough — need ${parts.join(", ")}` : "Not enough resources";
   }
 
+  /** True while any of the player's buildings is researching this upgrade. */
+  researching(player: PlayerId, upgrade: string): boolean {
+    return this.buildings().some((b) => b.owner === player && b.research?.id === upgrade);
+  }
+
   canAfford(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): boolean {
     const p = this.players.get(player)!;
     return p.gold >= cost.gold && p.lumber >= cost.lumber && p.oil >= (cost.oil ?? 0) && p.food >= (cost.food ?? 0);
@@ -2142,7 +2147,14 @@ export class World {
         const up = UPGRADES[c.upgrade];
         if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete || !up) break;
         if (up.host !== b.def) break;
-        if (b.research || b.upgrade) break;
+        if (b.research || b.upgrade) {
+          this.emit(c.player, b.upgrade ? "Wait for the upgrade to finish" : "Already researching");
+          break;
+        }
+        if (this.researching(c.player, up.id)) {
+          this.emit(c.player, `${up.name} is already being researched`);
+          break;
+        }
         const p = this.players.get(c.player)!;
         const have = p.research[up.id] ?? 0;
         if (have >= up.levels.length) {
@@ -2296,8 +2308,8 @@ export class World {
       if (e.def === "gate") this.map.setGate(e.tx, e.ty, e.size, 0);
       // Refund queued training.
       for (const j of e.queue) if (j.paid !== false) this.refund(e.owner, UNITS[j.unit]!.cost);
-      if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost);
-      if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost);
+      if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost, CANCEL_REFUND);
+      if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost, CANCEL_REFUND);
       for (const u of this.units())
         if ((u.task.kind === "build" || u.task.kind === "repair") && u.task.building === id) u.task = { kind: "idle" };
     }
@@ -3540,7 +3552,7 @@ export class World {
       if (--b.research.remaining <= 0) {
         const up = UPGRADES[b.research.id]!;
         const p = this.players.get(b.owner)!;
-        p.research[up.id] = b.research.toLevel;
+        p.research[up.id] = Math.max(p.research[up.id] ?? 0, b.research.toLevel);
         this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
         b.research = null;
       }

@@ -3,6 +3,7 @@ import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, ty
 import { createGamePanel } from '../ui/createGamePanel';
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
+import { UPGRADES } from "../data/upgrades";
 import { Camera } from "../render/camera";
 import { Renderer, type Ghost } from "../render/renderer";
 import { personName } from "../ui/people";
@@ -1505,6 +1506,7 @@ export class Game {
       else {
         const b = this.selectedBuildings()[0];
         if (b && !b.complete) this.issue({ type: "cancelBuild", player: this.player, building: b.id });
+        else if (b?.research && b.owner === this.player) this.issue({ type: "cancelResearch", player: this.player, building: b.id });
         else this.selected.clear();
       }
       return;
@@ -2108,6 +2110,9 @@ export class Game {
       };
       if (!b.complete) {
         production = { name: buildingName(b.def, p.faction), progress: b.progress / d.buildTime, eta: eta((d.buildTime - b.progress) / TICKS_PER_SECOND) };
+      } else if (b.research) {
+        const r = b.research;
+        production = { name: `${UPGRADES[r.id]!.name} ${r.toLevel}`, progress: 1 - r.remaining / Math.max(1, r.total), eta: eta(r.remaining / TICKS_PER_SECOND) };
       } else if (b.queue.length > 0) {
         const q = b.queue[0]!;
         const u = UNITS[q.unit]!;
