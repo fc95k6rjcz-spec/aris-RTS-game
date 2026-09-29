@@ -9,7 +9,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { WALL_TIERS, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
+import { WALL_TIERS, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -1189,6 +1189,24 @@ export class Game {
           this.issue({ type: "garrison", player: this.player, units: bowmen, building: b.id });
           this.marker(wx, wy, "move");
           this.toast(`Archers climbing the tower (${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} places taken)`, "info");
+          return;
+        }
+        if (b.def === "wall" && b.complete && bowmen.length > 0) {
+          // Up onto the wall walk, one or two to a section; the rest take the next sections along.
+          const cap = wallGarrisonCap(this.world.wallLevel(this.player));
+          if (!cap) { this.issue({ type: "garrison", player: this.player, units: bowmen, building: b.id }); return; }
+          const sections = this.world.buildings().filter((w) => w.def === "wall" && w.complete && w.owner === this.player && (w.garrison?.length ?? 0) < cap)
+            .sort((p, q) => Math.hypot(p.tx - b.tx, p.ty - b.ty) - Math.hypot(q.tx - b.tx, q.ty - b.ty));
+          let i = 0;
+          for (const w of sections) {
+            const room = cap - (w.garrison?.length ?? 0);
+            const go = bowmen.slice(i, i + room);
+            if (!go.length) break;
+            this.issue({ type: "garrison", player: this.player, units: go, building: w.id });
+            i += go.length;
+          }
+          this.marker(wx, wy, "move");
+          this.toast("Archers taking the wall", "info");
           return;
         }
         const builders = units.filter((u) => UNITS[u.def]!.canBuild).map((u) => u.id);

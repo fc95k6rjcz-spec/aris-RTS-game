@@ -201,6 +201,10 @@ export function wallTierCost(level: number): { gold: number; lumber: number } {
   const k = Math.pow(1.7, level - 2);
   return { gold: Math.round(150 * k / 5) * 5, lumber: Math.round(200 * k / 5) * 5 };
 }
+/** From this wall tier on there is a wall walk, and archers can stand on it. */
+export const WALL_ARCHER_TIER = 5;
+/** Archers per wall section: one, two once the walls are Bastion-thick. */
+export function wallGarrisonCap(level: number): number { return level >= WALL_ARCHER_TIER ? (level >= 8 ? 2 : 1) : 0; }
 /** How many orders a building will hold in its training line. */
 export const MAX_TRAIN_QUEUE = 10;
 export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
@@ -1855,7 +1859,11 @@ export class World {
       }
       case "garrison": {
         const b = this.entities.get(c.building);
-        if (!b || b.kind !== "building" || b.def !== "tower" || !b.complete || b.owner !== c.player) break;
+        if (!b || b.kind !== "building" || !b.complete || b.owner !== c.player) break;
+        if (b.def !== "tower" && !(b.def === "wall" && this.wallLevel(c.player) >= WALL_ARCHER_TIER)) {
+          if (b.def === "wall") this.emit(c.player, `Archers need a wall walk: upgrade your walls to ${WALL_TIERS[WALL_ARCHER_TIER - 1]} first`);
+          break;
+        }
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (u.def !== "archer") continue;
           u.enterTower = b.id;
@@ -2195,9 +2203,9 @@ export class World {
   private tryEnterTower(u: Unit): boolean {
     const b = this.entities.get(u.enterTower!);
     if (!b || b.kind !== "building" || !b.complete || b.owner !== u.owner || u.task.kind !== "move") { u.enterTower = undefined; return false; }
-    if ((b.garrison?.length ?? 0) >= towerGarrisonCap(b.level)) {
+    if ((b.garrison?.length ?? 0) >= (b.def === "wall" ? wallGarrisonCap(this.wallLevel(b.owner)) : towerGarrisonCap(b.level))) {
       u.enterTower = undefined;
-      this.emit(u.owner, "That tower is full");
+      this.emit(u.owner, b.def === "wall" ? "No room on that stretch of wall" : "That tower is full");
       return false;
     }
     if (!this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
@@ -3454,6 +3462,31 @@ export class World {
         this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
         this.projectiles.push({ from, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
         this.dealDamage(target, damage, b.owner, 0.12);
+      }
+    }
+
+    // Archers on the wall walk shoot like tower archers, from a little lower.
+    if (b.def === "wall" && b.complete && b.garrison?.length) {
+      const origin = centerOf(b);
+      const range = (UNITS.archer!.range + 2) * SUB;
+      const n = b.garrison.length;
+      for (let k = 0; k < n; k++) {
+        const phase = (b.id * 7 + Math.floor((k * TOWER_ARCHER_INTERVAL) / n)) % TOWER_ARCHER_INTERVAL;
+        if (this.tick % TOWER_ARCHER_INTERVAL !== phase) continue;
+        let best: Entity | null = null, bd = Infinity;
+        for (const e of this.entities.values()) {
+          if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner, e)) continue;
+          if (e.kind === "unit" && ((UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) || UNITS[e.def]!.submerged || e.def === "dragon")) continue;
+          const p = this.posOf(e);
+          const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e) + (e.kind === "building" ? range * 2 : 0);
+          if (d <= range && d < bd) { bd = d; best = e; }
+        }
+        if (!best) break;
+        const p = this.posOf(best);
+        const from = { x: origin.x + (k - (n - 1) / 2) * SUB * 0.4, y: origin.y - SUB * 0.6 };
+        this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
+        this.projectiles.push({ from, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
+        this.dealDamage(best, TOWER_ARROW_DAMAGE + 4, b.owner, 0.12);
       }
     }
 

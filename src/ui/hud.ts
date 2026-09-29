@@ -2,7 +2,7 @@ import { BUILDINGS, BUILD_ADVANCED, BUILD_BASIC, BUILD_MENU, buildingName } from
 import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
 import { LEVELLED, levelDef } from "../data/levels";
-import { DRAGONBANE_COST, WALL_TIERS, wallTierCost } from "../sim/world";
+import { DRAGONBANE_COST, WALL_ARCHER_TIER, WALL_TIERS, wallTierCost } from "../sim/world";
 import type { Building, Unit } from "../sim/entities";
 import { ROYAL_LICENCE, type World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
@@ -672,12 +672,13 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         }
         else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
       } else if (b.def === "wall" || b.def === "gate") {
+        if (b.def === "wall" && (b.garrison?.length ?? 0) > 0) out.push({ label: `Release Archers (${b.garrison!.length})`, cost: null, hotkey: "R", enabled: true, description: "Bring your archers down off the wall.", action: { type: "ungarrison" } });
         // One upgrade raises every wall and gate you own, and each tier doubles them.
         const lv = world.wallLevel(player), next = lv + 1;
         if (next > WALL_TIERS.length) out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:`${WALL_TIERS[lv-1]}: your walls are as strong as walls get.`,action:{type:"upgradeWalls"}});
         else {
           const cost = wallTierCost(next), blocked = world.wallUpgradeBlocked(player);
-          out.push({label:"Upgrade to "+WALL_TIERS[next-1],cost:costLine(cost),need:blocked?undefined:shortfall(world,player,cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,cost),description:`${blocked?blocked+". ":""}Raise every wall and gate you own from ${WALL_TIERS[lv-1]} to ${WALL_TIERS[next-1]} (level ${next}): twice as strong, and new walls are built that strong too.`,action:{type:"upgradeWalls"}});
+          out.push({label:"Upgrade to "+WALL_TIERS[next-1],cost:costLine(cost),need:blocked?undefined:shortfall(world,player,cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,cost),description:`${blocked?blocked+". ":""}Raise every wall and gate you own from ${WALL_TIERS[lv-1]} to ${WALL_TIERS[next-1]} (level ${next}): twice as strong, and new walls are built that strong too.${next===WALL_ARCHER_TIER?" Adds a wall walk: right-click a wall with archers to put them on it.":""}`,action:{type:"upgradeWalls"}});
         }
       } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
       if (b.def === "tower") {

@@ -1288,6 +1288,17 @@ export class Renderer {
       if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
     }
     if (b.complete && settings.animations && !redesignedArt(b.def,'level',1)) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
+    // Archers standing on the wall walk.
+    if (b.def === "wall" && b.complete && b.garrison?.length) {
+      const view = unitViewSprite("archer", 2, color);
+      if (view) {
+        const n = b.garrison.length, h = w * 0.8, aw = (view.img.width / view.img.height) * h;
+        for (let k = 0; k < n; k++) {
+          const cx = p.x + w / 2 + (k - (n - 1) / 2) * w * 0.42;
+          ctx.drawImage(view.img, cx - aw / 2, p.y + w * 0.12 - h, aw, h);
+        }
+      }
+    }
     if (b.dragonbane && b.complete) this.drawDragonbane(p.x + w / 2, p.y + w * 1.06 - w * 2.1 * (LEVELLED.tower ? levelDef("tower", b.level).scale : 1), w);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
