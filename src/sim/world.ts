@@ -1901,7 +1901,15 @@ export class World {
           if (!UNITS[u.def]!.canGather) continue;
           // Nowhere to take it: a worker will not cut wood he has nowhere to
           // put, and says so rather than silently standing there.
-          if (!this.nearestDropOff(u, resource)) { homeless = true; continue; }
+          // He still walks over to it, so he is there when a store goes up.
+          if (!this.nearestDropOff(u, resource)) {
+            homeless = true;
+            u.moveQueue = [];
+            u.engaging = null;
+            u.task = { kind: "move", target: { x: (node[0] + 0.5) * SUB, y: (node[1] + 0.5) * SUB } };
+            this.pathTo(u, node[0], node[1], true);
+            continue;
+          }
           u.moveQueue = [];
           u.task = { kind: "gather", tx: node[0], ty: node[1], resource, phase: "toNode", timer: 0 };
           this.pathTo(u, node[0], node[1], true);
