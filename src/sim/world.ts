@@ -940,6 +940,8 @@ export class World {
    * One is always placed within a fair walk, so no arrival is hopeless.
    */
   private seatCamp(id: PlayerId): void {
+    // A fresh start is a fresh map: what the last kingdom explored is forgotten.
+    this.vision.get(id)?.explored.fill(0);
     const spot = this.freeStart();
     if (!spot) return;
     const p = this.players.get(id)!;

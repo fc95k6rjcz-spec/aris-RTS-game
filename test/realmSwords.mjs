@@ -23,3 +23,8 @@ for(let i=0;i<120;i++)w.step([]);
 const nearHall=w.relics.filter(r=>!r.taken&&r.owner===0&&Math.hypot(r.x-hall.tx,r.y-hall.ty)<15);
 assert.equal(nearHall.length,0,'no sword left by the town');assert.equal(w.relics.filter(r=>!r.taken&&r.owner===0).length,count,'it went somewhere else');
 console.log('PASS: realm swords crown kingless clans only');
+{ // starting again forgets the map
+  const v=w.vision.get(a);v.explored.fill(1);w.restartSeat(a);
+  const seen=v.explored.reduce((n,x)=>n+x,0);assert(seen>0&&seen<v.explored.length/4,'only the new camp is known: '+seen);
+  console.log('PASS: starting again forgets the old map');
+}
