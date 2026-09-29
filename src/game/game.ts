@@ -533,7 +533,11 @@ export class Game {
       this.audio.play("crown", 0.8);
     }
     this.renderer.noteAttacks(this.world.fx);
-    if (this.world.fx.some((e) => e.kind === "alarm" && e.owner === this.player)) this.audio.play("warning");
+    if (this.world.fx.some((e) => e.kind === "alarm" && e.owner === this.player)) {
+      // A dragon raid raises the same alarm; it gets its own line instead.
+      const dragon = this.world.events.some((ev) => ev.player === this.player && ev.text === "A dragon is flying at your settlement!");
+      this.audio.play(dragon ? "dragon" : "warning");
+    }
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);
@@ -857,7 +861,15 @@ export class Game {
     }
   }
 
+  /** Selecting your own men gets a spoken reply from them. */
   private onMouseUp(e: MouseEvent): void {
+    const before = new Set(this.selected);
+    this.onMouseUpInner(e);
+    const fresh = [...this.selected].some((id) => !before.has(id) && this.world.entities.get(id)?.kind === "unit" && this.world.entities.get(id)?.owner === this.player);
+    if (fresh) this.audio.say("select");
+  }
+
+  private onMouseUpInner(e: MouseEvent): void {
     if(e.button===0&&this.wallStart){
       const tiles=this.wallTiles();this.wallStart=null;
       this.issue({type:"buildWallLine",player:this.player,units:this.selectedUnits().filter(u=>UNITS[u.def]!.canBuild).map(u=>u.id),tiles:tiles.map(t=>({x:t.tx,y:t.ty}))});

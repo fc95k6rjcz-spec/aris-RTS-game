@@ -19,15 +19,16 @@
  * the context is created lazily and resumed on the first click or key.
  */
 
-import { musicGain, sfxGain } from "./settings";
+import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "dragon" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
   warning: 15000,
+  dragon: 15000,
   command: 160,
   crown: 3000,
   magic: 140,
@@ -57,7 +58,20 @@ const MAX_PER_TICK = 5;
 /** Recorded voice lines, decoded once and replayed from memory. */
 const SAMPLES = {
   realmUnderAttack: "/sfx/realm-under-attack.mp3",
+  select1: "/sfx/select-1.mp3",
+  dragonApproaches: "/sfx/dragon-approaches.mp3",
 } as const;
+
+/**
+ * Unit replies. Each kind lists its recorded variations; they take turns so the
+ * same line is not heard twice running. Add a file above and its name here.
+ */
+const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
+  select: ["select1"],
+};
+export type VoiceKind = "select";
+/** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
+const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;
 
 const MENU_TRACK_URL = "/music/menu-theme.mp3";
@@ -152,7 +166,29 @@ export class Audio {
     g.gain.value = this.effectVolume;
     src.connect(g).connect(this.master);
     src.start();
+    this.speakingUntil = performance.now() + buf.duration * 1000;
     return true;
+  }
+
+  private speakingUntil = 0;
+  private lastVoice = -1e9;
+  private voiceTurn: Partial<Record<VoiceKind, number>> = {};
+
+  /**
+   * A unit answering the player. Never talks over another recorded line, and
+   * honours the "Character voices" switch as well as the volume sliders.
+   */
+  say(kind: VoiceKind): void {
+    if (!this.ready || !settings.voices) return;
+    const vol = sfxGain();
+    const now = performance.now();
+    if (vol <= 0.002 || now < this.speakingUntil || now - this.lastVoice < VOICE_GAP_MS) return;
+    const lines = VOICE_LINES[kind].filter((n) => this.samples[n]);
+    if (!lines.length) return;
+    const turn = (this.voiceTurn[kind] ?? -1) + 1;
+    this.voiceTurn[kind] = turn;
+    this.effectVolume = vol;
+    if (this.sample(lines[turn % lines.length]!)) this.lastVoice = now;
   }
 
   /** Two seconds of white noise, reused by every percussive sound. */
@@ -225,8 +261,15 @@ export class Audio {
     this.effectVolume = vol;
 
     switch (name) {
+      case "dragon":
+        // Justin's voice: "A dragon approaches". The attack alarm if it is missing.
+        if (this.sample("dragonApproaches")) break;
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
       case 'warning':
         // Justin's own voice: "The Realm is under attack". Beeps if it is missing.
+        // Never talk over a line already playing (the dragon, usually).
+        if (performance.now() < this.speakingUntil) break;
         if (this.sample("realmUnderAttack")) break;
         [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
         break;

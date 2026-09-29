@@ -29,11 +29,7 @@ export class Callouts {
       this.nextAttack=now+15000;
       this.next=Math.max(this.next,now+5000);
       const text='The Realm is under attack!';
-      if (settings.voices && sfxGain()>0 && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-        const line=new SpeechSynthesisUtterance(text);line.lang='en-GB';line.rate=1;line.pitch=.85;line.volume=Math.min(1,sfxGain());
-        window.speechSynthesis.speak(line);
-      }
+      // Spoken by the recorded alarm in audio.ts, not synthesised here.
       return text;
     }
     if (!settings.voices || sfxGain() === 0 || now < this.next || !visible.length) return null;
