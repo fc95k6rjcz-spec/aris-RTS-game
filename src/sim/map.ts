@@ -4,7 +4,7 @@ import type { EntityId } from "./types";
 import type { Domain } from "../data/units";
 
 /** The layouts a map can be generated in. */
-export type MapKind = "lakeland" | "gorge" | "highlands" | "plains" | "islands" | "seas";
+export type MapKind = "lakeland" | "gorge" | "highlands" | "plains" | "islands" | "seas" | "realm";
 
 /**
  * What each layout means, as numbers the generator reads.
@@ -41,6 +41,8 @@ const SHAPES: Record<MapKind, Shape> = {
    * this needs before it is a game rather than a stalemate.
    */
   seas: { lakeRadius: 20, rivers: 6, riverWidth: 4, fords: 0, ponds: 8, ridges: 0, forestClumps: 8 },
+  /** The online realm. Not read: see GameMap.generateRealm, which has its own recipe. */
+  realm: { lakeRadius: 0, rivers: 0, riverWidth: 2, fords: 0, ponds: 0, ridges: 2, forestClumps: 14 },
 };
 
 /**
@@ -423,6 +425,7 @@ export class GameMap {
   }
 
   static generate(width: number, height: number, seed: number, kind: MapKind = "lakeland", stockade = false): GameMap {
+    if (kind === "realm") return GameMap.generateRealm(width, height, seed);
     const m = new GameMap(width, height);
     const rng = new Rng(seed);
     const base = SHAPES[kind] ?? SHAPES.lakeland;
@@ -815,5 +818,191 @@ export class GameMap {
     m.version++;
     return m;
   }
-}
 
+  /**
+   * The online realm: continents and open ocean, for dozens of towns rather
+   * than two seats facing each other.
+   *
+   * Land comes from smooth layered noise pushed down towards the edges, so the
+   * realm is ringed by sea and broken by inland seas and straits, with about
+   * nearly half of it water. Every sizeable landmass is then joined to the
+   * largest by a causeway: a ship cannot yet carry an army, so a kingdom born on
+   * an island nobody can walk to would be a kingdom nobody can fight or trade
+   * with. Gold, oil and the fallback seats only go on land you can walk to, so
+   * a newcomer is never dropped on a rock in the sea.
+   */
+  static generateRealm(width: number, height: number, seed: number): GameMap {
+    const m = new GameMap(width, height);
+    const rng = new Rng(seed);
+    const N = width * height;
+    const WATER_SHARE = 0.46;
+
+    // Layered value noise: a coarse lattice for continents, finer ones for coastlines.
+    const layer = (cell: number) => {
+      const gw = Math.ceil(width / cell) + 2, gh = Math.ceil(height / cell) + 2;
+      const g = new Float32Array(gw * gh);
+      for (let i = 0; i < g.length; i++) g[i] = rng.next();
+      return (x: number, y: number) => {
+        const fx = x / cell, fy = y / cell, x0 = Math.floor(fx), y0 = Math.floor(fy);
+        const tx = fx - x0, ty = fy - y0, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+        const a = g[y0 * gw + x0]!, b = g[y0 * gw + x0 + 1]!, c = g[(y0 + 1) * gw + x0]!, d = g[(y0 + 1) * gw + x0 + 1]!;
+        return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+      };
+    };
+    const octaves = [layer(width / 2.6), layer(width / 6), layer(width / 16), layer(7)];
+    const weights = [1, 0.6, 0.28, 0.1];
+    const elev = new Float32Array(N);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        let e = 0;
+        for (let o = 0; o < octaves.length; o++) e += octaves[o]!(x, y) * weights[o]!;
+        // Sink the rim: open ocean all round the realm.
+        const edge = Math.min(x, y, width - 1 - x, height - 1 - y) / (width * 0.06);
+        if (edge < 1) e -= (1 - edge) * (1 - edge) * 0.9;
+        elev[y * width + x] = e;
+      }
+    const sea = Float32Array.from(elev).sort()[Math.floor(N * WATER_SHARE)]!;
+    for (let i = 0; i < N; i++) m.tiles[i] = elev[i]! < sea ? Tile.Water : rng.next() < 0.08 ? Tile.Dirt : Tile.Grass;
+
+    // Land regions, 4-connected: a label per tile (0 = water) and each region's size.
+    const label = () => {
+      const lab = new Int32Array(N);
+      const sizes = [0];
+      const stack: number[] = [];
+      for (let i = 0; i < N; i++) {
+        if (lab[i] || m.tiles[i] === Tile.Water) continue;
+        const id = sizes.length;
+        let n = 0;
+        lab[i] = id;
+        stack.push(i);
+        while (stack.length) {
+          const k = stack.pop()!;
+          n++;
+          const x = k % width, y = (k / width) | 0;
+          const around = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+          for (const [nx, ny] of around) {
+            if (nx! < 0 || ny! < 0 || nx! >= width || ny! >= height) continue;
+            const j = ny! * width + nx!;
+            if (!lab[j] && m.tiles[j] !== Tile.Water) { lab[j] = id; stack.push(j); }
+          }
+        }
+        sizes.push(n);
+      }
+      return { lab, sizes };
+    };
+    const largest = (sizes: number[]) => { let best = 1; for (let i = 2; i < sizes.length; i++) if (sizes[i]! > sizes[best]!) best = i; return best; };
+
+    // Causeways: every landmass big enough to settle is joined to the mainland
+    // along the shortest straight line, three tiles wide.
+    let { lab, sizes } = label();
+    const main = largest(sizes);
+    const coast: number[] = [];
+    for (let i = 0; i < N; i++) {
+      if (lab[i] !== main) continue;
+      const x = i % width, y = (i / width) | 0;
+      if ((x > 0 && m.tiles[i - 1] === Tile.Water) || (x < width - 1 && m.tiles[i + 1] === Tile.Water) || (y > 0 && m.tiles[i - width] === Tile.Water) || (y < height - 1 && m.tiles[i + width] === Tile.Water)) coast.push(i);
+    }
+    for (let id = 1; id < sizes.length; id++) {
+      if (id === main || sizes[id]! < 150) continue;
+      let best = { d: Infinity, a: 0, b: 0 };
+      for (let i = 0; i < N; i++) {
+        if (lab[i] !== id) continue;
+        const ax = i % width, ay = (i / width) | 0;
+        for (let c = 0; c < coast.length; c += 3) {
+          const b = coast[c]!;
+          const d = Math.hypot((b % width) - ax, ((b / width) | 0) - ay);
+          if (d < best.d) best = { d, a: i, b };
+        }
+      }
+      if (best.d === Infinity) continue;
+      const ax = best.a % width, ay = (best.a / width) | 0, bx = best.b % width, by = (best.b / width) | 0;
+      const steps = Math.ceil(best.d) + 1;
+      for (let t = 0; t <= steps; t++) {
+        const cx = Math.round(ax + ((bx - ax) * t) / steps), cy = Math.round(ay + ((by - ay) * t) / steps);
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            if (m.inBounds(cx + dx, cy + dy) && m.get(cx + dx, cy + dy) === Tile.Water) m.set(cx + dx, cy + dy, Tile.Dirt);
+      }
+    }
+    ({ lab, sizes } = label());
+    const reach = largest(sizes);
+    const open = (x: number, y: number) => {
+      if (!m.inBounds(x, y) || lab[y * width + x] !== reach) return false;
+      const t = m.get(x, y);
+      return t === Tile.Grass || t === Tile.Dirt;
+    };
+
+    // Timber, in woods rather than a sprinkle, on any land.
+    const clumps = Math.round((14 * N) / 4096);
+    for (let c = 0; c < clumps; c++) {
+      const cx = rng.int(width), cy = rng.int(height), r = 3 + rng.int(4);
+      for (let y = -r; y <= r; y++)
+        for (let x = -r; x <= r; x++) {
+          if (x * x + y * y > r * r || rng.next() >= 0.85 || !m.inBounds(cx + x, cy + y)) continue;
+          const t = m.get(cx + x, cy + y);
+          if (t !== Tile.Grass && t !== Tile.Dirt) continue;
+          m.set(cx + x, cy + y, Tile.Tree);
+          m.amount[m.idx(cx + x, cy + y)] = 40;
+        }
+    }
+
+    // A few rock ridges inland, only on open mainland so no causeway is cut.
+    for (let i = 0; i < Math.round((2 * N) / 4096); i++) {
+      let rx = rng.int(width), ry = rng.int(height);
+      const len = 6 + rng.int(10), horiz = rng.next() < 0.5;
+      for (let k = 0; k < len; k++) {
+        if (open(rx, ry) && open(rx + 1, ry) && open(rx, ry + 1) && open(rx - 1, ry) && open(rx, ry - 1)) { m.set(rx, ry, Tile.Rock); m.amount[m.idx(rx, ry)] = 0; }
+        if (horiz) rx++; else ry++;
+        if (rng.next() < 0.25) { if (horiz) ry += rng.int(3) - 1; else rx += rng.int(3) - 1; }
+      }
+    }
+
+    // Gold: plenty of seams across the mainland, since every new town is seated
+    // beside one. Each needs a ring of open ground to stand on.
+    const placed: Array<{ x: number; y: number }> = [];
+    const fits = (tx: number, ty: number) => {
+      for (let y = -2; y <= 4; y++) for (let x = -2; x <= 4; x++) if (!open(tx + x, ty + y) && !(m.inBounds(tx + x, ty + y) && lab[(ty + y) * width + tx + x] === reach && m.get(tx + x, ty + y) === Tile.Tree)) return false;
+      return !placed.some((p) => Math.hypot(p.x - tx, p.y - ty) < 16);
+    };
+    const mines = Math.round(N / 1300);
+    for (let k = 0, tries = 0; k < mines && tries < 20000; tries++) {
+      const tx = 4 + rng.int(width - 8), ty = 4 + rng.int(height - 8);
+      if (!fits(tx, ty)) continue;
+      for (let y = -2; y <= 4; y++) for (let x = -2; x <= 4; x++) { m.set(tx + x, ty + y, Tile.Grass); m.amount[m.idx(tx + x, ty + y)] = 0; }
+      for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) { m.set(tx + x, ty + y, Tile.Gold); m.amount[m.idx(tx + x, ty + y)] = 2600; }
+      placed.push({ x: tx, y: ty });
+      k++;
+    }
+    // Two fallback seats far apart, for anything that still asks for starts.
+    const seats = [...placed].sort((a, b) => a.x + a.y - (b.x + b.y));
+    const pick = (g?: { x: number; y: number }) => (g ? { x: g.x + 5, y: g.y + 1 } : { x: width >> 1, y: height >> 1 });
+    m.starts = [pick(seats[0]), pick(seats[seats.length - 1])];
+
+    // Oil seeps, preferring ground near the coast: a rig wants a shipyard nearby.
+    const seeps = Math.round(N / 2200);
+    for (let k = 0, tries = 0; k < seeps && tries < 20000; tries++) {
+      const cx = 4 + rng.int(width - 8), cy = 4 + rng.int(height - 8);
+      let free = 0, wet = false;
+      for (let y = -3; y <= 3; y++)
+        for (let x = -3; x <= 3; x++) {
+          if (open(cx + x, cy + y) && m.occupant[m.idx(cx + x, cy + y)] === 0) free++;
+          if (m.inBounds(cx + x * 3, cy + y * 3) && m.get(cx + x * 3, cy + y * 3) === Tile.Water) wet = true;
+        }
+      if (free < 30 || (!wet && rng.next() < 0.7)) continue;
+      for (let y = -3; y <= 3; y++)
+        for (let x = -3; x <= 3; x++)
+          if (open(cx + x, cy + y) && Math.hypot(x, y) <= 2.2 + Math.sin(Math.atan2(y, x) * 3 + cx) * 0.7) m.oil[m.idx(cx + x, cy + y)] = 1;
+      k++;
+    }
+
+    // A little pack ice far out at sea, never touching a shore.
+    for (let y = 1; y < height - 1; y++)
+      for (let x = 1; x < width - 1; x++) {
+        if (m.get(x, y) !== Tile.Water || elev[y * width + x]! > sea - 0.35) continue;
+        if (Math.sin(x * 0.07) * Math.cos(y * 0.09) + Math.sin((x + y) * 0.04) * 0.7 > 1.1) m.set(x, y, Tile.Ice);
+      }
+
+    m.version++;
+    return m;
+  }
+}

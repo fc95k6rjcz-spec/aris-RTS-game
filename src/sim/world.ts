@@ -287,6 +287,11 @@ export class World {
   readonly vision = new Map<PlayerId, Vision>();
   /** When false, everyone sees everything -- the old behaviour, kept for tools. */
   fogEnabled = true;
+  /**
+   * Game minutes before ground nobody is watching fades back to black. Unset
+   * means explored ground is remembered for ever (skirmish); the realm sets it.
+   */
+  fogMemoryMinutes?: number;
 
   /**
    * How long everything takes, as a multiplier on every duration in the game:
@@ -2396,7 +2401,10 @@ export class World {
   updateVision(force = false): void {
     if (!this.fogEnabled) return;
     if (!force && this.tick % VISION_INTERVAL !== 0) return;
+    const minute = Math.floor(this.tick / (60 * TICKS_PER_SECOND));
+    const fade = this.fogMemoryMinutes !== undefined && this.tick % (60 * TICKS_PER_SECOND) === 0;
     for (const [id, v] of this.vision) {
+      v.setMinute(minute);
       const watchers: Array<{ x: number; y: number; r: number; elevated?: boolean }> = [];
       for (const e of this.entities.values()) {
         if (!this.allied(e.owner, id)) continue;
@@ -2413,6 +2421,8 @@ export class World {
         }
       }
       v.update(watchers, (x,y) => this.map.get(x,y) === Tile.Tree);
+      // After the update, so what is in sight right now is never forgotten.
+      if (fade) v.forget(minute, this.fogMemoryMinutes!);
     }
   }
 

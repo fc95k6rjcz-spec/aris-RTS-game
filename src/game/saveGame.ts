@@ -40,7 +40,7 @@ export function encodeSave(save: SavedGame): string {
 }
 
 export function decodeSave(json: string): SavedGame {
-  if (json.length > 16000000) throw new Error('This saved game is too large.');
+  if (json.length > 64000000) throw new Error('This saved game is too large.');
   const save = JSON.parse(json, (key, value) => {
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') throw new Error('Invalid saved game.');
     if (!value || typeof value !== 'object' || !('$save' in value)) return value;
@@ -59,7 +59,7 @@ export function decodeSave(json: string): SavedGame {
   }) as SavedGame;
   if (save.version !== 1 || !(save.world instanceof World) || !(save.world.map instanceof GameMap) || !(save.world.rng instanceof Rng) || !(save.world.entities instanceof Map) || !(save.world.players instanceof Map) || !save.world.players.has(save.player) || !save.map || !Array.isArray(save.selected)) throw new Error('This saved game is damaged or incompatible.');
   const {width,height,tiles,occupant}=save.world.map;
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width<16 || height<16 || width>256 || height>256 || tiles.length!==width*height || occupant.length!==width*height) throw new Error('Invalid saved map.');
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width<16 || height<16 || width>512 || height>512 || tiles.length!==width*height || occupant.length!==width*height) throw new Error('Invalid saved map.');
   save.world.checksum();
   return save;
 }

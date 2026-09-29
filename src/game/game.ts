@@ -45,6 +45,14 @@ const TICK_MS = 1000 / TICKS_PER_SECOND;
  * the slider is ignored and everyone runs at this speed instead.
  */
 const REALM_SPEED = 0.75;
+/** The realm's edge in tiles: twice the width and height of a skirmish board. */
+const REALM_SIZE = 320;
+/**
+ * Real minutes before ground nobody is watching fades back to black. The sim
+ * counts game minutes, and the realm runs slower than real time, so it is
+ * converted where the world is made.
+ */
+const REALM_FOG_MEMORY_MINUTES = 30;
 /** How long the crowning plays for, in milliseconds. */
 const CROWNING_MS = 2600;
 
@@ -1715,8 +1723,9 @@ export class Game {
       const packed = localStorage.getItem(REALM_LEDGER);
       if (packed) { const saved = await unpackSave(packed); world = saved.world; map = saved.map; }
     } catch { world = null; }
-    if (!world || !world.realm) {
-      map = this.chooseMap();
+    // A copy from before the realm was rebuilt (a different board) is left behind.
+    if (!world || !world.realm || world.map.width !== REALM_SIZE) {
+      map = { ...this.chooseMap(), kind: "realm", size: REALM_SIZE, name: "The Realm" };
       world = this.buildRealmWorld(map);
     }
     const mine = world.claimSeat(realm.seat) ?? undefined;
@@ -1726,9 +1735,11 @@ export class Game {
 
   /** A fresh realm: a big map, its wildlife, and nobody in it yet. */
   private buildRealmWorld(def: MapDef): World {
-    const n = Math.max(def.size ?? 64, 128);
-    const w = new World(n, n, def.seed, def.kind, 1, false);
+    // Continents and open ocean, not one of the two-seat skirmish layouts.
+    const n = REALM_SIZE;
+    const w = new World(n, n, def.seed, "realm", 1, false);
     w.realm = true;
+    w.fogMemoryMinutes = Math.round(REALM_FOG_MEMORY_MINUTES * REALM_SPEED);
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
     w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
     // Swords all over the realm, for anyone who arrives without a King.

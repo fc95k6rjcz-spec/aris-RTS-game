@@ -43,7 +43,7 @@ import type { Command } from "../sim/commands";
 const URL = "https://chgrnwcwgkmjioutxjem.supabase.co";
 const KEY = "sb_publishable_zAJoVzUsJyH6Fvgo0xkKbg_EhOT6ssD";
 /** Bumped whenever the ledger format or the simulation changes incompatibly. */
-export const REALM_VERSION = "realm-2";
+export const REALM_VERSION = "realm-3";
 /** Ticks in a turn: 200 ms at normal speed. */
 export const TICKS_PER_TURN = 4;
 /** How many past turns each machine keeps, to hand on to a new keeper or a straggler. */

@@ -5,7 +5,9 @@
  *
  *   0  unexplored -- black. Nobody of yours has ever been near it.
  *   1  explored   -- dim. You have been here; you know the ground, but what is
- *                   standing on it now is anyone's guess.
+ *                   standing on it now is anyone's guess. Memory fades: ground
+ *                   nobody of yours has looked at for a while (see `forget`)
+ *                   goes back to black and has to be scouted again.
  *   2  visible    -- lit. Something of yours can see it right now.
  *
  * This lives in the simulation rather than the renderer, and that is the whole
@@ -30,6 +32,15 @@ export const VISIBLE = 2;
 
 /** Ticks between rebuilds of the visible set. */
 export const VISION_INTERVAL = 4;
+
+/**
+ * Explored tiles remember roughly when they were last seen, as a minute stamp
+ * 1..STAMPS (0 is unexplored). Stamps wrap, which is safe because `forget`
+ * runs every minute and clears anything older than its limit long before a
+ * stamp could come round again. Old saves hold 1 everywhere they explored,
+ * which reads as "seen in minute 0" and simply fades on schedule.
+ */
+const STAMPS = 250;
 
 /** Offsets making up a filled disc of a given radius, computed once per radius. */
 const DISCS = new Map<number, Int32Array>();
@@ -60,6 +71,8 @@ function disc(r: number): Int32Array {
 export class Vision {
   readonly explored: Uint8Array;
   private readonly visible: Uint8Array;
+  /** The stamp written into `explored` by the current update. */
+  private stamp = 1;
 
   constructor(
     readonly width: number,
@@ -98,8 +111,23 @@ export class Vision {
         if (!w.elevated && !clearSight(cx, cy, x, y, blocks)) continue;
         const k = y * this.width + x;
         this.visible[k] = 1;
-        this.explored[k] = 1;
+        this.explored[k] = this.stamp ?? 1;
       }
+    }
+  }
+
+  /** Set the game minute that `update` stamps on the tiles it sees. */
+  setMinute(minute: number): void {
+    this.stamp = 1 + (minute % STAMPS);
+  }
+
+  /** Let ground unseen for `minutes` or more fade back to unexplored. */
+  forget(minute: number, minutes: number): void {
+    const now = minute % STAMPS;
+    for (let k = 0; k < this.explored.length; k++) {
+      const e = this.explored[k]!;
+      if (e === 0 || this.visible[k]) continue;
+      if ((now - (e - 1) + STAMPS) % STAMPS >= minutes) this.explored[k] = 0;
     }
   }
 

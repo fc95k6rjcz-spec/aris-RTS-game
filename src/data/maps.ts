@@ -136,4 +136,5 @@ export const KIND_BLURB: Record<MapKind, string> = {
   plains: "Open ground and heavy timber. Fast, and nowhere to hide.",
   islands: "Water is the rule and land the exception. Shorelines everywhere.",
   seas: "Open water, with land in scattered holdings. Naval.",
+  realm: "The online realm: continents and open ocean, joined by causeways.",
 };
