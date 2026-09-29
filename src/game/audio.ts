@@ -86,7 +86,8 @@ export type VoiceKind = "select" | "king" | "footman" | "build";
 const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;
 
-const MENU_TRACK_URL = "/music/menu-theme.mp3";
+// Justin's opening soundscape for the front screen (the old theme file never shipped).
+const MENU_TRACK_URL = "/music/menu-opening.mp3";
 const MENU_FADE_IN_S = 3;
 const MENU_FADE_OUT_S = 2.5;
 /** Share of the music volume the recording plays at; it is mastered hot. */
