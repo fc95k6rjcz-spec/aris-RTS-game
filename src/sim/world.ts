@@ -216,7 +216,7 @@ const TOWER_ARCHER_INTERVAL = 24;
 const TOWER_ARROW_DAMAGE = 23;
 
 /** What a worker says when told to gather with no Town Hall (or mill/depot) to take it to. */
-export const NO_STORE_LINE = "I don't have anywhere to store that, sir.";
+export const NO_STORE_LINE = "We need to build a Town Hall — there is nowhere to store it.";
 /** What the miners say when a seam is nearly worked out. */
 export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from this mine.";
 /** Gold left in a seam when the miners start to worry. */

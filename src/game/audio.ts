@@ -23,13 +23,14 @@ import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "dragon" | "orcScouts" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "dragon" | "orcScouts" | "noStore" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
   warning: 15000,
   dragon: 15000,
   orcScouts: 15000,
+  noStore: 4000,
   command: 160,
   crown: 3000,
   magic: 140,
@@ -65,6 +66,7 @@ const SAMPLES = {
   footmanSelect: "/sfx/footman-select.mp3",
   workerBuild: "/sfx/worker-build.mp3",
   orcScoutsLine: "/sfx/orc-scouts.mp3",
+  needTownHall: "/sfx/need-town-hall.mp3",
 } as const;
 
 /**
@@ -273,6 +275,11 @@ export class Audio {
         // Justin's voice: "A dragon approaches". The attack alarm if it is missing.
         if (this.sample("dragonApproaches")) break;
         [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case "noStore":
+        // Justin's voice: "We need to build a town hall".
+        if (performance.now() < this.speakingUntil) break;
+        this.sample("needTownHall");
         break;
       case "orcScouts":
         // Justin's voice: "I spotted some orcs watching our town".

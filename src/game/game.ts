@@ -560,7 +560,8 @@ export class Game {
     });
     for (const ev of this.world.events) if (ev.player === this.player) {
       this.toast(ev.text, ev.level);
-      if (ev.text === NO_STORE_LINE || ev.text === LOW_MINE_LINE) this.callouts.say(ev.text);
+      if (ev.text === NO_STORE_LINE) this.audio.play("noStore");
+      else if (ev.text === LOW_MINE_LINE) this.callouts.say(ev.text);
     }
     const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
       if(u.owner !== this.player) return false;
