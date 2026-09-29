@@ -9,7 +9,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
+import { WALL_TIERS, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -1354,6 +1354,10 @@ export class Game {
         if (b) this.issue({ type: "upgrade", player: this.player, building: b.id });
         break;
       }
+      case "upgradeWalls": {
+        this.issue({ type: "upgradeWalls", player: this.player });
+        break;
+      }
       case "dragonbane": {
         const b = this.selectedBuildings()[0];
         if (b) this.issue({ type: "dragonbane", player: this.player, building: b.id });
@@ -2069,7 +2073,7 @@ export class Game {
       const d = BUILDINGS[b.def]!;
       selection = {
         name: buildingName(b.def, p.faction).toUpperCase(),
-        sub: !b.complete ? "Under construction" : b.def === "tower" ? `Level ${b.level} · ${towerArchers(b.level)} archers + ${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} yours` : LEVELLED[b.def] ? `${levelDef(b.def, b.level).name} · Level ${b.level}` : "Structure",
+        sub: !b.complete ? "Under construction" : b.def === "wall" || b.def === "gate" ? `${WALL_TIERS[this.world.wallLevel(b.owner) - 1]} · Level ${this.world.wallLevel(b.owner)}` : b.def === "tower" ? `Level ${b.level} · ${towerArchers(b.level)} archers + ${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} yours` : LEVELLED[b.def] ? `${levelDef(b.def, b.level).name} · Level ${b.level}` : "Structure",
         hp: b.hp,
         maxHp: b.maxHp,
         portrait: commandArt({ type: "upgrade" } as never, { ...b, level: b.level - 1, upgrade: null } as never, p.faction),

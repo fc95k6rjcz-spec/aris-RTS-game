@@ -16,6 +16,7 @@ export type Command =
   | { type: "cancelTrain"; player: PlayerId; building: EntityId; index: number }
   | { type: "cancelBuild"; player: PlayerId; building: EntityId }
   | { type: "upgrade"; player: PlayerId; building: EntityId }
+  | { type: "upgradeWalls"; player: PlayerId }
   | { type: "cancelUpgrade"; player: PlayerId; building: EntityId }
   | { type: "stop"; player: PlayerId; units: EntityId[] }
   | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId; /** Strike even your own or an ally's (Ctrl + right-click). */ force?: boolean }

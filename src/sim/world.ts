@@ -194,6 +194,13 @@ export function towerArchers(level: number): number { return 2 + Math.max(1, lev
 export const DRAGONBANE_COST = { gold: 600, lumber: 400 };
 /** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
 /** How far a tower shoots, in tiles. Every upgrade adds a clear step: 8, 9.25 (Braced), 10.5 ... 18 at the top. */
+/** The ten tiers of city wall. Every tier doubles the strength of every wall and gate you own. */
+export const WALL_TIERS = ["Dry-stone Wall", "Fieldstone Wall", "Mortared Wall", "Battlement Wall", "Rampart", "Curtain Wall", "Buttressed Wall", "Bastion Wall", "Great Wall", "Royal Wall"];
+/** What it costs to raise all your walls to `level`. */
+export function wallTierCost(level: number): { gold: number; lumber: number } {
+  const k = Math.pow(1.7, level - 2);
+  return { gold: Math.round(150 * k / 5) * 5, lumber: Math.round(200 * k / 5) * 5 };
+}
 /** How many orders a building will hold in its training line. */
 export const MAX_TRAIN_QUEUE = 10;
 export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
@@ -1074,6 +1081,21 @@ export class World {
     }
   }
 
+  /** This player's wall tier, 1..10. */
+  wallLevel(id: PlayerId): number { return 1 + (this.players.get(id)?.research.walls ?? 0); }
+  /** Walls and gates double in strength with each tier; nothing else changes. */
+  private wallFactor(owner: PlayerId, def: string): number {
+    return def === "wall" || def === "gate" ? Math.pow(2, this.wallLevel(owner) - 1) : 1;
+  }
+  /** Why the walls can't go up a tier yet, or null. They can never outgrow the hall. */
+  wallUpgradeBlocked(id: PlayerId): string | null {
+    const next = this.wallLevel(id) + 1;
+    if (next > WALL_TIERS.length) return "Your walls are as strong as walls get";
+    const hall = Math.max(0, ...this.buildings().filter((b) => b.owner === id && b.def === "townhall" && b.complete).map((b) => b.level));
+    if (hall < next) return `Needs a level ${next} Town Hall first`;
+    return null;
+  }
+
   /** The sword this clan is looking for: its own, or while it has no King the nearest in the realm. */
   relicFor(id: PlayerId): Relic | null {
     const own = this.relics.find((r) => r.owner === id && !r.taken);
@@ -1537,12 +1559,12 @@ export class World {
       tx,
       ty,
       size: d.size,
-      hp: complete ? d.hp : Math.max(1, Math.floor(d.hp * 0.1)),
-      maxHp: d.hp,
+      hp: complete ? d.hp * this.wallFactor(owner, def) : Math.max(1, Math.floor(d.hp * 0.1)),
+      maxHp: d.hp * this.wallFactor(owner, def),
       progress: complete ? d.buildTime : 0,
       complete,
       queue: [],
-      level: 1,
+      level: def === "wall" || def === "gate" ? this.wallLevel(owner) : 1,
       upgrade: null,
       research: null,
       rally: null,
@@ -2011,6 +2033,26 @@ export class World {
         else if (b.queue.length === 0 || b.queue.every((j) => j.paid === false)) this.emit(c.player, `${this.lacking(c.player, d.cost)} — queued until you have it`);
         const train = this.paced(d.trainTime);
         b.queue.push({ unit: c.unit, remaining: train, total: train, paid });
+        break;
+      }
+      case "upgradeWalls": {
+        const p = this.players.get(c.player);
+        if (!p) break;
+        const why = this.wallUpgradeBlocked(c.player);
+        if (why) { this.emit(c.player, why); break; }
+        const next = this.wallLevel(c.player) + 1;
+        const cost = wallTierCost(next);
+        if (!this.canAfford(c.player, cost)) { this.emit(c.player, this.lacking(c.player, cost)); break; }
+        this.spend(c.player, cost);
+        p.research.walls = next - 1;
+        // Every wall and gate you own doubles, keeping how damaged it is.
+        for (const b of this.buildings()) {
+          if (b.owner !== c.player || (b.def !== "wall" && b.def !== "gate")) continue;
+          b.maxHp *= 2;
+          b.hp = b.complete ? b.hp * 2 : b.hp;
+          b.level = next;
+        }
+        this.emit(c.player, `${WALL_TIERS[next - 1]} — every wall and gate twice as strong`, "info");
         break;
       }
       case "cancelTrain": {
@@ -2972,11 +3014,11 @@ export class World {
             const royalCraft = u.def === "king" && ROYAL_LICENCE.has(b.def) ? 1.5 : 1;
             const rate = royalCraft * (b.builders === 1 ? 1 : 0.5) / this.pace;
             b.progress = Math.min(d.buildTime, b.progress + rate);
-            b.hp = Math.min(d.hp, b.hp + Math.ceil((d.hp * 0.9) / d.buildTime));
+            b.hp = Math.min(b.maxHp, b.hp + Math.ceil((b.maxHp * 0.9) / d.buildTime));
             if (b.progress >= d.buildTime) {
               b.complete = true;
               this.fx.push({ kind: "built", x: (b.tx + b.size / 2) * SUB, y: (b.ty + b.size / 2) * SUB, def: b.def });
-              b.hp = d.hp;
+              b.hp = b.maxHp;
               this.refreshArmour(b.owner);
               this.emit(b.owner, `${d.name} complete`, "info");
               u.task = { kind: "idle" };
