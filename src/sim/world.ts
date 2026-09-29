@@ -201,6 +201,11 @@ export function wallTierCost(level: number): { gold: number; lumber: number } {
   const k = Math.pow(1.7, level - 2);
   return { gold: Math.round(150 * k / 5) * 5, lumber: Math.round(200 * k / 5) * 5 };
 }
+/** Each minute without a farm, the clan eats this much faster... */
+const HUNGER_GROWTH = 1.15;
+/** ...up to this many times its fed rate. */
+const HUNGER_MAX = 10;
+export const STARVING_LINE = "Your people are starving — build farms!";
 /** From this wall tier on there is a wall walk, and archers can stand on it. */
 export const WALL_ARCHER_TIER = 5;
 /** Archers per wall section: one, two once the walls are Bastion-thick. */
@@ -1082,6 +1087,37 @@ export class World {
         const n = this.relics[this.relics.length - 1]!;
         if (this.relics.length > before && near(n.x + 0.5, n.y + 0.5)) this.relics.pop();
       }
+    }
+  }
+
+  /**
+   * Everyone eats. A worker eats about 2 food a minute and a soldier twice
+   * that. With no farm the hunger grows every minute -- slowly at first, then
+   * fast -- and it settles back the moment a farm is standing. At nothing in the
+   * stores, no one new can be trained.
+   */
+  private stepFood(): void {
+    if (this.tick % TICKS_PER_SECOND !== 0) return;
+    const minute = this.tick % (60 * TICKS_PER_SECOND) === 0;
+    for (const [id, p] of this.players) {
+      if (id === WILD) continue;
+      let mouths = 0;
+      for (const u of this.units()) {
+        if (u.owner !== id) continue;
+        const d = UNITS[u.def]!;
+        if (d.beast) continue;
+        mouths += d.canGather || d.royal ? 1 : 2;
+      }
+      for (const b of this.buildings()) if (b.owner === id && b.garrison) mouths += 2 * b.garrison.length;
+      if (!mouths) continue;
+      if (minute) {
+        const farmed = this.buildings().some((b) => b.owner === id && b.def === "farm" && b.complete);
+        p.hunger = farmed ? 1 : Math.min(HUNGER_MAX, (p.hunger ?? 1) * HUNGER_GROWTH);
+      }
+      p.appetite = (p.appetite ?? 0) + (mouths * (p.hunger ?? 1)) / 30;
+      const take = Math.floor(p.appetite);
+      if (take > 0) { p.appetite -= take; p.food = Math.max(0, p.food - take); }
+      if (p.food <= 0 && this.tick % (30 * TICKS_PER_SECOND) === 0) this.emit(id, STARVING_LINE);
     }
   }
 
@@ -2312,6 +2348,7 @@ export class World {
     this.stepPatrols();
     this.stepDragons();
     this.stepHordeArrivals();
+    this.stepFood();
     this.stepWanderers();
     this.stepShelters();
     this.decayPaths();
@@ -3527,6 +3564,8 @@ export class World {
     const job = b.queue[0];
     if (!job) return;
     const d = UNITS[job.unit]!;
+    // Nobody new comes to a town with empty stores.
+    if ((this.players.get(b.owner)?.food ?? 1) <= 0) return;
     if (job.paid === false) {
       // Waiting on the purse: pay the moment it can be paid.
       if (!this.canAfford(b.owner, d.cost)) return;
