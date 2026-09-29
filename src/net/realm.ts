@@ -43,7 +43,7 @@ import type { Command } from "../sim/commands";
 const URL = "https://chgrnwcwgkmjioutxjem.supabase.co";
 const KEY = "sb_publishable_zAJoVzUsJyH6Fvgo0xkKbg_EhOT6ssD";
 /** Bumped whenever the ledger format or the simulation changes incompatibly. */
-export const REALM_VERSION = "realm-1";
+export const REALM_VERSION = "realm-2";
 /** Ticks in a turn: 200 ms at normal speed. */
 export const TICKS_PER_TURN = 4;
 /** How many past turns each machine keeps, to hand on to a new keeper or a straggler. */
@@ -140,6 +140,15 @@ export class RealmNet {
   private newcomers: Array<{ tab: string; seat: string }> = [];
   private snaps = new Map<string, { parts: string[]; got: number; n: number }>();
   private peers: Array<{ tab: string; since: number }> = [];
+  /**
+   * Who we have actually heard from lately, and when. Presence alone is slow
+   * to notice a computer that has gone to sleep with the game open -- it can
+   * take the best part of a minute -- and a sleeping keeper freezes everyone.
+   * So every computer says "still here" each second, and the keeper is the
+   * eldest one that has spoken in the last few seconds.
+   */
+  private heard = new Map<string, { since: number; at: number; next: number }>();
+  private lastBeat = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly host: RealmHost, readonly realmName = "ari") {}
@@ -180,6 +189,10 @@ export class RealmNet {
     ch.on("broadcast", { event: "need" }, ({ payload }) => this.onNeed(payload as { from: number; to?: string }));
     ch.on("broadcast", { event: "keeper" }, ({ payload }) => this.onKeeperAnnounce(payload as { tab: string; next: number }));
     ch.on("presence", { event: "sync" }, () => this.onPresence());
+    ch.on("broadcast", { event: "beat" }, ({ payload }) => {
+      const b = payload as { tab: string; since: number; next?: number };
+      if (b && typeof b.tab === "string" && typeof b.since === "number") this.heard.set(b.tab, { since: b.since, at: Date.now(), next: typeof b.next === "number" ? b.next : 0 });
+    });
 
     const subscribed = await new Promise<boolean>((resolve) => {
       const t = setTimeout(() => resolve(false), 8000);
@@ -193,12 +206,13 @@ export class RealmNet {
       return "offline";
     }
     await ch.track({ since: this.since });
-    // Give presence a moment to tell us who is already here.
-    await new Promise((r) => setTimeout(r, 1800));
+    this.beat();
+    // Give presence and heartbeats a moment to tell us who is already here.
+    await new Promise((r) => setTimeout(r, 2200));
     this.peers = this.readPresence();
-    const elder = this.peers.find((p) => p.tab !== this.tab && (p.since < this.since || (p.since === this.since && p.tab < this.tab)));
+    const elder = this.eldestAlive(true);
     this.timer = setInterval(() => this.housekeeping(), 400);
-    if (!elder) {
+    if (!elder || elder === this.tab) {
       this.keeper = true;
       this.host.status("You have the realm to yourself");
       return "keeper";
@@ -234,17 +248,47 @@ export class RealmNet {
     return out.sort((a, b) => a.since - b.since || (a.tab < b.tab ? -1 : 1));
   }
 
+  private beat(): void {
+    this.lastBeat = Date.now();
+    this.send("beat", { tab: this.tab, since: this.since, next: this.joining ? -1 : this.next });
+  }
+
+  /**
+   * The eldest computer we have heard from in the last few seconds (ourselves
+   * included). With `excludeSelf`, returns an elder other than us, or null.
+   */
+  private eldestAlive(excludeSelf = false): string | null {
+    const now = Date.now();
+    const alive: Array<{ tab: string; since: number; next: number }> = [{ tab: this.tab, since: this.since, next: this.joining ? -1 : this.next }];
+    for (const [tab, h] of this.heard) if (tab !== this.tab && now - h.at < 4000) alive.push({ tab, since: h.since, next: h.next });
+    // Presence counts too while heartbeats are still arriving for the first time.
+    if (this.heard.size === 0) for (const p of this.peers) if (p.tab !== this.tab) alive.push({ ...p, next: 0 });
+    // The realm that has run furthest wins -- a computer waking from sleep with
+    // an old copy must not drag everyone back to it -- then the eldest.
+    alive.sort((a, b) => (Math.abs(a.next - b.next) > 20 ? b.next - a.next : a.since - b.since || (a.tab < b.tab ? -1 : 1)));
+    const first = alive[0]!;
+    if (excludeSelf) return first.tab === this.tab ? null : first.tab;
+    return first.tab;
+  }
+
   private onPresence(): void {
     this.peers = this.readPresence();
+    // Someone who has cleanly left is gone at once, heartbeat or no.
+    const present = new Set(this.peers.map((p) => p.tab));
+    for (const tab of [...this.heard.keys()]) if (!present.has(tab)) this.heard.delete(tab);
+    this.elect();
+  }
+
+  /** Who keeps the realm: the eldest computer still answering. */
+  private elect(): void {
     if (this.joining) return;
-    const eldest = this.peers[0];
-    if (!eldest) return;
-    if (eldest.tab === this.tab) {
-      // The keeper has gone and we are next in line: take over.
+    const eldest = this.eldestAlive();
+    if (eldest === this.tab) {
+      // The keeper has gone (or fallen asleep) and we are next in line: take over.
       if (!this.keeper) this.becomeKeeper();
-    } else if (this.keeper && (eldest.since < this.since)) {
-      // Two people arrived at the same moment and both thought they were alone.
-      // The elder realm stands; ours folds into it.
+    } else if (this.keeper && eldest) {
+      // Two people arrived at the same moment and both thought they were alone,
+      // or an older keeper has woken up. The elder realm stands; ours folds in.
       this.host.status("Joining the older realm…");
       this.askToJoin();
     }
@@ -317,7 +361,14 @@ export class RealmNet {
   /** Resend orders the keeper has not taken yet, and chase missing turns. */
   private housekeeping(): void {
     const now = Date.now();
+    if (now - this.lastBeat >= 1000) this.beat();
+    this.elect();
     if (!this.keeper) {
+      // Stuck on a turn with nothing newer arriving: ask for it anyway.
+      if (!this.joining && this.stalledSince && now - this.lastNeed > 1000 && !this.inbox.has(this.next)) {
+        this.lastNeed = now;
+        this.send("need", { from: this.next });
+      }
       for (const [id, b] of this.unacked) {
         if (now - b.at > 900) { b.at = now; this.send("orders", { id, commands: b.commands }); }
       }
@@ -328,7 +379,7 @@ export class RealmNet {
       if (this.joining && now - this.lastNeed > 6000) {
         // No copy arrived: ask again (the keeper may have changed hands).
         this.lastNeed = now;
-        if (this.peers.length <= 1) {
+        if (this.eldestAlive(true) === null) {
           this.joining = false;
           this.keeper = true;
           this.host.status("Nobody answered — you have the realm to yourself");
@@ -390,6 +441,10 @@ export class RealmNet {
     // Newcomers get the world exactly as it stands now -- before this turn --
     // and their seat is claimed in this very turn, so everyone agrees on it.
     const arriving = this.newcomers.splice(0);
+    // The checksum is of the world as everyone else has it at this boundary --
+    // before any newcomer is seated here -- or every other machine would
+    // think it had drifted and throw its copy away.
+    const sum = this.next % 10 === 0 ? this.host.checksum() : undefined;
     // Seat them here first, so the copy they are sent already has their town
     // in it; the same order in the ledger seats them on every other machine
     // (and is a no-op here, and on theirs). Seating goes first in the turn so
@@ -397,7 +452,7 @@ export class RealmNet {
     for (const a of arriving) this.host.claim(a.seat);
     const seating: Command[] = arriving.map((a) => ({ type: "joinRealm", player: 0, peer: a.seat }));
     const turn: RealmTurn = { n: this.next, commands: [...seating, ...this.gathered], took: this.gatheredIds };
-    if (this.next % 10 === 0) turn.sum = this.host.checksum();
+    if (sum !== undefined) turn.sum = sum;
     for (const id of this.gatheredIds) this.takenIds.add(id);
     if (this.takenIds.size > 4000) this.takenIds = new Set([...this.takenIds].slice(-2000));
     this.gathered = [];

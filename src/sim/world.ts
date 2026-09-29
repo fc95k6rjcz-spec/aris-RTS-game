@@ -905,6 +905,10 @@ export class World {
     }
     this.realmSeats.set(peer, id);
     this.seatCamp(id);
+    // Let them see where they are at once. Part of the ledger order, so every
+    // computer does it at the same moment -- and a copy of the world handed
+    // to the newcomer is not all black before its first step.
+    this.updateVision(true);
     return id;
   }
 
@@ -927,6 +931,7 @@ export class World {
     Object.assign(p, { ...START_PURSE, research: {} });
     this.homes.delete(id);
     this.seatCamp(id);
+    this.updateVision(true);
   }
 
   /**

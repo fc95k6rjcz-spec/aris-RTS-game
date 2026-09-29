@@ -71,6 +71,11 @@ assert(C.world,'C got a copy from B');
 for(let i=0;i<400&&B.world.tick!==C.world.tick;i++){const [lo]=[B,C].sort((x,y)=>x.world.tick-y.world.tick);const t=lo.net.nextTick(performance.now());if(t)lo.world.step(t.commands);else await sleep(5);}
 assert.equal(B.world.checksum(),C.world.checksum(),'B and C agree');
 console.log('seats',[...C.world.realmSeats.values()].join(','));
+// B's computer goes to sleep with the game open: no close, no heartbeats.
+clearInterval(B.net.timer);B.net.send=()=>{};
+await run([C],6000);
+assert(C.net.isKeeper,'C took over from a sleeping keeper');
+const tc=C.world.tick;await run([C],600);assert(C.world.tick>tc,'realm keeps turning');
 B.net.close();C.net.close();
 console.log('PASS: realm founded, joined, kept in step, handed over, joined again');
 process.exit(0);

@@ -28,6 +28,7 @@ export function encodeSave(save: SavedGame): string {
     if (value instanceof Set) return { $save: 'Set', value: [...value] };
     if (value instanceof Uint8Array) return { $save: 'Uint8Array', value: [...value] };
     if (value instanceof Int32Array) return { $save: 'Int32Array', value: [...value] };
+    if (value instanceof Int16Array) return { $save: 'Int16Array', value: [...value] };
     for (const [name, Class] of Object.entries(classes)) if (value instanceof Class) {
       const state = { ...value };
       // Rebuild terrain caches on demand; they are not simulation state.
@@ -48,6 +49,7 @@ export function decodeSave(json: string): SavedGame {
       case 'Set': return new Set(value.value);
       case 'Uint8Array': return Uint8Array.from(value.value);
       case 'Int32Array': return Int32Array.from(value.value);
+      case 'Int16Array': return Int16Array.from(value.value);
       default: {
         if (!Object.hasOwn(classes, value.$save)) throw new Error('Unknown saved game format.');
         const Class = classes[value.$save as keyof typeof classes];
