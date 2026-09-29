@@ -423,6 +423,56 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
   c.restore();
 }
 
+
+// ───────────────────────────── soft material layers ─────────────────────────────
+
+/**
+ * A soft-edged mask of every tile that passes `test`, in device pixels.
+ *
+ * Painting ground materials a tile at a time is what made the map look like a
+ * grid: every dirt patch, rock shelf and pond was a hard square. Instead the
+ * material is drawn as one tile-per-pixel mask, stretched with smoothing and
+ * blurred, so patches come out as rounded blobs that run together.
+ */
+function softMask(map: GameMap, tx: number, ty: number, px: number, w: number, h: number,
+  x0: number, y0: number, x1: number, y1: number, test: (t: Tile, x: number, y: number) => boolean, blurTiles: number, boost = 0): HTMLCanvasElement {
+  // Two tiles of margin beyond the bake, so chunks agree along their seams.
+  const mx0 = Math.max(0, x0 - 2), my0 = Math.max(0, y0 - 2);
+  const mx1 = Math.min(map.width - 1, x1 + 2), my1 = Math.min(map.height - 1, y1 + 2);
+  const mw = mx1 - mx0 + 1, mh = my1 - my0 + 1;
+  const small = document.createElement("canvas");
+  small.width = mw; small.height = mh;
+  const sc = small.getContext("2d")!;
+  const img = sc.createImageData(mw, mh);
+  for (let y = my0; y <= my1; y++)
+    for (let x = mx0; x <= mx1; x++)
+      if (test(map.get(x, y), x, y)) img.data[((y - my0) * mw + (x - mx0)) * 4 + 3] = 255;
+  sc.putImageData(img, 0, 0);
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const o = out.getContext("2d")!;
+  o.imageSmoothingEnabled = true;
+  o.imageSmoothingQuality = "high";
+  o.filter = `blur(${Math.max(0.5, blurTiles * px)}px)`;
+  o.drawImage(small, (mx0 - tx) * px, (my0 - ty) * px, mw * px, mh * px);
+  o.filter = "none";
+  // Stack the blurred mask on itself to steepen its edge: rounded, but a
+  // shoreline rather than a haze.
+  for (let i = 0; i < boost; i++) o.drawImage(out, 0, 0);
+  return out;
+}
+
+/** Fill a device-pixel canvas the size of the bake with `paint`, then keep it only where `mask` is. */
+function maskedLayer(w: number, h: number, mask: HTMLCanvasElement, paint: (o: CanvasRenderingContext2D) => void): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const o = out.getContext("2d")!;
+  paint(o);
+  o.globalCompositeOperation = "destination-in";
+  o.drawImage(mask, 0, 0);
+  return out;
+}
+
 // ───────────────────────────── entry point ─────────────────────────────
 
 /**
@@ -592,26 +642,53 @@ export function bakeRegion(
     c.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
   }
 
-  for (let y = y0; y <= y1; y++)
-    for (let x = x0; x <= x1; x++) {
-      const t = map.get(x, y);
-      if (t === Tile.Water) paintWater(c, map, x, y, seed, waterPat);
-      else if (t === Tile.Ice) paintIce(c, map, x, y, seed, icePat);
-      else if (!pattern) paintGround(c, map, x, y, seed, map.isHidden(x, y));
-      else if (t === Tile.Dirt || t === Tile.Rock) {
-        // Wash the grass rather than replacing it, so a dirt patch keeps the
-        // blade texture and reads as worn ground instead of a flat sticker.
-        const wash = t === Tile.Dirt ? "rgba(96,74,44,0.82)" : "rgba(96,96,100,0.86)";
-        c.fillStyle = wash;
-        c.fillRect(x * T, y * T, T, T);
+  const soft = !!(pattern || variants > 0);
+  if (!soft) {
+    // No textures yet: the old tile-by-tile painting.
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const t = map.get(x, y);
+        if (t === Tile.Water) paintWater(c, map, x, y, seed, waterPat);
+        else if (t === Tile.Ice) paintIce(c, map, x, y, seed, icePat);
+        else paintGround(c, map, x, y, seed, map.isHidden(x, y));
       }
-    }
-
-  for (let y = y0; y <= y1; y++)
-    for (let x = x0; x <= x1; x++) {
-      blendEdges(c, map, x, y, seed);
-      paintShore(c, map, x, y, seed);
-    }
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        blendEdges(c, map, x, y, seed);
+        paintShore(c, map, x, y, seed);
+      }
+  } else {
+    // Materials as soft, rounded patches over the grass, not squares.
+    const W = canvas.width, H = canvas.height;
+    const hidden = (x: number, y: number) => map.isHidden(x, y);
+    const put = (layer: HTMLCanvasElement) => { c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(layer, 0, 0); c.restore(); };
+    const world = (o: CanvasRenderingContext2D) => { o.setTransform(px / T, 0, 0, px / T, -tx * px, -ty * px); };
+    // Worn earth and bare rock: a wash that keeps the grass texture showing through.
+    const dirt = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t, x, y) => t === Tile.Dirt && !hidden(x, y), 0.32, 1);
+    put(maskedLayer(W, H, dirt, (o) => { o.fillStyle = "rgba(98,76,46,0.78)"; o.fillRect(0, 0, W, H); }));
+    const rock = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t, x, y) => t === Tile.Rock && !hidden(x, y), 0.3, 1);
+    put(maskedLayer(W, H, rock, (o) => { o.fillStyle = "rgba(104,102,100,0.8)"; o.fillRect(0, 0, W, H); }));
+    // Ice floes.
+    const ice = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t) => t === Tile.Ice, 0.18, 2);
+    put(maskedLayer(W, H, ice, (o) => {
+      world(o);
+      o.fillStyle = icePat ?? "hsl(197,20%,84%)";
+      o.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
+    }));
+    // Open water: the picture, darkened, with pale shallows where the bottom comes up.
+    const water = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t) => t === Tile.Water, 0.2, 2);
+    const shore = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t) => t !== Tile.Water && t !== Tile.Ice, 0.28);
+    put(maskedLayer(W, H, water, (o) => {
+      o.save(); world(o);
+      o.fillStyle = waterPat ?? "#2b5f9e";
+      o.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
+      o.fillStyle = "rgba(16,48,96,0.3)";
+      o.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
+      o.restore();
+      // Pale shallows and a wet rim where the bottom comes up to the bank.
+      o.drawImage(maskedLayer(W, H, shore, (t) => { t.fillStyle = "rgba(170,215,228,0.75)"; t.fillRect(0, 0, W, H); }), 0, 0);
+    }));
+  }
 
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) paintScatter(c, map, x, y, seed);
 
