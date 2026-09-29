@@ -194,13 +194,15 @@ import ga9 from "../assets/gryphonaviary_9.png";
 import ga10 from "../assets/gryphonaviary_10.png";
 
 /** Painted tier art, indexed by building id then level-1. */
+const newHalls=import.meta.glob('../assets/halls/hall-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 const royalHalls=import.meta.glob('../assets/royal/hall-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 import outpost from '../assets/royal/outpost-1.webp';
 const TIERS: Record<string, string[]> = {
   gryphonaviary: [ga1, ga2, ga3, ga4, ga5, ga6, ga7, ga8, ga9, ga10],
   // A humble timber hall that grows into a town (the older painted set),
   // then the royal palace art from the Stronghold up.
-  townhall: [th1, th2, th3, th4, th5, ...[6, 7, 8, 9, 10].map((n)=>royalHalls[`../assets/royal/hall-${n}.webp`]!)],
+  // Shack to Seat of Kings: one painted set, humble to grand.
+  townhall: Array.from({length:10},(_,i)=>newHalls[`../assets/halls/hall-${i+1}.webp`]!),
   lumbermill: [lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10],
   barracks: [bk1, bk2, bk3, bk4, bk5, bk6, bk7, bk8, bk9, bk10],
   shipyard: [sy1, sy2, sy3, sy4, sy5, sy6, sy7, sy8, sy9, sy10],

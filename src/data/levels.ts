@@ -38,16 +38,16 @@ export interface LevelDef {
 }
 
 export const TOWNHALL_LEVELS: LevelDef[] = [
-  { level: 1, name: "Meeting Hall", blurb: "A humble wooden meeting hall for a small village.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 1200, supply: 12, scale: 1.0 },
-  { level: 2, name: "Timber Hall", blurb: "A larger timber hall with a stone foundation.", cost: { gold: 675, lumber: 450 }, time: 20 * 45, hp: 1500, supply: 16, scale: 1.06 },
-  { level: 3, name: "Reinforced Hall", blurb: "Reinforced with stone and better protection.", cost: { gold: 1013, lumber: 675 }, time: 20 * 55, hp: 1900, supply: 20, scale: 1.12 },
-  { level: 4, name: "Guarded Hall", blurb: "A strong and solid hall with guard towers.", cost: { gold: 1463, lumber: 945 }, time: 20 * 70, hp: 2400, supply: 25, scale: 1.18 },
-  { level: 5, name: "Grand Hall", blurb: "A grand hall with multiple sections and upgraded defenses.", cost: { gold: 2025, lumber: 1260 }, time: 20 * 85, hp: 3000, supply: 30, scale: 1.24 },
-  { level: 6, name: "Stronghold", blurb: "An impressive stronghold with advanced architecture.", cost: { gold: 2700, lumber: 1620 }, time: 20 * 100, hp: 3700, supply: 36, scale: 1.3 },
-  { level: 7, name: "Mighty Keep", blurb: "A mighty keep with expanded walls and watchtowers.", cost: { gold: 3488, lumber: 2025 }, time: 20 * 115, hp: 4500, supply: 42, scale: 1.36 },
-  { level: 8, name: "City Heart", blurb: "The heart of a prosperous city. Tall, proud and formidable.", cost: { gold: 4388, lumber: 2475 }, time: 20 * 130, hp: 5400, supply: 48, scale: 1.42 },
-  { level: 9, name: "Legendary Fortress", blurb: "A legendary fortress. Built to withstand any siege.", cost: { gold: 5400, lumber: 3038 }, time: 20 * 150, hp: 6400, supply: 55, scale: 1.48 },
-  { level: 10, name: "Seat of Power", blurb: "The ultimate symbol of power and leadership. Unmatched.", cost: { gold: 6750, lumber: 3713 }, time: 20 * 175, hp: 7500, supply: 64, scale: 1.55 },
+  { level: 1, name: "Shack", blurb: "A rough timber shack behind a split-rail fence. It's a start.", cost: { gold: 0, lumber: 0 }, time: 0, hp: 1200, supply: 12, scale: 0.82 },
+  { level: 2, name: "Lodge", blurb: "A long log lodge with a porch, a chimney and stores stacked by the door.", cost: { gold: 675, lumber: 450 }, time: 20 * 45, hp: 1500, supply: 16, scale: 0.9 },
+  { level: 3, name: "Town Hall", blurb: "Timber-framed on a stone base, with a bell to call the village.", cost: { gold: 1013, lumber: 675 }, time: 20 * 55, hp: 1900, supply: 20, scale: 1.0 },
+  { level: 4, name: "Manor Hall", blurb: "Solid stone, slate roofs and the banners of a proper lord.", cost: { gold: 1463, lumber: 945 }, time: 20 * 70, hp: 2400, supply: 25, scale: 1.06 },
+  { level: 5, name: "Castle", blurb: "Your first castle: battlements and a square tower keeping watch.", cost: { gold: 2025, lumber: 1260 }, time: 20 * 85, hp: 3000, supply: 30, scale: 1.12 },
+  { level: 6, name: "Stronghold", blurb: "A great square tower flanked by fortified halls.", cost: { gold: 2700, lumber: 1620 }, time: 20 * 100, hp: 3700, supply: 36, scale: 1.18 },
+  { level: 7, name: "Keep", blurb: "Round towers and curtain walls around a lordly keep.", cost: { gold: 3488, lumber: 2025 }, time: 20 * 115, hp: 4500, supply: 42, scale: 1.26 },
+  { level: 8, name: "Citadel", blurb: "A ring of towers around a mighty central keep.", cost: { gold: 4388, lumber: 2475 }, time: 20 * 130, hp: 5400, supply: 48, scale: 1.32 },
+  { level: 9, name: "Fortress", blurb: "A fortress-palace crowned by a clock tower and a forest of spires.", cost: { gold: 5400, lumber: 3038 }, time: 20 * 150, hp: 6400, supply: 55, scale: 1.42 },
+  { level: 10, name: "Seat of Kings", blurb: "The throne of the realm: gold, stone lions and a hundred banners.", cost: { gold: 6750, lumber: 3713 }, time: 20 * 175, hp: 7500, supply: 64, scale: 1.52 },
 ];
 
 /**

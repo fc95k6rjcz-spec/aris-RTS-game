@@ -12,7 +12,7 @@ import { buildingDrawScale } from "./proportions";
  */
 
 import campfire from "../assets/motion-v2/campfire.webp";
-import grandHall from '../assets/townhall_1.png';
+import grandHall from '../assets/halls/hall-1.webp';
 import outpost from '../assets/royal/outpost-1.webp';
 import {drawJoinedWall} from './walls';
 import shelterArt from "../assets/motion-v2/shelter-v2.webp";
