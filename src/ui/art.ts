@@ -27,7 +27,7 @@ import refinery from "../assets/refinery_1.png";
 import airfactory from "../assets/airfactory_1.png";
 import gryphonaviary from "../assets/gryphonaviary_1.png";
 
-import townhall from "../assets/royal/hall-1.webp";
+import townhall from "../assets/townhall_1.png";
 import farm from "../assets/ui/farm.jpg";
 import lumbermill from "../assets/ui/lumbermill.jpg";
 import golddepot from "../assets/golddepot.png";

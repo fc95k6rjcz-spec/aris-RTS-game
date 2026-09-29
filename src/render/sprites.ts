@@ -198,7 +198,9 @@ const royalHalls=import.meta.glob('../assets/royal/hall-*.webp',{eager:true,quer
 import outpost from '../assets/royal/outpost-1.webp';
 const TIERS: Record<string, string[]> = {
   gryphonaviary: [ga1, ga2, ga3, ga4, ga5, ga6, ga7, ga8, ga9, ga10],
-  townhall: Array.from({length:10},(_,i)=>royalHalls[`../assets/royal/hall-${i+1}.webp`]!),
+  // A humble timber hall that grows into a town (the older painted set),
+  // then the royal palace art from the Stronghold up.
+  townhall: [th1, th2, th3, th4, th5, ...[6, 7, 8, 9, 10].map((n)=>royalHalls[`../assets/royal/hall-${n}.webp`]!)],
   lumbermill: [lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10],
   barracks: [bk1, bk2, bk3, bk4, bk5, bk6, bk7, bk8, bk9, bk10],
   shipyard: [sy1, sy2, sy3, sy4, sy5, sy6, sy7, sy8, sy9, sy10],
