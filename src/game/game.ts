@@ -537,7 +537,8 @@ export class Game {
     if (this.world.fx.some((e) => e.kind === "alarm" && e.owner === this.player)) {
       // A dragon raid raises the same alarm; it gets its own line instead.
       const dragon = this.world.events.some((ev) => ev.player === this.player && ev.text === "A dragon is flying at your settlement!");
-      this.audio.play(dragon ? "dragon" : "warning");
+      const scouts = this.world.events.some((ev) => ev.player === this.player && ev.text.startsWith("Orc scouts are watching"));
+      this.audio.play(dragon ? "dragon" : scouts ? "orcScouts" : "warning");
     }
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
@@ -549,7 +550,7 @@ export class Game {
     });
     for (const ev of this.world.events) if (ev.player === this.player) {
       this.toast(ev.text, ev.level);
-      if (ev.text === NO_STORE_LINE || ev.text === LOW_MINE_LINE || ev.text.startsWith("Orc scouts are watching")) this.callouts.say(ev.text);
+      if (ev.text === NO_STORE_LINE || ev.text === LOW_MINE_LINE) this.callouts.say(ev.text);
     }
     const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
       if(u.owner !== this.player) return false;
@@ -869,6 +870,7 @@ export class Game {
     const fresh = [...this.selected].map((id) => before.has(id) ? undefined : this.world.entities.get(id)).filter((e) => e?.kind === "unit" && e.owner === this.player);
     // The King answers for himself.
     if (fresh.some((e) => e!.def === "king")) this.audio.say("king");
+    else if (fresh.some((e) => e!.def === "footman")) this.audio.say("footman");
     else if (fresh.length) this.audio.say("select");
   }
 

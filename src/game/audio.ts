@@ -23,12 +23,13 @@ import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "dragon" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "dragon" | "orcScouts" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
   warning: 15000,
   dragon: 15000,
+  orcScouts: 15000,
   command: 160,
   crown: 3000,
   magic: 140,
@@ -61,6 +62,8 @@ const SAMPLES = {
   select1: "/sfx/select-1.mp3",
   dragonApproaches: "/sfx/dragon-approaches.mp3",
   kingSelect: "/sfx/king-select.mp3",
+  footmanSelect: "/sfx/footman-select.mp3",
+  orcScoutsLine: "/sfx/orc-scouts.mp3",
 } as const;
 
 /**
@@ -70,8 +73,9 @@ const SAMPLES = {
 const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
   select: ["select1"],
   king: ["kingSelect"],
+  footman: ["footmanSelect"],
 };
-export type VoiceKind = "select" | "king";
+export type VoiceKind = "select" | "king" | "footman";
 /** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
 const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;
@@ -266,6 +270,11 @@ export class Audio {
       case "dragon":
         // Justin's voice: "A dragon approaches". The attack alarm if it is missing.
         if (this.sample("dragonApproaches")) break;
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case "orcScouts":
+        // Justin's voice: "I spotted some orcs watching our town".
+        if (this.sample("orcScoutsLine")) break;
         [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
         break;
       case 'warning':

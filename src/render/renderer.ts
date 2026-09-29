@@ -154,7 +154,10 @@ export class Renderer {
     // Draw buildings then units so units walk in front of walls; sort by y for a bit of depth.
     const buildings = this.world
       .buildings()
-      .filter((b) => b.owner === this.viewer || this.exploredAt(b.tx + b.size / 2, b.ty + b.size / 2));
+      .filter((b) => b.owner === this.viewer || this.exploredAt(b.tx + b.size / 2, b.ty + b.size / 2))
+      // Back to front by where each one meets the ground, so a tower stands in
+      // front of the wall behind it rather than the wall cutting across it.
+      .sort((a, b) => a.ty + a.size - (b.ty + b.size) || a.tx - b.tx);
     for (const b of buildings) this.drawBuilding(b, selected.has(b.id), alpha);
     this.drawCorpses();
     const units = [...this.world.units()]

@@ -10,7 +10,7 @@
  */
 export const BUILDING_DRAW_SCALE: Record<string, number> = {
   townhall: 1.36,
-  barracks: 1.6,
+  barracks: 1.45, // recropped whole from the sheet (the old crops clipped corners)
   farm: 1.45,
   lumbermill: 1.45,
   golddepot: 1.25,
