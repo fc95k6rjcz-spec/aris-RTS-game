@@ -193,7 +193,8 @@ export function towerArchers(level: number): number { return 2 + Math.max(1, lev
 /** A Dragonbane harpoon for the top of a watch tower. */
 export const DRAGONBANE_COST = { gold: 600, lumber: 400 };
 /** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
-export function towerRange(level: number): number { return 8 + Math.max(1, level) * 0.5; }
+/** How far a tower shoots, in tiles. Every upgrade adds a clear step: 8, 9.25 (Braced), 10.5 ... 18 at the top. */
+export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
 /** How many of your own archers a tower can take on top of its crew. */
 export function towerGarrisonCap(level: number): number { return 2 + Math.floor(Math.max(1, level) / 2); }
 /** Ticks between one tower archer's shots. */

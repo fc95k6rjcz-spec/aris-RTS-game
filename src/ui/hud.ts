@@ -659,7 +659,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
           const cur=table[b.level-1]!;const gains:string[]=[];
           if(next.hp>cur.hp)gains.push(`+${next.hp-cur.hp} health`);
           if(next.supply>cur.supply)gains.push(`+${next.supply-cur.supply} supply`);
-          if(b.def==="tower")gains.push("+1 archer on the platform");
+          if(b.def==="tower")gains.push("+1 archer on the platform","longer range");
           if((next.heal??0)>(cur.heal??0))gains.push("stronger healing");
           if((next.radius??0)>(cur.radius??0)&&b.def!=="tower")gains.push("wider reach");
           if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
