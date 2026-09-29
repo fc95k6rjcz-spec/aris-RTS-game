@@ -33,6 +33,7 @@ import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { RealmNet } from "../net/realm";
+import { VISIBLE } from "../sim/vision";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -895,6 +896,11 @@ export class Game {
         if (near !== null) hit = near;
       }
       const clicked = hit === null ? undefined : this.world.entities.get(hit);
+      if (!shift && (!clicked || clicked.owner !== this.player) && this.selectedUnits().some(u => u.owner === this.player) && this.swordAt(w.x, w.y)) {
+        this.contextOrder(w.x, w.y);
+        this.lastUnitClick = null;
+        return;
+      }
       if (settings.clickToMove && !shift && this.selectedUnits().some(u => u.owner === this.player) && (!clicked || clicked.owner !== this.player)) {
         const destination = clicked?.kind === "unit" ? clicked.pos : clicked ? centerOf(clicked) : w;
         this.contextOrder(destination.x, destination.y);
@@ -947,6 +953,20 @@ export class Game {
   }
 
   /** Nearest of the player's own units within a generous, zoom-aware radius of a click. */
+  /** A sword under the pointer that this clan could take up (or its own weapon). */
+  private swordAt(wx: number, wy: number): { x: number; y: number; owner: PlayerId } | null {
+    const v = this.world.vision.get(this.player);
+    let best: { x: number; y: number; owner: PlayerId } | null = null, bd = 1.5 * SUB;
+    for (const r of this.world.relics) {
+      if (r.taken) continue;
+      if (r.owner !== this.player && !(r.owner === 0 && !this.world.hasRoyal(this.player))) continue;
+      if (this.world.fogEnabled && v && v.at(r.x, r.y) !== VISIBLE) continue;
+      const d = Math.hypot((r.x + 0.5) * SUB - wx, (r.y + 0.5) * SUB - wy);
+      if (d < bd) { bd = d; best = r; }
+    }
+    return best;
+  }
+
   private pickOwnNear(wx: number, wy: number): EntityId | null {
     const r = Math.max(SUB * 0.7, 22 / this.cam.scale);
     let best: EntityId | null = null, bestD = r;
@@ -1092,6 +1112,19 @@ export class Game {
       return;
     }
     const ids = units.map((u) => u.id);
+    // Clicking on a sword sends your people to pick it up. The blade is drawn
+    // standing up out of its tile, so a click on the glow above counts too,
+    // and it wins over the trees it often lies among.
+    const sword = this.swordAt(wx, wy);
+    if (sword) {
+      const takers = units.filter((u) => UNITS[u.def]!.canGather || sword.owner === this.player);
+      const go = takers.length ? takers : units;
+      const sx = (sword.x + 0.5) * SUB, sy = (sword.y + 0.5) * SUB;
+      for (const u of go) this.issue({ type: "move", player: this.player, units: [u.id], x: Math.round(sx), y: Math.round(sy), queue });
+      this.marker(sx, sy, "move");
+      if (!takers.length) this.toast("Only a worker can take up the sword.", "info");
+      return;
+    }
     if (map.inBounds(tx, ty)) {
       const t = map.get(tx, ty);
       const gatherers = units.filter((u) => UNITS[u.def]!.canGather).map((u) => u.id);

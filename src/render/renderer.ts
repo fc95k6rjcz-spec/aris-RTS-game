@@ -1087,6 +1087,8 @@ export class Renderer {
     for (const r of this.world.relics) {
       // Your own weapon, or any realm sword out in the open.
       if (r.taken || (r.owner !== this.viewer && r.owner !== 0)) continue;
+      // A crowned clan has no use for a realm sword, so it doesn't see them.
+      if (r.owner === 0 && this.world.hasRoyal(this.viewer)) continue;
       const v = this.world.vision.get(this.viewer);
       if (this.world.fogEnabled && v && v.at(r.x, r.y) !== VISIBLE) continue;
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);

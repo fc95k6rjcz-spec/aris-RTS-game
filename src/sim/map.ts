@@ -269,6 +269,23 @@ export class GameMap {
     } finally { this.passer = was; }
   }
 
+  private sizeCache: { version: number; label: Int32Array; sizes: Int32Array } | null = null;
+  /** How many tiles can be walked to from here without chopping or digging. */
+  regionSize(x: number, y: number, domain: Domain = "land"): number {
+    if (!this.inBounds(x, y)) return 0;
+    const label = this.regions(domain);
+    const id = label[this.idx(x, y)]!;
+    if (id < 0) return 0;
+    if (!this.sizeCache || this.sizeCache.label !== label) {
+      let max = -1;
+      for (let i = 0; i < label.length; i++) if (label[i]! > max) max = label[i]!;
+      const sizes = new Int32Array(max + 1);
+      for (let i = 0; i < label.length; i++) if (label[i]! >= 0) sizes[label[i]!]!++;
+      this.sizeCache = { version: this.version, label, sizes };
+    }
+    return this.sizeCache.sizes[id]!;
+  }
+
   /** Whether two walkable tiles have any route between them at all. */
   connected(sx: number, sy: number, gx: number, gy: number, domain: Domain = "land"): boolean {
     if (!this.inBounds(sx, sy) || !this.inBounds(gx, gy)) return false;

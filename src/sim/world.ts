@@ -1013,11 +1013,41 @@ export class World {
           if (!this.map.connected(near.x, near.y, x, y, "land")) continue;
         } else {
           x = 3 + this.rng.int(this.map.width - 6); y = 3 + this.rng.int(this.map.height - 6);
+          // Out on open country, not shut in a pocket of trees no one can reach.
+          if (this.map.regionSize(x, y, "land") < 300) continue;
         }
         if (!this.map.inBounds(x, y) || !this.map.isWalkable(x, y, "land") || this.map.occupant[this.map.idx(x, y)] !== 0) continue;
         if (this.relics.some((r) => !r.taken && Math.hypot(r.x - x, r.y - y) < 8)) continue;
         this.relics.push({ owner: 0, faction: Faction.Human, x, y, taken: false });
         break;
+      }
+    }
+  }
+
+  /**
+   * A realm sword lying beside a crowned clan's town is useless to them and
+   * just clutters the view, so it wanders off somewhere else in the realm.
+   */
+  clearSwordsFromTowns(): void {
+    const crowned = new Set<PlayerId>();
+    for (const id of this.players.keys()) if (this.hasRoyal(id)) crowned.add(id);
+    const halls: { x: number; y: number }[] = [];
+    for (const e of this.entities.values()) if (e.kind === "building" && crowned.has(e.owner)) halls.push({ x: e.tx + e.size / 2, y: e.ty + e.size / 2 });
+    const near = (x: number, y: number) => halls.some((h) => Math.hypot(h.x - x, h.y - y) < 18);
+    let moved = 0;
+    for (const r of this.relics) {
+      if (r.taken || r.owner !== 0) continue;
+      // ...and one shut away where nobody can walk to it goes somewhere they can.
+      if (near(r.x + 0.5, r.y + 0.5) || this.map.regionSize(r.x, r.y, "land") < 300) { r.taken = true; moved++; }
+    }
+    if (!moved) return;
+    for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.taken && this.relics[i]!.owner === 0) this.relics.splice(i, 1);
+    for (let k = 0; k < moved; k++) {
+      const before = this.relics.length;
+      for (let tries = 0; tries < 20 && this.relics.length === before; tries++) {
+        this.scatterSwords(1);
+        const n = this.relics[this.relics.length - 1]!;
+        if (this.relics.length > before && near(n.x + 0.5, n.y + 0.5)) this.relics.pop();
       }
     }
   }
@@ -1205,6 +1235,7 @@ export class World {
    */
   private checkRelics(): void {
     if (this.relics.length === 0 || this.tick % 5 !== 0) return;
+    if (this.realm && this.tick % 100 === 0) this.clearSwordsFromTowns();
     for (const r of this.relics) {
       if (r.taken) continue;
       const cx = (r.x + 0.5) * SUB;

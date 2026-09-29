@@ -14,4 +14,12 @@ assert.equal(w.relicFor(a),null,'a crowned clan seeks no sword');
 // a follower of the king stepping on another sword is not crowned
 const other=w.relics.find(r=>!r.taken);const f=w.units().find(u=>u.owner===a&&u.def==='worker');
 if(f){f.pos={x:(other.x+0.5)*64,y:(other.y+0.5)*64};for(let i=0;i<10;i++)w.step([]);assert.equal(f.def,'worker');assert(!other.taken);}
+// a sword lying by a crowned clan's town wanders off elsewhere
+const k=w.units().find(u=>u.owner===a&&u.def==='king');const tx=Math.floor(k.pos.x/64),ty=Math.floor(k.pos.y/64);
+let hall=null;for(let d=3;d<20&&!hall;d++)for(const [dx,dy] of [[d,0],[-d,0],[0,d],[0,-d]]){hall=w.placeBuilding(a,'townhall',tx+dx,ty+dy,true);if(hall)break;}
+assert(hall,'a hall to test with');
+w.relics.push({owner:0,faction:0,x:hall.tx+hall.size+2,y:hall.ty,taken:false});const count=w.relics.filter(r=>!r.taken&&r.owner===0).length;
+for(let i=0;i<120;i++)w.step([]);
+const nearHall=w.relics.filter(r=>!r.taken&&r.owner===0&&Math.hypot(r.x-hall.tx,r.y-hall.ty)<15);
+assert.equal(nearHall.length,0,'no sword left by the town');assert.equal(w.relics.filter(r=>!r.taken&&r.owner===0).length,count,'it went somewhere else');
 console.log('PASS: realm swords crown kingless clans only');
