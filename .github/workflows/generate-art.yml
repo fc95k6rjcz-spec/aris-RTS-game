@@ -1,0 +1,62 @@
+# Game art on demand. Push a request file to art-requests/<name>.json:
+#   { "prompt": "...", "size": "1536x1024", "refs": ["art-src/walls/sheet-straight.png"] }
+# and this generates the picture with OpenAI (transparent background) and
+# commits it to art-src/generated/<name>.png. The API key lives in the repo
+# secret OPENAI_API_KEY and never appears in the code or the chat.
+name: Generate art
+on:
+  push:
+    branches: [main]
+    paths: ["art-requests/**.json"]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency: { group: generate-art, cancel-in-progress: false }
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate pending requests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then echo "::error::Add the OPENAI_API_KEY repository secret first"; exit 1; fi
+          mkdir -p art-src/generated
+          made=0
+          for req in art-requests/*.json; do
+            [ -e "$req" ] || continue
+            name=$(basename "$req" .json)
+            out="art-src/generated/$name.png"
+            [ -e "$out" ] && continue
+            prompt=$(jq -r .prompt "$req")
+            size=$(jq -r '.size // "1536x1024"' "$req")
+            quality=$(jq -r '.quality // "high"' "$req")
+            refs=$(jq -r '(.refs // [])[]' "$req")
+            echo "Generating $name ($size)"
+            if [ -n "$refs" ]; then
+              args=()
+              while IFS= read -r r; do args+=(-F "image[]=@$r"); done <<< "$refs"
+              curl -sS --fail-with-body https://api.openai.com/v1/images/edits \
+                -H "Authorization: Bearer $OPENAI_API_KEY" \
+                -F model=gpt-image-1 -F "prompt=$prompt" -F size="$size" -F quality="$quality" \
+                -F background=transparent -F output_format=png "${args[@]}" > resp.json
+            else
+              jq -n --arg p "$prompt" --arg s "$size" --arg q "$quality" \
+                '{model:"gpt-image-1",prompt:$p,size:$s,quality:$q,background:"transparent",output_format:"png"}' > body.json
+              curl -sS --fail-with-body https://api.openai.com/v1/images/generations \
+                -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" \
+                -d @body.json > resp.json
+            fi
+            jq -r '.data[0].b64_json' resp.json | base64 -d > "$out"
+            made=$((made+1))
+          done
+          rm -f resp.json body.json
+          if [ "$made" -gt 0 ]; then
+            git config user.name "art-bot"; git config user.email "art-bot@users.noreply.github.com"
+            git add art-src/generated
+            git commit -m "Generated art ($made) [skip ci]"
+            git pull --rebase -q origin main && git push -q origin HEAD:main
+          fi
