@@ -524,7 +524,7 @@ export const UNITS: Record<string, UnitDef> = {
   submarine: {
     id: "submarine",
     name: "Submarine",
-    hotkey: "U",
+    hotkey: "S",
     cost: { gold: 788, lumber: 225, oil: 330 },
     hp: 260,
     speed: 14,

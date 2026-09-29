@@ -1636,7 +1636,11 @@ export class World {
     for (const e of this.entities.values()) {
       if (e.owner !== player) continue;
       if (e.kind === "unit") used += UNITS[e.def]!.supply;
-      else if (e.complete) max += LEVELLED[e.def] ? levelDef(e.def, e.level).supply : BUILDINGS[e.def]!.supply;
+      else {
+        // Archers up in a tower or on a wall are still your soldiers.
+        for (const m of e.garrison ?? []) used += UNITS[m.def]!.supply;
+        if (e.complete) max += LEVELLED[e.def] ? levelDef(e.def, e.level).supply : BUILDINGS[e.def]!.supply;
+      }
     }
     return { used, max: Math.min(max, 200) };
   }
@@ -2295,14 +2299,16 @@ export class World {
       if (heir) {
         heir.def = "king";
         const d = UNITS.king!;
-        heir.maxHp = Math.round(d.hp * (1 + this.armourBonus(heir.owner)));
         // He inherits wounded, not renewed: the same fraction of health he had.
-        heir.hp = Math.max(1, Math.round(heir.maxHp * (heir.hp / Math.max(1, heir.maxHp))));
+        const frac = heir.hp / Math.max(1, heir.maxHp);
+        heir.maxHp = Math.round(d.hp * (1 + this.armourBonus(heir.owner)));
+        heir.hp = Math.max(1, Math.round(heir.maxHp * frac));
         this.emit(e.owner, "The King has fallen. Long live the King.", "info");
       } else {
         this.emit(e.owner, "The King has fallen, and left no heir. No new Town Hall may be founded.");
       }
     }
+    const lostArmour = e.kind === "building" && e.complete && !!LEVELLED[e.def] && !!levelDef(e.def, e.level).armour;
     if (e.kind === "building") {
       this.map.release(e.tx, e.ty, e.size);
       if (e.def === "gate") this.map.setGate(e.tx, e.ty, e.size, 0);
@@ -2314,6 +2320,7 @@ export class World {
         if ((u.task.kind === "build" || u.task.kind === "repair") && u.task.building === id) u.task = { kind: "idle" };
     }
     this.entities.delete(id);
+    if (lostArmour) this.refreshArmour(e.owner);
   }
 
   private pathTo(u: Unit, tx: number, ty: number, fresh = false): void {
@@ -2733,15 +2740,18 @@ export class World {
   /** Idle soldiers intercept visible threats, then return to their guard position. */
   private defendPosition(u: Unit): void {
     const origin = u.guardOrigin ?? u.pos;
-    const valid = (e: Entity): boolean => e.kind === 'unit' && this.hostile(u,e) && UNITS[e.def]!.damage > 0 && this.canStrike(u,e) && this.canSeeEntity(u.owner,e) && Math.hypot(e.pos.x-origin.x,e.pos.y-origin.y) <= 8*SUB;
+    const valid = (e: Entity): boolean => e.kind === 'unit' && this.hostile(u,e) && this.canStrike(u,e) && this.canSeeEntity(u.owner,e) && Math.hypot(e.pos.x-origin.x,e.pos.y-origin.y) <= 8*SUB;
     let foe = u.engaging === null ? undefined : this.entities.get(u.engaging);
     if (!foe || !valid(foe)) {
       foe = undefined;
-      let nearest = Math.max(7,this.stats(u).range)*SUB;
+      // Armed enemies first; healers and unarmed hulls only when nothing is shooting back.
+      let nearest = Math.max(7,this.stats(u).range)*SUB, armed = false;
       for (const enemy of this.units()) {
         if (!valid(enemy)) continue;
+        const threat = UNITS[enemy.def]!.damage > 0;
+        if (armed && !threat) continue;
         const distance = Math.hypot(enemy.pos.x-u.pos.x,enemy.pos.y-u.pos.y);
-        if (distance < nearest) { nearest=distance; foe=enemy; }
+        if (distance < nearest || (threat && !armed)) { nearest=distance; foe=enemy; armed=threat; }
       }
     }
     if (foe) {
@@ -2766,16 +2776,17 @@ export class World {
   private autoAcquire(u: Unit): Entity | null {
     const def = UNITS[u.def]!;
     if (def.damage <= 0) return null;
+    const range = this.stats(u).range;
     if (u.engaging !== null) {
       const e = this.entities.get(u.engaging);
       if (e && this.hostile(u, e)) {
         const p = this.posOf(e);
-        if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) < (def.range + 3) * SUB) return e;
+        if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) < (range + 3) * SUB) return e;
       }
       u.engaging = null;
     }
     // Workers only defend themselves at arm's length; soldiers watch a wider field.
-    const watch = (def.canGather ? def.range + 0.5 : def.range + 2.5) * SUB;
+    const watch = (def.canGather ? range + 0.5 : range + 2.5) * SUB;
     const t = this.findTarget(u, watch);
     u.engaging = t ? t.id : null;
     return t;
@@ -2984,7 +2995,7 @@ export class World {
         if (foe && u.cooldown === 0) {
           const p = this.posOf(foe);
           const def = UNITS[u.def]!;
-          if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) - this.radiusOf(foe) <= def.range * SUB) {
+          if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) - this.radiusOf(foe) <= this.stats(u).range * SUB) {
             const keep = [...u.path];
             this.tryAttack(u, foe);
             u.path = keep; // tryAttack halts a chaser; a moving unit keeps going
@@ -3102,7 +3113,7 @@ export class World {
         u.lastGather = { tx: t.tx, ty: t.ty, resource: t.resource };
         // A worker under attack fights back, but does not abandon its trip.
         if (def.damage > 0 && u.cooldown === 0) {
-          const foe = this.findTarget(u, def.range * SUB);
+          const foe = this.findTarget(u, this.stats(u).range * SUB);
           if (foe) {
             const keep = [...u.path];
             this.tryAttack(u, foe);
@@ -3586,7 +3597,7 @@ export class World {
     }
     const s = this.supply(b.owner);
     if (s.used + d.supply > s.max) {
-      if (this.tick % 100 === 0) this.emit(b.owner, "Not enough supply — build another Town Hall");
+      if (this.tick % 100 === 0) this.emit(b.owner, "Not enough supply — build more Farms or upgrade your Town Hall");
       return;
     }
     // A levelled workshop trains faster.
