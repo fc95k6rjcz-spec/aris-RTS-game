@@ -1053,11 +1053,14 @@ export class World {
     const halls: { x: number; y: number }[] = [];
     for (const e of this.entities.values()) if (e.kind === "building" && crowned.has(e.owner)) halls.push({ x: e.tx + e.size / 2, y: e.ty + e.size / 2 });
     const near = (x: number, y: number) => halls.some((h) => Math.hypot(h.x - x, h.y - y) < 18);
+    const seekers = this.units().filter((u) => u.owner !== WILD && this.players.has(u.owner) && !crowned.has(u.owner));
     let moved = 0;
     for (const r of this.relics) {
       if (r.taken || r.owner !== 0) continue;
+      // Never pull a sword out from under someone still looking for one.
+      if (seekers.some((u) => Math.hypot(u.pos.x / SUB - r.x, u.pos.y / SUB - r.y) < 30)) continue;
       // ...and one shut away where nobody can walk to it goes somewhere they can.
-      if (near(r.x + 0.5, r.y + 0.5) || this.map.regionSize(r.x, r.y, "land") < 300) { r.taken = true; moved++; }
+      if (near(r.x + 0.5, r.y + 0.5) || this.map.regionSize(r.x, r.y, "land") < 60) { r.taken = true; moved++; }
     }
     if (!moved) return;
     for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.taken && this.relics[i]!.owner === 0) this.relics.splice(i, 1);

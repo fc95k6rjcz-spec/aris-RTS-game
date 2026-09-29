@@ -472,7 +472,15 @@ export class Game {
     // Game speed is wall-clock only: it changes how often real time asks for a
     // tick, never what a tick computes, so the sim stays deterministic.
     const step = this.tickStep();
-    this.acc += open ? 0 : dt;
+    // In the realm, keep a small cushion of turns in hand and drift the pace
+    // to hold it: a touch slower when running low, a touch faster when
+    // behind. Smooth, instead of freezing on every late turn and then racing.
+    let pace = 1;
+    if (this.realm && !this.menu) {
+      const behind = this.realm.backlog();
+      pace = behind <= 1 ? 0.85 : behind <= 4 ? 1 : behind <= 10 ? 1.15 : behind <= 40 ? 1.5 : 1;
+    }
+    this.acc += open ? 0 : dt * pace;
     if (!open) this.updateCamera(dt);
     while (this.acc >= step) {
       this.acc -= step;
@@ -483,7 +491,9 @@ export class Game {
     // screen; a tick or two extra per frame is a quick walk, not a teleport.
     if (this.realm && !this.menu) {
       const behind = this.realm.backlog();
-      let extra = behind > 40 ? 6 : behind > 8 ? 2 : behind > 3 ? 1 : 0;
+      // Only a long way behind (just joined) runs extra ticks; ordinary lag
+      // is handled by the pace above.
+      let extra = behind > 40 ? 6 : 0;
       while (extra-- > 0) this.tick();
     }
     this.render(this.paused ? 1 : this.acc / step);
@@ -909,7 +919,7 @@ export class Game {
         if (near !== null) hit = near;
       }
       const clicked = hit === null ? undefined : this.world.entities.get(hit);
-      if (!shift && (!clicked || clicked.owner !== this.player) && this.selectedUnits().some(u => u.owner === this.player) && this.swordAt(w.x, w.y)) {
+      if (!shift && (!clicked || clicked.owner !== this.player) && this.selectedUnits().some(u => u.owner === this.player && UNITS[u.def]!.canGather) && this.swordAt(w.x, w.y)) {
         this.contextOrder(w.x, w.y);
         this.lastUnitClick = null;
         return;
@@ -969,7 +979,7 @@ export class Game {
   /** A sword under the pointer that this clan could take up (or its own weapon). */
   private swordAt(wx: number, wy: number): { x: number; y: number; owner: PlayerId } | null {
     const v = this.world.vision.get(this.player);
-    let best: { x: number; y: number; owner: PlayerId } | null = null, bd = 1.5 * SUB;
+    let best: { x: number; y: number; owner: PlayerId } | null = null, bd = 0.9 * SUB;
     for (const r of this.world.relics) {
       if (r.taken) continue;
       if (r.owner !== this.player && !(r.owner === 0 && !this.world.hasRoyal(this.player))) continue;
@@ -1139,7 +1149,8 @@ export class Game {
     // Clicking on a sword sends your people to pick it up. The blade is drawn
     // standing up out of its tile, so a click on the glow above counts too,
     // and it wins over the trees it often lies among.
-    const sword = this.swordAt(wx, wy);
+    // Only a man who can take it up is sent to it; soldiers just move as told.
+    const sword = units.some((u) => UNITS[u.def]!.canGather) ? this.swordAt(wx, wy) : null;
     if (sword) {
       const takers = units.filter((u) => UNITS[u.def]!.canGather || sword.owner === this.player);
       const go = takers.length ? takers : units;
