@@ -51,7 +51,7 @@ export interface Unit {
   /** Walking to a watch tower to climb up and shoot from it. */
   enterTower?: EntityId;
   /** One of the Orc Horde: what it was sent to do, to whom, and where it came from. */
-  horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean };
+  horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean; /** Tick a raid gives up and heads home. */ until?: number };
   /** A dragon's errand: sleeping on its roost, burning a town, or flying home. */
   dragon?: { phase: "roost" | "raid" | "leave"; target: PlayerId; over: Vec; until: number; arrived?: boolean };
   /** The last resource this worker was working, so he can go back to it after a job. */

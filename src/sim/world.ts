@@ -662,9 +662,13 @@ export class World {
       // Sized to the town it is sent at: a new hall faces a handful, a great
       // city an army. In a realm that runs for days this matters -- a newcomer
       // must not meet a war band built for someone else's fortress.
-      const built = this.buildings().filter((b) => b.owner === target).length;
-      const growth = this.realm ? Math.min(16, 1 + Math.round(built * 1.1)) : Math.min(16, 3 + n * 2);
-      const size = Math.max(2, Math.min(30, Math.round(growth * (1 + 0.5 * (crowd - 1)))));
+      // Walls don't count: a well-walled town is not a bigger prize.
+      const built = this.buildings().filter((b) => b.owner === target && b.def !== "wall" && b.def !== "gate").length;
+      const growth = this.realm ? Math.min(10, 1 + Math.round(built * 0.6)) : Math.min(12, 3 + n * 2);
+      const size = Math.max(2, Math.min(16, Math.round(growth * (1 + 0.25 * (crowd - 1)))));
+      // One war band at a time per town: if the last is still about, no more.
+      const out = this.units().filter((u) => u.horde?.role === "raid" && u.horde.target === target).length;
+      if (out >= Math.ceil(size / 2)) return;
       const band = Array.from({ length: size }, (_, i) => (i % 5 === 4 ? "direwolf" : "grunt"));
       this.sendHorde(target, "raid", band, "An Orc war band approaches");
     }
@@ -696,7 +700,7 @@ export class World {
     const at = { x: (best.x + 0.5) * SUB, y: (best.y + 0.5) * SUB };
     defs.forEach((def, i) => {
       const u = this.spawnUnit(WILD, def, { x: at.x + ((i % 4) - 1.5) * SUB * 0.8, y: at.y + (Math.floor(i / 4) - 1) * SUB * 0.8 });
-      u.horde = { role, target, home: { ...at } };
+      u.horde = { role, target, home: { ...at }, until: role === "raid" ? this.tick + 4 * 60 * TICKS_PER_SECOND : undefined };
       u.patrolHome = { ...at };
     });
     const dir = compassFrom(best.x - hx, best.y - hy);
@@ -820,6 +824,16 @@ export class World {
     const foe = this.findTarget(u, (h.role === "scout" ? 3.5 : 7) * SUB);
     if (foe) { u.task = { kind: "attack", target: foe.id }; return; }
     const theirs = this.buildings().filter((b) => b.owner === h.target);
+    // A raid that has done its damage (or run out of time) goes home.
+    if (h.role === "raid" && h.until === undefined) h.until = this.tick + 60 * TICKS_PER_SECOND; // bands from before this rule
+    if (h.role === "raid" && h.until !== undefined && this.tick >= h.until) {
+      if (Math.hypot(u.pos.x - h.home.x, u.pos.y - h.home.y) < 3 * SUB) { this.removeEntity(u.id); return; }
+      if (u.task.kind !== "move" || u.path.length === 0) {
+        this.pathTo(u, Math.floor(h.home.x / SUB), Math.floor(h.home.y / SUB), true);
+        u.task = { kind: "move", target: { ...h.home } };
+      }
+      return;
+    }
     if (h.role === "scout") {
       if (!h.spotted) {
         const near = theirs.some((b) => Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < 9 * SUB);
