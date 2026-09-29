@@ -261,15 +261,15 @@ export const MAGETOWER_LEVELS: LevelDef[] = [
  */
 export const FARM_LEVELS: LevelDef[] = [
   { level: 1, name: "Farm", blurb: "A basic farm with a few fields and a milking cow.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 6, scale: 1.00 },
-  { level: 2, name: "Improved Farm", blurb: "Better tools and techniques increase food production.", cost: { gold: 248, lumber: 180 }, time: 20 * 26, hp: 620, supply: 9, scale: 1.11 },
-  { level: 3, name: "Advanced Farm", blurb: "Expanded fields and storage increase output.", cost: { gold: 383, lumber: 282 }, time: 20 * 32, hp: 770, supply: 12, scale: 1.22 },
-  { level: 4, name: "Large Farm", blurb: "More land and better infrastructure boost yields.", cost: { gold: 552, lumber: 405 }, time: 20 * 39, hp: 950, supply: 16, scale: 1.33 },
-  { level: 5, name: "Superior Farm", blurb: "Upgraded facilities and crop rotation maximise production.", cost: { gold: 755, lumber: 552 }, time: 20 * 47, hp: 1160, supply: 20, scale: 1.44 },
-  { level: 6, name: "Elite Farm", blurb: "Expert farmers and advanced equipment greatly increase yields.", cost: { gold: 990, lumber: 732 }, time: 20 * 56, hp: 1400, supply: 25, scale: 1.55 },
-  { level: 7, name: "Prestige Farm", blurb: "A prestigious farm with superior resources and techniques.", cost: { gold: 1272, lumber: 935 }, time: 20 * 66, hp: 1680, supply: 30, scale: 1.66 },
-  { level: 8, name: "Royal Farm", blurb: "Royal standards and innovation ensure abundant harvests.", cost: { gold: 1598, lumber: 1170 }, time: 20 * 77, hp: 1990, supply: 36, scale: 1.77 },
-  { level: 9, name: "Grand Farm", blurb: "The finest farm in the kingdom. Yields are nearly unmatched.", cost: { gold: 1970, lumber: 1440 }, time: 20 * 89, hp: 2340, supply: 42, scale: 1.88 },
-  { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 2385, lumber: 1755 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.99 },
+  { level: 2, name: "Improved Farm", blurb: "Better tools and techniques increase food production.", cost: { gold: 248, lumber: 180 }, time: 20 * 26, hp: 620, supply: 9, scale: 1.06 },
+  { level: 3, name: "Advanced Farm", blurb: "Expanded fields and storage increase output.", cost: { gold: 383, lumber: 282 }, time: 20 * 32, hp: 770, supply: 12, scale: 1.12 },
+  { level: 4, name: "Large Farm", blurb: "More land and better infrastructure boost yields.", cost: { gold: 552, lumber: 405 }, time: 20 * 39, hp: 950, supply: 16, scale: 1.18 },
+  { level: 5, name: "Superior Farm", blurb: "Upgraded facilities and crop rotation maximise production.", cost: { gold: 755, lumber: 552 }, time: 20 * 47, hp: 1160, supply: 20, scale: 1.24 },
+  { level: 6, name: "Elite Farm", blurb: "Expert farmers and advanced equipment greatly increase yields.", cost: { gold: 990, lumber: 732 }, time: 20 * 56, hp: 1400, supply: 25, scale: 1.30 },
+  { level: 7, name: "Prestige Farm", blurb: "A prestigious farm with superior resources and techniques.", cost: { gold: 1272, lumber: 935 }, time: 20 * 66, hp: 1680, supply: 30, scale: 1.36 },
+  { level: 8, name: "Royal Farm", blurb: "Royal standards and innovation ensure abundant harvests.", cost: { gold: 1598, lumber: 1170 }, time: 20 * 77, hp: 1990, supply: 36, scale: 1.42 },
+  { level: 9, name: "Grand Farm", blurb: "The finest farm in the kingdom. Yields are nearly unmatched.", cost: { gold: 1970, lumber: 1440 }, time: 20 * 89, hp: 2340, supply: 42, scale: 1.48 },
+  { level: 10, name: "Legendary Farm", blurb: "A legendary farm that feeds armies. Maximum food production.", cost: { gold: 2385, lumber: 1755 }, time: 20 * 102, hp: 2730, supply: 50, scale: 1.55 },
 ];
 
 /**

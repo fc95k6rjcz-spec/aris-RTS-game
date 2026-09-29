@@ -1929,7 +1929,7 @@ export class World {
         if (!b || b.kind!=='building' || b.def!=='tower' || !b.complete || b.owner!==c.player || !target || !this.hostile(b,target) || !this.canSeeEntity(c.player,target)) break;
         if (target.kind==='unit' && UNITS[target.def]!.submerged) { this.emit(c.player,'Watch towers cannot attack submerged units.'); break; }
         const origin=centerOf(b),at=this.posOf(target);
-        if (Math.hypot(at.x-origin.x,at.y-origin.y)-this.radiusOf(target) > (4.5+Math.max(1,b.level)*.55)*SUB) { this.emit(c.player,'That enemy is outside the watchtower’s attack range.'); break; }
+        if (Math.hypot(at.x-origin.x,at.y-origin.y)-this.radiusOf(target) > towerRange(b.level)*SUB) { this.emit(c.player,'That enemy is outside the watchtower’s attack range.'); break; }
         b.attackTarget=target.id;
         break;
       }

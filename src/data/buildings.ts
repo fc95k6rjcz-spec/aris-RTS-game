@@ -274,7 +274,7 @@ const BASE_BUILDINGS: Record<string, BuildingDef> = {
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Shoots nearby enemies automatically. Select this tower and right-click an enemy to focus fire. Sees over trees at 20–38 tiles; attack range grows from 5 to 10 tiles with upgrades.",
+    description: "Shoots nearby enemies automatically. Select this tower and right-click an enemy to focus fire. Sees over trees at 20–38 tiles; attack range grows from 8 to about 19 tiles with upgrades.",
   },
 };
 

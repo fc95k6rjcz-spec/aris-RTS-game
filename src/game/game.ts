@@ -1524,6 +1524,16 @@ export class Game {
       else this.toast(btn.tooltip);
       return;
     }
+    // Buttons only the on-screen card has (wall and gate upgrades, tower Release, Dragonbane).
+    if (!e.ctrlKey && !e.metaKey) {
+      const card = commandSets(this.world, this.player, this.selectedUnits(), this.selectedBuildings()).byTab[this.tab] ?? [];
+      const entry = card.find((c) => c.hotkey.toLowerCase() === k);
+      if (entry) {
+        if (entry.enabled) this.runAction(entry.action);
+        else this.toast(entry.description);
+        return;
+      }
+    }
     // Quick build hotkeys even when the card doesn't show (e.g. no worker selected → message).
     if (BUILD_MENU.some((id) => BUILDINGS[id]!.hotkey.toLowerCase() === k) && this.selectedUnits().length === 0) {
       this.toast("Select a Worker first");

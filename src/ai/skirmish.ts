@@ -13,10 +13,12 @@
  */
 
 import { BUILDINGS } from "../data/buildings";
+import { LEVELLED } from "../data/levels";
 import { upgradesFor } from "../data/upgrades";
 import { UNITS } from "../data/units";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
+import { wallTierCost } from "../sim/world";
 import { SUB, Tile, type PlayerId } from "../sim/types";
 import type { World } from "../sim/world";
 import { findPath } from "../sim/pathfinding";
@@ -124,6 +126,7 @@ export class SkirmishAI {
     this.trainUnits(out);
     this.buildSomething(out, tick);
     this.researchHumanTech(out);
+    this.upgradeBuildings(out);
     // Defence first: a warband massing for an attack that ignores an enemy
     // already inside its own base is the single most obviously stupid thing an
     // RTS opponent can do.
@@ -369,6 +372,33 @@ export class SkirmishAI {
         return;
       }
     }
+  }
+
+  /**
+   * Climb the building ladder the same way a player does: the Town Hall first
+   * (it caps every other building's level), then farms for supply, then the
+   * rest. One upgrade per think pass, and only from money left over after the
+   * same reserve research keeps, so upgrading never starves the army.
+   */
+  private upgradeBuildings(out: Command[]): void {
+    if (out.some((c) => c.type === "research")) return;
+    const p = this.world.players.get(this.player);
+    if (!p) return;
+    const affordable = (cost: { gold: number; lumber: number; oil?: number }): boolean =>
+      this.world.canAfford(this.player, cost) && p.gold - cost.gold >= 180 && p.lumber - cost.lumber >= 120;
+    const order = (def: string): number => (def === "townhall" ? 0 : def === "farm" ? 1 : 2);
+    const candidates = this.mine()
+      .filter((b) => b.complete && !b.upgrade && !b.research && b.queue.length === 0 && LEVELLED[b.def] && b.level < LEVELLED[b.def]!.length)
+      .sort((a, z) => order(a.def) - order(z.def) || a.level - z.level || a.id - z.id);
+    for (const b of candidates) {
+      if (this.world.upgradeBlocked(this.player, b)) continue;
+      if (!affordable(LEVELLED[b.def]![b.level]!.cost)) continue;
+      out.push({ type: "upgrade", player: this.player, building: b.id });
+      return;
+    }
+    if (this.mine().some((b) => b.def === "wall" || b.def === "gate") && !this.world.wallUpgradeBlocked(this.player)
+      && affordable(wallTierCost(this.world.wallLevel(this.player) + 1)))
+      out.push({ type: "upgradeWalls", player: this.player });
   }
 
   private buildSomething(out: Command[], tick: number): void {
