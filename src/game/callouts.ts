@@ -35,7 +35,6 @@ export class Callouts {
     if (!settings.voices || sfxGain() === 0 || now < this.next || !visible.length) return null;
     let topic = "", text = "";
     if (world.fx.some(e => e.kind === "battleRally" && e.owner === player)) { topic="rally"; text="Stand with me! For the realm!"; }
-    else if (world.fx.some(e => e.kind === "buildStart")) { topic="build"; text="Right then. Let's get this built."; }
     else if (world.tick % 200 !== 0) return null;
     else if ((world.players.get(player)?.food ?? 400) < 40) { topic="food"; text="Could do with a hot meal, my lord."; }
     else if (world.rain > .5 && visible.some(u => !world.isSheltered(u))) { topic="rain"; text="Soaked through. A roof would be welcome."; }

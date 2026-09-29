@@ -18,7 +18,7 @@ export type Command =
   | { type: "upgrade"; player: PlayerId; building: EntityId }
   | { type: "cancelUpgrade"; player: PlayerId; building: EntityId }
   | { type: "stop"; player: PlayerId; units: EntityId[] }
-  | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId }
+  | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId; /** Strike even your own or an ally's (Ctrl + right-click). */ force?: boolean }
   | { type: "attackMove"; player: PlayerId; units: EntityId[]; x: number; y: number }
   | { type: "setRally"; player: PlayerId; building: EntityId; x: number; y: number }
   | { type: "research"; player: PlayerId; building: EntityId; upgrade: string }

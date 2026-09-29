@@ -323,11 +323,12 @@ export function drawHud(
       ctx.fillStyle = "#dfe6ea";
       ctx.fillText("Queue:", px, y0 + 84);
       b.queue.forEach((j, i) => {
-        const qx = px + 56 + i * 64;
-        ctx.fillStyle = "#1e242b";
-        ctx.fillRect(qx, y0 + 80, 58, 24);
+        const step = b.queue.length > 5 ? 34 : 64, cw = step - 6;
+        const qx = px + 56 + i * step;
+        ctx.fillStyle = j.paid === false ? "#2b2320" : "#1e242b";
+        ctx.fillRect(qx, y0 + 80, cw, 24);
         ctx.fillStyle = "#5ab0ff";
-        ctx.fillRect(qx, y0 + 80, 58 * (i === 0 ? 1 - j.remaining / j.total : 0), 24);
+        ctx.fillRect(qx, y0 + 80, cw * (i === 0 && j.paid !== false ? 1 - j.remaining / j.total : 0), 24);
         ctx.fillStyle = "#fff";
         ctx.font = "11px system-ui, sans-serif";
         ctx.fillText(unitName(j.unit, faction), qx + 4, y0 + 86);

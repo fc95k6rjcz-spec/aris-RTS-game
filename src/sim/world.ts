@@ -194,6 +194,8 @@ export function towerArchers(level: number): number { return 2 + Math.max(1, lev
 export const DRAGONBANE_COST = { gold: 600, lumber: 400 };
 /** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
 /** How far a tower shoots, in tiles. Every upgrade adds a clear step: 8, 9.25 (Braced), 10.5 ... 18 at the top. */
+/** How many orders a building will hold in its training line. */
+export const MAX_TRAIN_QUEUE = 10;
 export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
 /** How many of your own archers a tower can take on top of its crew. */
 export function towerGarrisonCap(level: number): number { return 2 + Math.floor(Math.max(1, level) / 2); }
@@ -1841,11 +1843,12 @@ export class World {
       }
       case "attack": {
         const target = this.entities.get(c.target);
-        if (!target || this.allied(target.owner, c.player)) break;
+        const force = !!c.force && this.allied(target?.owner ?? WILD, c.player);
+        if (!target || (this.allied(target.owner, c.player) && !force)) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
-          if (UNITS[u.def]!.damage <= 0) continue;
+          if (UNITS[u.def]!.damage <= 0 || u.id === target.id) continue;
           u.moveQueue = [];
-          u.task = { kind: "attack", target: c.target };
+          u.task = force ? { kind: "attack", target: c.target, force: true } : { kind: "attack", target: c.target };
           u.engaging = null;
         }
         break;
@@ -1958,15 +1961,10 @@ export class World {
         const d = UNITS[c.unit];
         if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete || !d) break;
         if (!BUILDINGS[b.def]!.trains.includes(c.unit)) break;
-        if (b.queue.length >= 5) {
-          this.emit(c.player, "Queue is full");
+        if (b.queue.length >= MAX_TRAIN_QUEUE) {
+          this.emit(c.player, `Only ${MAX_TRAIN_QUEUE} can wait in line`);
           break;
         }
-        if (!this.canAfford(c.player, d.cost)) {
-          this.emit(c.player, this.lacking(c.player, d.cost));
-          break;
-        }
-        this.spend(c.player, d.cost);
         // Heirs are rationed: three at once, or the mechanic is just an
         // expensive worker and losing a King costs nothing.
         if (d.royal) {
@@ -1981,8 +1979,13 @@ export class World {
             break;
           }
         }
+        // Paid for now if the purse allows; otherwise it waits in line and is
+        // paid for, in order, as the gold and lumber come in.
+        const paid = b.queue.every((j) => j.paid !== false) && this.canAfford(c.player, d.cost);
+        if (paid) this.spend(c.player, d.cost);
+        else if (b.queue.length === 0 || b.queue.every((j) => j.paid === false)) this.emit(c.player, `${this.lacking(c.player, d.cost)} — queued until you have it`);
         const train = this.paced(d.trainTime);
-        b.queue.push({ unit: c.unit, remaining: train, total: train });
+        b.queue.push({ unit: c.unit, remaining: train, total: train, paid });
         break;
       }
       case "cancelTrain": {
@@ -1991,7 +1994,7 @@ export class World {
         const job = b.queue[c.index];
         if (!job) break;
         b.queue.splice(c.index, 1);
-        this.refund(c.player, UNITS[job.unit]!.cost);
+        if (job.paid !== false) this.refund(c.player, UNITS[job.unit]!.cost);
         break;
       }
       case "upgrade": {
@@ -2181,7 +2184,7 @@ export class World {
       this.map.release(e.tx, e.ty, e.size);
       if (e.def === "gate") this.map.setGate(e.tx, e.ty, e.size, 0);
       // Refund queued training.
-      for (const j of e.queue) this.refund(e.owner, UNITS[j.unit]!.cost);
+      for (const j of e.queue) if (j.paid !== false) this.refund(e.owner, UNITS[j.unit]!.cost);
       if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost);
       if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost);
       for (const u of this.units())
@@ -2480,8 +2483,8 @@ export class World {
    * lockstep play. A random source outside the sim would desync the game the
    * first time two players fought.
    */
-  private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3): void {
-    if (this.allied(target.owner, attackerOwner)) return;
+  private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3, force = false): void {
+    if (!force && this.allied(target.owner, attackerOwner)) return;
     // Nothing mortal hurts a dragon.
     if (target.kind === "unit" && target.def === "dragon") return;
     const swing = 1 + spread * (this.rng.next() * 2 - 1);
@@ -2524,7 +2527,10 @@ export class World {
   }
 
   private damage(target: Entity, amount: number, attacker: Unit): void {
-    this.dealDamage(target, amount, attacker.owner, UNITS[attacker.def]!.spread ?? 0.3);
+    // Ordered to knock down your own: allowed, and nobody rushes to defend it.
+    const force = attacker.task.kind === "attack" && !!attacker.task.force && attacker.task.target === target.id;
+    this.dealDamage(target, amount, attacker.owner, UNITS[attacker.def]!.spread ?? 0.3, force);
+    if (force) return;
     // Idle soldiers answer nearby allies; workers keep their jobs and direct orders win.
     for (const ally of this.units()) {
       const def = UNITS[ally.def]!;
@@ -2873,7 +2879,7 @@ export class World {
       }
       case "attack": {
         const target = this.entities.get(t.target);
-        if (!target || !this.hostile(u, target)) {
+        if (!target || (!t.force && !this.hostile(u, target))) {
           // Target gone: hold position and look for another rather than idling.
           u.task = { kind: "idle" };
           u.path = [];
@@ -3421,6 +3427,12 @@ export class World {
     const job = b.queue[0];
     if (!job) return;
     const d = UNITS[job.unit]!;
+    if (job.paid === false) {
+      // Waiting on the purse: pay the moment it can be paid.
+      if (!this.canAfford(b.owner, d.cost)) return;
+      this.spend(b.owner, d.cost);
+      job.paid = true;
+    }
     const s = this.supply(b.owner);
     if (s.used + d.supply > s.max) {
       if (this.tick % 100 === 0) this.emit(b.owner, "Not enough supply — build another Town Hall");

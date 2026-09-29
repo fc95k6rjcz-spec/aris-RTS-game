@@ -63,6 +63,7 @@ const SAMPLES = {
   dragonApproaches: "/sfx/dragon-approaches.mp3",
   kingSelect: "/sfx/king-select.mp3",
   footmanSelect: "/sfx/footman-select.mp3",
+  workerBuild: "/sfx/worker-build.mp3",
   orcScoutsLine: "/sfx/orc-scouts.mp3",
 } as const;
 
@@ -74,8 +75,9 @@ const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
   select: ["select1"],
   king: ["kingSelect"],
   footman: ["footmanSelect"],
+  build: ["workerBuild"],
 };
-export type VoiceKind = "select" | "king" | "footman";
+export type VoiceKind = "select" | "king" | "footman" | "build";
 /** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
 const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;

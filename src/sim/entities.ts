@@ -7,7 +7,7 @@ export type UnitTask =
   | { kind: "gather"; tx: number; ty: number; resource: "gold" | "lumber"; phase: "toNode" | "harvest" | "toDrop" | "deposit"; timer: number }
   | { kind: "repair"; building: EntityId }
   /** Ordered onto a specific target; chases it until it dies. */
-  | { kind: "attack"; target: EntityId }
+  | { kind: "attack"; target: EntityId; force?: boolean }
   /** Move to a point, engaging anything hostile met on the way. */
   | { kind: "attackMove"; target: Vec };
 
@@ -74,6 +74,8 @@ export interface TrainJob {
   unit: string;
   remaining: number;
   total: number;
+  /** False while the order waits for the gold and lumber to pay for it. */
+  paid?: boolean;
 }
 
 export interface UpgradeJob {

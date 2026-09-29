@@ -839,6 +839,15 @@ export class Game {
       if (this.attackMoveMode) {
         const w = this.cam.toWorld(x, y);
         const fighters = this.selectedUnits().filter((u) => UNITS[u.def]!.damage > 0);
+        // Attack aimed at your own (or a friend's) property knocks it down.
+        const own = this.pick(w.x, w.y, true);
+        const ownEnt = own === null ? undefined : this.world.entities.get(own);
+        if (ownEnt && this.world.allied(ownEnt.owner, this.player) && fighters.length && !fighters.some((f) => f.id === ownEnt.id)) {
+          this.issue({ type: "attack", player: this.player, units: fighters.map((f) => f.id), target: ownEnt.id, force: true });
+          this.marker(w.x, w.y, "attack");
+          this.attackMoveMode = false;
+          return;
+        }
         for (const target of this.formationTargets(fighters, w.x, w.y))
           this.issue({ type: "attackMove", player: this.player, units: [target.unit.id], x: target.x, y: target.y });
         if (fighters.length) this.marker(w.x, w.y, "attack");
@@ -859,7 +868,7 @@ export class Game {
       }
       if (!this.inViewport(x, y)) return;
       const w = this.cam.toWorld(x, y);
-      this.contextOrder(w.x, w.y, e.shiftKey);
+      this.contextOrder(w.x, w.y, e.shiftKey, e.ctrlKey || e.metaKey);
     }
   }
 
@@ -877,7 +886,7 @@ export class Game {
   private onMouseUpInner(e: MouseEvent): void {
     if(e.button===0&&this.wallStart){
       const tiles=this.wallTiles();this.wallStart=null;
-      this.issue({type:"buildWallLine",player:this.player,units:this.selectedUnits().filter(u=>UNITS[u.def]!.canBuild).map(u=>u.id),tiles:tiles.map(t=>({x:t.tx,y:t.ty}))});
+      this.issue({type:"buildWallLine",player:this.player,units:this.selectedUnits().filter(u=>UNITS[u.def]!.canBuild).map(u=>u.id),tiles:tiles.map(t=>({x:t.tx,y:t.ty}))});this.audio.say("build");
       if(!e.shiftKey)this.buildMode=null;return;
     }
     if (e.button === 1) {
@@ -1094,8 +1103,19 @@ export class Game {
     if (this.commandMarkers.length > 12) this.commandMarkers.shift();
   }
 
-  private contextOrder(wx: number, wy: number, queue = false): void {
+  private contextOrder(wx: number, wy: number, queue = false, force = false): void {
     const units = this.selectedUnits().filter((u) => u.owner === this.player);
+    if (force && units.length) {
+      // Ctrl + right-click: attack whatever is there, even your own.
+      const hit = this.pick(wx, wy, true);
+      const ent = hit === null ? undefined : this.world.entities.get(hit);
+      const fighters = units.filter((u) => UNITS[u.def]!.damage > 0 && u.id !== hit);
+      if (ent && fighters.length) {
+        this.issue({ type: "attack", player: this.player, units: fighters.map((u) => u.id), target: ent.id, force: true });
+        this.marker(wx, wy, "attack");
+        return;
+      }
+    }
     const tx = Math.floor(wx / SUB);
     const ty = Math.floor(wy / SUB);
     const map = this.world.map;
@@ -1254,6 +1274,7 @@ export class Game {
     const builders = this.selectedUnits().filter((u) => UNITS[u.def]!.canBuild && u.owner === this.player);
     if (builders.length === 0) return;
     this.issue({ type: "build", player: this.player, units: builders.map((u) => u.id), building: g.def, tx: g.tx, ty: g.ty });
+    this.audio.say("build");
   }
 
   private clickHud(x: number, y: number): void {
@@ -2048,7 +2069,10 @@ export class Game {
       } else if (b.queue.length > 0) {
         const q = b.queue[0]!;
         const u = UNITS[q.unit]!;
-        production = { name: unitName(q.unit, p.faction), progress: 1 - q.remaining / Math.max(1, q.total), eta: eta(q.remaining / TICKS_PER_SECOND) };
+        const more = b.queue.length > 1 ? ` (+${b.queue.length - 1} in line)` : "";
+        production = q.paid === false
+          ? { name: unitName(q.unit, p.faction) + more, progress: 0, eta: "waiting for " + (this.world.lacking(this.player, u.cost).replace(/^Not enough( — need)?\s*/i, "") || "resources") }
+          : { name: unitName(q.unit, p.faction) + more, progress: 1 - q.remaining / Math.max(1, q.total), eta: eta(q.remaining / TICKS_PER_SECOND) };
       }
     }
 
