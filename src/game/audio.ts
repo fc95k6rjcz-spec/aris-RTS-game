@@ -60,6 +60,7 @@ const SAMPLES = {
   realmUnderAttack: "/sfx/realm-under-attack.mp3",
   select1: "/sfx/select-1.mp3",
   dragonApproaches: "/sfx/dragon-approaches.mp3",
+  kingSelect: "/sfx/king-select.mp3",
 } as const;
 
 /**
@@ -68,8 +69,9 @@ const SAMPLES = {
  */
 const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
   select: ["select1"],
+  king: ["kingSelect"],
 };
-export type VoiceKind = "select";
+export type VoiceKind = "select" | "king";
 /** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
 const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;

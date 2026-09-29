@@ -866,8 +866,10 @@ export class Game {
   private onMouseUp(e: MouseEvent): void {
     const before = new Set(this.selected);
     this.onMouseUpInner(e);
-    const fresh = [...this.selected].some((id) => !before.has(id) && this.world.entities.get(id)?.kind === "unit" && this.world.entities.get(id)?.owner === this.player);
-    if (fresh) this.audio.say("select");
+    const fresh = [...this.selected].map((id) => before.has(id) ? undefined : this.world.entities.get(id)).filter((e) => e?.kind === "unit" && e.owner === this.player);
+    // The King answers for himself.
+    if (fresh.some((e) => e!.def === "king")) this.audio.say("king");
+    else if (fresh.length) this.audio.say("select");
   }
 
   private onMouseUpInner(e: MouseEvent): void {
