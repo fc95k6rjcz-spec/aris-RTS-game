@@ -123,16 +123,16 @@ export const CHURCH_LEVELS: LevelDef[] = [
  * further and take far more punishment. (Attacks arrive with combat in M2.)
  */
 export const TOWER_LEVELS: LevelDef[] = [
-  { level: 1, name: "Wooden Tower", blurb: "A wooden watch tower for scouting and basic defence.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 0, scale: 1.0, radius: 20 },
+  { level: 1, name: "Lookout Post", blurb: "A wooden watch tower for scouting and basic defence.", cost: { gold: 0, lumber: 0 }, time: 20 * 0, hp: 500, supply: 0, scale: 1.0, radius: 20 },
   { level: 2, name: "Braced Tower", blurb: "Stronger structure with improved height and better visibility.", cost: { gold: 248, lumber: 158 }, time: 20 * 28, hp: 630, supply: 0, scale: 1.06, radius: 22 },
-  { level: 3, name: "Stone-Based Tower", blurb: "Reinforced tower with a stone base for added stability and defence.", cost: { gold: 383, lumber: 248 }, time: 20 * 35, hp: 790, supply: 0, scale: 1.12, radius: 24 },
-  { level: 4, name: "Fortified Tower", blurb: "Upgraded fortifications with thicker walls and archer protection.", cost: { gold: 563, lumber: 360 }, time: 20 * 42, hp: 980, supply: 0, scale: 1.18, radius: 26 },
-  { level: 5, name: "Advanced Tower", blurb: "Advanced tower with a larger platform and improved weapon mounts.", cost: { gold: 765, lumber: 495 }, time: 20 * 50, hp: 1200, supply: 0, scale: 1.24, radius: 28 },
-  { level: 6, name: "High Tower", blurb: "Stronger masonry and higher elevation for extended range.", cost: { gold: 1013, lumber: 653 }, time: 20 * 60, hp: 1460, supply: 0, scale: 1.3, radius: 30 },
-  { level: 7, name: "Elite Tower", blurb: "Elite tower with reinforced armour and advanced projectile weapons.", cost: { gold: 1305, lumber: 833 }, time: 20 * 70, hp: 1760, supply: 0, scale: 1.37, radius: 32 },
-  { level: 8, name: "Beacon Tower", blurb: "Heavily fortified tower with magical fire beacons and enhanced range.", cost: { gold: 1643, lumber: 1058 }, time: 20 * 82, hp: 2100, supply: 0, scale: 1.43, radius: 34 },
-  { level: 9, name: "Grand Watch Tower", blurb: "Grand watch tower with superior artillery and magical enhancements.", cost: { gold: 2025, lumber: 1305 }, time: 20 * 95, hp: 2480, supply: 0, scale: 1.49, radius: 36 },
-  { level: 10, name: "Arcane Spire", blurb: "The ultimate watch tower. Unmatched range, defence and magical power.", cost: { gold: 2475, lumber: 1575 }, time: 20 * 110, hp: 2900, supply: 0, scale: 1.55, radius: 38 },
+  { level: 3, name: "Stone-Footed Tower", blurb: "Reinforced tower with a stone base for added stability and defence.", cost: { gold: 383, lumber: 248 }, time: 20 * 35, hp: 790, supply: 0, scale: 1.12, radius: 24 },
+  { level: 4, name: "Timber-Crowned Tower", blurb: "Upgraded fortifications with thicker walls and archer protection.", cost: { gold: 563, lumber: 360 }, time: 20 * 42, hp: 980, supply: 0, scale: 1.18, radius: 26 },
+  { level: 5, name: "Stone Tower", blurb: "Advanced tower with a larger platform and improved weapon mounts.", cost: { gold: 765, lumber: 495 }, time: 20 * 50, hp: 1200, supply: 0, scale: 1.24, radius: 28 },
+  { level: 6, name: "Guard Tower", blurb: "Stronger masonry and higher elevation for extended range.", cost: { gold: 1013, lumber: 653 }, time: 20 * 60, hp: 1460, supply: 0, scale: 1.3, radius: 30 },
+  { level: 7, name: "Belfry Tower", blurb: "Elite tower with reinforced armour and advanced projectile weapons.", cost: { gold: 1305, lumber: 833 }, time: 20 * 70, hp: 1760, supply: 0, scale: 1.37, radius: 32 },
+  { level: 8, name: "Spired Tower", blurb: "Heavily fortified tower with magical fire beacons and enhanced range.", cost: { gold: 1643, lumber: 1058 }, time: 20 * 82, hp: 2100, supply: 0, scale: 1.43, radius: 34 },
+  { level: 9, name: "Bastion Tower", blurb: "Grand watch tower with superior artillery and magical enhancements.", cost: { gold: 2025, lumber: 1305 }, time: 20 * 95, hp: 2480, supply: 0, scale: 1.49, radius: 36 },
+  { level: 10, name: "Royal Tower", blurb: "The ultimate watch tower. Unmatched range, defence and magical power.", cost: { gold: 2475, lumber: 1575 }, time: 20 * 110, hp: 2900, supply: 0, scale: 1.55, radius: 38 },
 ];
 
 /**

@@ -194,6 +194,7 @@ import ga9 from "../assets/gryphonaviary_9.png";
 import ga10 from "../assets/gryphonaviary_10.png";
 
 /** Painted tier art, indexed by building id then level-1. */
+const newTowers=import.meta.glob('../assets/towers/tower-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 const newHalls=import.meta.glob('../assets/halls/hall-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 const royalHalls=import.meta.glob('../assets/royal/hall-*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 import outpost from '../assets/royal/outpost-1.webp';
@@ -207,7 +208,7 @@ const TIERS: Record<string, string[]> = {
   barracks: [bk1, bk2, bk3, bk4, bk5, bk6, bk7, bk8, bk9, bk10],
   shipyard: [sy1, sy2, sy3, sy4, sy5, sy6, sy7, sy8, sy9, sy10],
   church: [ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10],
-  tower: [outpost],
+  tower: Array.from({length:10},(_,i)=>newTowers[`../assets/towers/tower-${i+1}.webp`]!),
   airfactory: [af1, af2, af3, af4, af5, af6, af7, af8, af9, af10],
   foundry: [fd1, fd2, fd3, fd4, fd5, fd6, fd7, fd8, fd9, fd10],
   oilrig: [or1, or2, or3, or4, or5, or6, or7, or8, or9, or10],
