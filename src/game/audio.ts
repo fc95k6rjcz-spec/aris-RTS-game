@@ -23,7 +23,7 @@ import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "dragon" | "orcScouts" | "noStore" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "dragon" | "orcScouts" | "noStore" | "swordLegend" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
@@ -31,6 +31,7 @@ const CROWD_MS: Record<SoundName, number> = {
   dragon: 15000,
   orcScouts: 15000,
   noStore: 4000,
+  swordLegend: 20000,
   command: 160,
   crown: 3000,
   magic: 140,
@@ -67,6 +68,7 @@ const SAMPLES = {
   workerBuild: "/sfx/worker-build.mp3",
   orcScoutsLine: "/sfx/orc-scouts.mp3",
   needTownHall: "/sfx/need-town-hall.mp3",
+  swordLegendLine: "/sfx/sword-legend.mp3",
 } as const;
 
 /**
@@ -105,7 +107,7 @@ export class Audio {
   private startedThisTick = 0;
   private effectVolume = 1;
   /** Set once the browser has let us start; until then nothing plays. */
-  private ready = false;
+  ready = false;
   /** Everything the score owns, so it can be torn down in one go. */
   private music: { gain: GainNode; wet: GainNode; nodes: AudioScheduledSourceNode[]; timer: number; lcg: number } | null = null;
   /** Where the player is: the front screen gets the theme, a match gets the drone. */
@@ -275,6 +277,10 @@ export class Audio {
         // Justin's voice: "A dragon approaches". The attack alarm if it is missing.
         if (this.sample("dragonApproaches")) break;
         [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case "swordLegend":
+        // Justin's voice: "There is a great legend of a sword in this area".
+        this.sample("swordLegendLine");
         break;
       case "noStore":
         // Justin's voice: "We need to build a town hall".

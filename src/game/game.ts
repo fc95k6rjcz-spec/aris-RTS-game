@@ -1735,6 +1735,7 @@ export class Game {
     if (this.world.relicFor(this.player)) {
       this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Find it, and be crowned.", 8000);
+      this.tellSwordLegend();
     }
     this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
     this.fallenShown = false;
@@ -1771,6 +1772,13 @@ export class Game {
     this.issue({ type: "restartSeat", player: this.player });
     this.recenterOnKing = true;
     this.selected.clear();
+    this.tellSwordLegend();
+  }
+
+  /** "There is a great legend of a sword in this area" -- once the sounds are ready. */
+  private tellSwordLegend(tries = 0): void {
+    if (!this.audio.ready && tries < 20) { setTimeout(() => this.tellSwordLegend(tries + 1), 500); return; }
+    setTimeout(() => this.audio.play("swordLegend"), 1200);
   }
 
   /** A small centred choice over the map: a title, a line, and a few buttons. */
