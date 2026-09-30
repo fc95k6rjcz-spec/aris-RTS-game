@@ -31,18 +31,11 @@ export const START_PURSE = { gold: BUILDINGS.townhall!.cost.gold + UNITS.worker!
  * because the data is the design ("a Knight is half again as quick as a
  * Footman") and this is the tuning ("the whole game is too fast").
  *
- * It was a half, and a half was too far. Halving movement and doubling every
- * duration are two different decisions that got made together, and only one of
- * them was right: a long game wants long BUILD times, which is what makes an
- * expansion a commitment -- it does not want a man taking a minute and a half
- * to walk somewhere you are watching him walk. The crowning opening is the
- * proof, because it is nothing but a walk, and at a half it was a chore. Build,
- * train and research times are untouched; only the feet are quicker. Changing the
- * design to express a tuning decision loses the reason for both.
+ * Build, train and research durations have their own pacing. This multiplier
+ * changes travel only, while preserving relative speeds between unit types.
  */
-// 70% slower than the old 0.72: people were hurrying about like a film on
-// fast forward. A walk should look like a walk.
-const MOVE_SCALE = 0.216;
+// Half the previous movement pace, with fractional steps retained below.
+const MOVE_SCALE = 0.108;
 
 /** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
  * track gives, so a rained-on road is a real setback and not a rounding error. */
@@ -403,6 +396,8 @@ export class World {
       if (e.kind === "unit") {
         mix(e.pos.x);
         mix(e.pos.y);
+        mix(e.moveRemainder?.x ?? 0);
+        mix(e.moveRemainder?.y ?? 0);
         mix(e.hp);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
@@ -3417,13 +3412,7 @@ export class World {
       while (u.path.length > 0 && u.path[0]![0] === utx && u.path[0]![1] === uty) u.path.shift();
       if (u.path.length === 0) return true;
     }
-    // Everything moves at half the pace it used to.
-    //
-    // The board is 160 tiles across and armies were crossing it faster than you
-    // could think about what they were crossing it for, which makes ground
-    // worth nothing: if a march is instant then holding a pass is not a
-    // decision. Halving it makes distance a cost, which is what makes the next
-    // paragraph worth having.
+    // Base travel pace, before roads, mud and terrain modify it.
     let speed = def.speed * MOVE_SCALE;
     // Swimmers move at roughly half pace while they are in the water.
     if (def.domain === "amphibious" && this.isAfloat(u)) speed *= 0.5;
@@ -3494,10 +3483,17 @@ export class World {
     if (dist <= speed) {
       u.pos.x = goal.x;
       u.pos.y = goal.y;
+      u.moveRemainder = { x: 0, y: 0 };
       u.path.shift();
     } else {
-      u.pos.x = Math.round(u.pos.x + (dx / dist) * speed);
-      u.pos.y = Math.round(u.pos.y + (dy / dist) * speed);
+      // Preserve fractional movement instead of rounding slow steps to zero.
+      const rest = u.moveRemainder ?? { x: 0, y: 0 };
+      const fx = rest.x + Math.round((dx / dist) * speed * 1024);
+      const fy = rest.y + Math.round((dy / dist) * speed * 1024);
+      const mx = Math.trunc(fx / 1024), my = Math.trunc(fy / 1024);
+      u.pos.x += mx;
+      u.pos.y += my;
+      u.moveRemainder = { x: fx - mx * 1024, y: fy - my * 1024 };
     }
     u.facing = Math.round(((Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI)) * 8) % 8;
     return u.path.length === 0;

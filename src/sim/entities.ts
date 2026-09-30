@@ -17,6 +17,8 @@ export interface Unit {
   owner: PlayerId;
   def: string;
   pos: Vec; // sub-tile units, centre of unit
+  /** Fixed-point movement carried between ticks, in 1/1024 sub-units. */
+  moveRemainder?: Vec;
   hp: number;
   maxHp: number;
   task: UnitTask;

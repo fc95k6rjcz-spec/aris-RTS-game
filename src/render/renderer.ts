@@ -1798,7 +1798,8 @@ export class Renderer {
     }
     const def = UNITS[u.def]!;
     const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
-    const moving = pv.x !== u.pos.x || pv.y !== u.pos.y;
+    const moving = pv.x !== u.pos.x || pv.y !== u.pos.y ||
+      (u.path.length > 0 && !!u.moveRemainder && (u.moveRemainder.x !== 0 || u.moveRemainder.y !== 0));
     // Feet follow actual distance, so a slow crowd does not run in place.
     const stepDistance = Math.hypot(u.pos.x - pv.x, u.pos.y - pv.y);
     const distance = (this.travelDistance.get(u) ?? 0) + stepDistance * alpha;
