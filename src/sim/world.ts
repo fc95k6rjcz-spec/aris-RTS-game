@@ -40,7 +40,9 @@ export const START_PURSE = { gold: BUILDINGS.townhall!.cost.gold + UNITS.worker!
  * train and research times are untouched; only the feet are quicker. Changing the
  * design to express a tuning decision loses the reason for both.
  */
-const MOVE_SCALE = 0.72;
+// Slowed again (0.72 -> 0.45): people were still hurrying about like a
+// film on fast forward. A walk should look like a walk.
+const MOVE_SCALE = 0.45;
 
 /** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
  * track gives, so a rained-on road is a real setback and not a rounding error. */
