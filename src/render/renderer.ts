@@ -66,6 +66,7 @@ export class Renderer {
   private prev = new Map<number, { x: number; y: number }>();
   private animationClock = new AnimationClock();
   private travelDistance = new WeakMap<Unit, number>();
+  private gateMotion = new WeakMap<Building, { amount: number; tick: number }>();
   /** Near-detail terrain, baked one chunk at a time and kept while it is used. */
   private chunks = new Map<number, { img: HTMLCanvasElement; used: number }>();
   /** The whole map at a coarse resolution, trees and all, for zoomed-out views. */
@@ -1263,8 +1264,17 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
+    const gateOpen = b.def==='gate' && this.world.units().some(u=>this.world.allied(u.owner,b.owner)&&Math.abs(u.pos.x-(b.tx+.5)*SUB)<SUB*1.3&&Math.abs(u.pos.y-(b.ty+.5)*SUB)<SUB*1.3);
+    let openAmount = gateOpen ? 1 : 0;
+    if (b.def==='gate' && settings.animations) {
+      const now=this.world.tick+alpha;
+      const motion=this.gateMotion.get(b)??{amount:0,tick:now};
+      const step=Math.max(0,now-motion.tick)/8;
+      motion.amount += Math.sign(openAmount-motion.amount)*Math.min(Math.abs(openAmount-motion.amount),step);
+      motion.tick=now;this.gateMotion.set(b,motion);openAmount=motion.amount;
+    }
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
-      open: b.def==='gate' && this.world.units().some((u)=>this.world.allied(u.owner,b.owner)&&Math.abs(u.pos.x-(b.tx+.5)*SUB)<SUB*1.3&&Math.abs(u.pos.y-(b.ty+.5)*SUB)<SUB*1.3) };
+      open: gateOpen, openAmount };
     if (!b.complete) {
       if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
@@ -1797,6 +1807,7 @@ export class Renderer {
       ctx.restore();
     }
     const def = UNITS[u.def]!;
+    const swimming = def.domain === "amphibious" && this.world.isAfloat(u);
     const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
     const moving = pv.x !== u.pos.x || pv.y !== u.pos.y ||
       (u.path.length > 0 && !!u.moveRemainder && (u.moveRemainder.x !== 0 || u.moveRemainder.y !== 0));
@@ -1814,7 +1825,7 @@ export class Renderer {
       ctx.lineWidth = selected ? 2 : 1;
       ctx.fillStyle = "rgba(12,18,12,0.3)";
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y + h * 0.42, h * 0.4, h * 0.17, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y + (swimming ? s*.13 : h * 0.42), h * 0.4, h * 0.17, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
@@ -1851,12 +1862,20 @@ export class Renderer {
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
     let drawnH = h;
-    const direct = drawDirectional(ctx,u,state,ax,ay,s,phase,
+    if(swimming) {
+      this.drawSwimWake(p.x,p.y+s*.13,s,u,seconds,moving);
+      ctx.save();
+      ctx.beginPath();ctx.rect(p.x-s*2,p.y-s*3,s*4,s*3.13);ctx.clip();
+      ctx.translate(0,s*(.25+(settings.animations?Math.sin(seconds*3+u.id)*.025:0)));
+      if(settings.animations){ctx.translate(ax,ay);ctx.rotate(Math.sin(seconds*3.5+u.id)*.035);ctx.translate(-ax,-ay);}
+    }
+    const swimPhase=settings.animations?((seconds*.55+u.id*.13)%1+1)%1:0;
+    const direct = drawDirectional(ctx,u,swimming?"walk":state,ax,ay,s,swimming?swimPhase:phase,
       u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
     const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
-      ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, afloat)
+      ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, swimming ? false : afloat)
       : null;
     if (framed !== null) {
       drawnH = framed;
@@ -1872,8 +1891,13 @@ export class Renderer {
       ctx.arc(ax, ay, h * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
+    if(swimming) ctx.restore();
     ctx.restore();
     if (flash > 0) ctx.restore();
+    if(swimming) {
+      ctx.save();ctx.strokeStyle='rgba(176,223,230,.75)';ctx.lineWidth=Math.max(1,s*.018);
+      ctx.beginPath();ctx.ellipse(p.x,p.y+s*.13,s*.22,s*.07,0,0,Math.PI);ctx.stroke();ctx.restore();
+    }
     if (def.domain !== "air") this.occludeWithForest(wx, wy, p.x, p.y, selected);
     // A crown, so the King is never lost in a crowd of his own footmen. Gold for
     // the King, a thinner silver circlet for an heir.
@@ -2119,6 +2143,25 @@ export class Renderer {
       ctx.stroke();
     }
     return h;
+  }
+
+  /** Ripples and alternating stroke splashes around a submerged swimmer. */
+  private drawSwimWake(x:number,y:number,s:number,u:Unit,seconds:number,moving:boolean):void {
+    const ctx=this.ctx,now=settings.animations?seconds:0;
+    ctx.save();ctx.lineWidth=Math.max(1,s*.015);
+    const angle=u.facing*Math.PI/4-Math.PI;
+    for(let i=0;i<3;i++) {
+      const t=((now*.8+i/3+u.id*.13)%1+1)%1;
+      const trail=moving?t*s*.5:0;
+      ctx.strokeStyle=`rgba(169,219,230,${(1-t)*.35})`;
+      ctx.beginPath();ctx.ellipse(x-Math.cos(angle)*trail,y-Math.sin(angle)*trail,s*(.20+t*.25),s*(.07+t*.10),0,0,Math.PI*2);ctx.stroke();
+    }
+    if(moving&&settings.animations)for(const side of [-1,1]){
+      const stroke=(Math.sin(now*3.5+u.id+(side<0?Math.PI:0))+1)/2;
+      ctx.strokeStyle=`rgba(211,240,242,${.2+stroke*.45})`;
+      ctx.beginPath();ctx.ellipse(x+side*s*(.18+stroke*.08),y+s*.015,s*(.035+stroke*.035),s*.025,side*.3,0,Math.PI*1.5);ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Painted peasant sprites: the variant follows the worker's current task. */

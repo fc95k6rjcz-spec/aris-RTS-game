@@ -15,6 +15,7 @@ import campfire from "../assets/motion-v2/campfire.webp";
 import grandHall from '../assets/halls/hall-1.webp';
 import outpost from '../assets/towers/tower-1.webp';
 import {drawJoinedWall} from './walls';
+import {drawGate} from './gateArt';
 import shelterArt from "../assets/motion-v2/shelter-v2.webp";
 import { spriteImage } from "./sprites";
 import { redesignedArt } from "./redesign";
@@ -36,6 +37,7 @@ export interface ArtCtx {
   wallMask?: number;
   /** Gates only: whether it is standing open for someone of its own side. */
   open?: boolean;
+  openAmount?: number;
   /** Game tick, for subtle animation (smoke, water). */
   tick: number;
 }
@@ -556,39 +558,7 @@ const HUMAN_ART: Record<string, Drawer> = {
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
     for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
   },
-  gate: (a) => {
-    // A wall section with a gatehouse arch in it: timber doors bound in iron,
-    // swung open when one of its own is passing, and the owner's pennant.
-    const ctx=a.ctx,m=a.wallMask??10,w=a.w,x=a.x,y=a.y;
-    if(!drawJoinedWall(ctx,x,y,w,m)){shadow(a,.03,.35,.94,.5);stoneWall(a,.05,.34,.9,.47,"#989486");}
-    const across=!(m&5)||!!(m&10); // wall runs left-right: face-on arch
-    ctx.save();
-    const cx=x+w*.5,base=y+w*.98,aw=across?w*.78:w*.5,ah=w*.95;
-    // Gatehouse block with crenels.
-    ctx.fillStyle="#7d786c";ctx.strokeStyle="#3a372f";ctx.lineWidth=Math.max(1,w*.02);
-    ctx.fillRect(cx-aw*.8,base-ah*1.25,aw*1.6,ah*1.25);ctx.strokeRect(cx-aw*.8,base-ah*1.25,aw*1.6,ah*1.25);
-    for(let i=0;i<4;i++){ctx.fillRect(cx-aw*.8+i*aw*.44,base-ah*1.25-w*.08,aw*.26,w*.08);}
-    // Arch.
-    ctx.beginPath();ctx.moveTo(cx-aw/2,base);ctx.lineTo(cx-aw/2,base-ah*.6);ctx.arc(cx,base-ah*.6,aw/2,Math.PI,0);ctx.lineTo(cx+aw/2,base);ctx.closePath();
-    ctx.fillStyle="#17130f";ctx.fill();
-    if(!a.open){
-      ctx.save();ctx.clip();
-      ctx.fillStyle="#6b4a2a";ctx.fillRect(cx-aw/2,base-ah*1.2,aw,ah*1.2);
-      ctx.strokeStyle="#3b2814";ctx.lineWidth=Math.max(1,w*.015);
-      for(let i=1;i<4;i++){const px=cx-aw/2+aw*i/4;ctx.beginPath();ctx.moveTo(px,base-ah*1.2);ctx.lineTo(px,base);ctx.stroke();}
-      ctx.strokeStyle="#2b2b2b";ctx.lineWidth=Math.max(1.5,w*.035);
-      for(const f of [.35,.72]){ctx.beginPath();ctx.moveTo(cx-aw/2,base-ah*f);ctx.lineTo(cx+aw/2,base-ah*f);ctx.stroke();}
-      ctx.restore();
-    } else {
-      // Doors swung back against the arch.
-      ctx.fillStyle="#6b4a2a";ctx.fillRect(cx-aw/2,base-ah*.95,aw*.12,ah*.95);ctx.fillRect(cx+aw/2-aw*.12,base-ah*.95,aw*.12,ah*.95);
-    }
-    ctx.strokeStyle="#4a463c";ctx.lineWidth=Math.max(1,w*.025);ctx.beginPath();ctx.arc(cx,base-ah*.6,aw/2,Math.PI,0);ctx.stroke();
-    // Pennant in the owner's colour.
-    ctx.strokeStyle="#2b2620";ctx.lineWidth=Math.max(1,w*.02);ctx.beginPath();ctx.moveTo(cx,base-ah*1.25-w*.08);ctx.lineTo(cx,base-ah*1.25-w*.4);ctx.stroke();
-    ctx.fillStyle=a.color;ctx.beginPath();ctx.moveTo(cx,base-ah*1.25-w*.4);ctx.lineTo(cx+w*.22,base-ah*1.25-w*.33);ctx.lineTo(cx,base-ah*1.25-w*.26);ctx.closePath();ctx.fill();
-    ctx.restore();
-  },
+  gate: drawGate,
   shelter: (a) => {
     if(paintedCamp(a,shelterArt,1.4))return;
     shadow(a,.05,.15,.9,.8); gradRect(a,.12,.67,.76,.24,"#735432","#443220");

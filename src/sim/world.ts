@@ -34,8 +34,8 @@ export const START_PURSE = { gold: BUILDINGS.townhall!.cost.gold + UNITS.worker!
  * Build, train and research durations have their own pacing. This multiplier
  * changes travel only, while preserving relative speeds between unit types.
  */
-// Half the previous movement pace, with fractional steps retained below.
-const MOVE_SCALE = 0.108;
+// A measured walking pace, with fractional steps retained below.
+const MOVE_SCALE = 0.072;
 
 /** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
  * track gives, so a rained-on road is a real setback and not a rounding error. */
