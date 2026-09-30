@@ -2286,8 +2286,7 @@ export class Game {
       const secs = (this.world.tick - w.startTick) / TICKS_PER_SECOND;
       const raidsLeft = (w.b.raids ?? []).length - w.sent.size;
       const parts = w.b.goals.map((g) => { const st = goalState(this.world, this.player, g, secs, raidsLeft); return `${st.done ? "✓" : "○"} ${st.text}`; });
-      const clock = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}`;
-      objective = { title: `BATTLE ${w.b.id} — ${w.b.title.toUpperCase()}`, line: `${parts.join("   ")}   ·   ${clock} (par ${Math.round(w.b.par / 60)} min)` };
+      objective = { title: `BATTLE ${w.b.id} — ${w.b.title.toUpperCase()}`, line: parts.join("   ") };
     }
     if (!this.war && relic && this.world.winner === null) {
       const man = selUnits[0] ?? this.world.units().find((u) => u.owner === this.player) ?? null;

@@ -422,8 +422,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const clock = el("div", "rv-clock");
   const skyEl = el("span", "sky", "Clear");
   const dayEl = el("span", "day", "Day 1");
-  const timeEl = el("span", "time", "0:00");
-  clock.append(skyEl, dayEl, timeEl);
+  clock.append(skyEl, dayEl);
   const pauseBtn = el("button", "rv-icon", "II");
   pauseBtn.title = "Pause (Space)";
   const gearBtn = el("button", "rv-icon", "⚙");
@@ -595,7 +594,6 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       dayEl.textContent = `Day ${s.day}`;
       skyEl.textContent = s.weather;
       skyEl.classList.toggle("wet", s.weather === "Rain" || s.weather === "Storm");
-      timeEl.textContent = s.clock;
       pauseBtn.textContent = s.paused ? "▶" : "II";
 
       if (s.selection) {
