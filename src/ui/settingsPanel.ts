@@ -29,7 +29,7 @@ const CSS = `
 .rts-panel h2{margin:0;color:#f3e6c6;font:42px/1.12 Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 20px #0008}
 .rts-panel .rts-hint{margin:13px 0 0;color:#b3c5b8;font-size:12px;max-width:65%}
 .rts-hint::before{content:'Ⅱ';display:inline-grid;place-items:center;width:20px;height:20px;margin-right:8px;border:1px solid #ac995455;border-radius:50%;color:#d7be80;font-size:9px}
-.rts-navigation{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px 26px;background:#0c1614}
+.rts-navigation{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:16px 26px;background:#0c1614}
 .rts-navigation button{display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:#aab8ac;font:14px Georgia,serif;cursor:pointer;transition:background .15s,color .15s}
 .rts-navigation button:hover{background:#24352c;color:#f6e3b3}
 .rts-navigation button[aria-pressed=true]{color:#ffe4a6;background:linear-gradient(135deg,#4b462b,#2a3326);border-color:#9c8247;box-shadow:inset 0 1px #e0c47e33,0 3px 9px #0004}
@@ -75,7 +75,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
  * `onChange` fires after any edit; the game uses it to keep the canvas in step
  * while the panel is open, so a slider shows its effect as it is dragged.
  */
-export function createSettingsPanel(onChange: (s: Settings) => void = () => {}): SettingsPanel {
+export function createSettingsPanel(onChange: (s: Settings) => void = () => {}, mountAlliance?: (parent: HTMLElement) => void): SettingsPanel {
   const style = el("style");
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -105,9 +105,9 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
   const group = (title: string): HTMLDivElement => {
     const g = el("div", "rts-group");
     g.appendChild(el("h3", undefined, title));
-    g.appendChild(el('p','rts-category-intro',({Audio:'Set the sound of your kingdom.',Display:'Bring every battle into focus.',Controls:'Command your realm with confidence.',Game:'Choose the story your kingdom will tell.'} as Record<string,string>)[title]));
+    g.appendChild(el('p','rts-category-intro',({Audio:'Set the sound of your kingdom.',Display:'Bring every battle into focus.',Controls:'Command your realm with confidence.',Game:'Choose the story your kingdom will tell.',Alliance:'Choose who fights on your side.'} as Record<string,string>)[title]));
     const button=el('button',undefined,title);button.type='button';button.setAttribute('aria-pressed',String(groups.length===0));
-    const symbol=el('span','rts-category-symbol',({Audio:'♫',Display:'◈',Controls:'✥',Game:'♜'} as Record<string,string>)[title]);symbol.setAttribute('aria-hidden','true');button.prepend(symbol);
+    const symbol=el('span','rts-category-symbol',({Audio:'♫',Display:'◈',Controls:'✥',Game:'♜',Alliance:'⚑'} as Record<string,string>)[title]);symbol.setAttribute('aria-hidden','true');button.prepend(symbol);
     g.hidden=groups.length>0;g.id='rts-settings-'+title.toLowerCase();button.setAttribute('aria-controls',g.id);
     button.addEventListener('click',()=>{for(const item of groups){item.group.hidden=item.group!==g;item.button.setAttribute('aria-pressed',String(item.group===g));}body.scrollTop=0;});
     groups.push({button,group:g});navigation.appendChild(button);body.appendChild(g);
@@ -317,6 +317,7 @@ export function createSettingsPanel(onChange: (s: Settings) => void = () => {}):
     const previous = note.previousElementSibling;
     if (previous?.classList.contains('rts-row')) previous.appendChild(note);
   });
+  if (mountAlliance) mountAlliance(group("Alliance"));
   const foot = el("div", "rts-foot");
   const reset = el("button", undefined, "Reset to defaults");
   const done = el("button", "rts-primary", "Done");

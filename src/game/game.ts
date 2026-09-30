@@ -26,6 +26,7 @@ import { commandArt, portraitArt } from "../ui/art";
 import { SkirmishAI, type Difficulty } from "../ai/skirmish";
 import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
+import { createAlliancePanel, type AlliancePanel } from "../ui/alliancePanel";
 import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
 import { Callouts } from "./callouts";
@@ -182,6 +183,7 @@ export class Game {
    */
   setup: MatchSetup | null = null;
   private settingsPanel: SettingsPanel | null = null;
+  private alliancePanel: AlliancePanel | null = null;
   /** The DOM chrome: top bar, command bar, minimap. Null in headless tests. */
   private shell: Shell | null = null;
   /** Which command tab is showing. */
@@ -290,6 +292,8 @@ export class Game {
         if (settings.music) this.audio.startMusic();
         else this.audio.stopMusic();
         this.audio.syncMusic();
+      }, parent => {
+        this.alliancePanel = createAlliancePanel(parent, () => ({ world: this.world, player: this.player, menu: this.menu }), (target, allied) => this.issue({ type: "alliance", player: this.player, target, allied }));
       });
     }
     requestAnimationFrame(this.frame);
@@ -448,6 +452,7 @@ export class Game {
   }
 
   private frame = (now: number): void => {
+    this.alliancePanel?.sync();
     if (!this.running) return;
     const dt = Math.min(250, now - this.last);
     this.last = now;

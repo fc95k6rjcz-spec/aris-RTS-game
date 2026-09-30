@@ -1872,6 +1872,28 @@ export class World {
   private applyCommand(c: Command): void {
     if ("units" in c && c.type !== "battleRally") for(const u of this.ownedUnits(c.player,c.units)) u.buildQueue=[];
     switch (c.type) {
+      case "alliance": {
+        if (this.winner !== null || c.player === c.target || c.player === WILD || c.target === WILD ||
+            !this.players.has(c.player) || !this.players.has(c.target)) break;
+        if (c.allied) {
+          const team = this.teams.get(c.player) ?? c.player;
+          this.teams.set(c.player, team);
+          this.teams.set(c.target, team);
+        } else if (this.allied(c.player, c.target)) {
+          this.teams.set(c.target, Math.max(0, ...this.players.keys(), ...this.teams.values()) + 1);
+        }
+        for (const u of this.units()) {
+          if (u.task.kind === "attack") {
+            const target = this.entities.get(u.task.target);
+            if (target && this.allied(u.owner, target.owner)) { u.task = { kind: "idle" }; u.path = []; }
+          }
+          if (u.engaging !== null) {
+            const target = this.entities.get(u.engaging);
+            if (target && this.allied(u.owner, target.owner)) u.engaging = null;
+          }
+        }
+        break;
+      }
       case "buildWallLine": {
         const workers=this.ownedUnits(c.player,c.units).filter(u=>UNITS[u.def]!.canBuild);if(!workers.length)break;
         const royal=workers.some(u=>!!UNITS[u.def]!.royal),ids: number[]=[];

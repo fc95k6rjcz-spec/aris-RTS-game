@@ -264,7 +264,7 @@ export class SkirmishAI {
     if (!hall) return;
     const enemy = this.world
       .buildings()
-      .filter((b) => b.owner !== this.player)
+      .filter((b) => !this.world.allied(b.owner, this.player))
       .sort((a, b) => a.id - b.id)[0];
     if (!enemy) return;
     const scout = this.workers()[0];
@@ -511,7 +511,7 @@ export class SkirmishAI {
     let threat: Unit | null = null;
     let bestD = Infinity;
     for (const e of this.world.units()) {
-      if (e.owner === this.player || UNITS[e.def]!.damage <= 0 || e.def === "dragon") continue;
+      if (this.world.allied(e.owner, this.player) || UNITS[e.def]!.damage <= 0 || e.def === "dragon") continue;
       for (const b of mine) {
         const c = centerOf(b);
         const d = (e.pos.x - c.x) ** 2 + (e.pos.y - c.y) ** 2;
@@ -548,7 +548,7 @@ export class SkirmishAI {
       this.massingSince = tick;
       return;
     }
-    const enemyBuildings = this.world.buildings().filter((b) => b.owner !== this.player).length;
+    const enemyBuildings = this.world.buildings().filter((b) => !this.world.allied(b.owner, this.player)).length;
     const waited = tick - this.massingSince;
     const ready =
       army.length >= this.cfg.armySize ||
@@ -561,7 +561,7 @@ export class SkirmishAI {
     // Send everything at the enemy's nearest building; workers stay home.
     const enemy = this.world
       .buildings()
-      .filter((b) => b.owner !== this.player)
+      .filter((b) => !this.world.allied(b.owner, this.player))
       .sort((a, b) => a.id - b.id)[0];
     // Nothing left standing: hunt down whoever survives rather than idle at home.
     const straggler = enemy ? undefined : this.world
