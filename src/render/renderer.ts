@@ -10,6 +10,7 @@ import type { World } from "../sim/world";
 import type { Camera } from "./camera";
 import { artFor, drawConstruction } from "./buildingArt";
 import {wallMask} from './walls';
+import {wallTierHeight} from './wallTiers';
 import { unitArtFor } from "./unitArt";
 import { bakeRegion, CHUNK, T as TERRAIN_T, T_FAR } from "./terrain";
 import { bucket, stamp } from "./stamp";
@@ -1263,7 +1264,7 @@ export class Renderer {
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.def==='wall'||b.def==='gate'?this.world.wallLevel(b.owner):b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
       open: b.def==='gate' && this.world.units().some((u)=>this.world.allied(u.owner,b.owner)&&Math.abs(u.pos.x-(b.tx+.5)*SUB)<SUB*1.3&&Math.abs(u.pos.y-(b.ty+.5)*SUB)<SUB*1.3) };
     if (!b.complete) {
       if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
@@ -1293,9 +1294,11 @@ export class Renderer {
       const view = unitViewSprite("archer", 2, color);
       if (view) {
         const n = b.garrison.length, h = w * 0.8, aw = (view.img.width / view.img.height) * h;
+        // Taller tiers lift the wall walk; the archers go up with it.
+        const lift = 0.6 * (wallTierHeight(this.world.wallLevel(b.owner)) - 1) * w;
         for (let k = 0; k < n; k++) {
           const cx = p.x + w / 2 + (k - (n - 1) / 2) * w * 0.42;
-          ctx.drawImage(view.img, cx - aw / 2, p.y + w * 0.12 - h, aw, h);
+          ctx.drawImage(view.img, cx - aw / 2, p.y + w * 0.12 - lift - h, aw, h);
         }
       }
     }
@@ -1702,7 +1705,7 @@ export class Renderer {
     const w = d.size * s;
     ctx.globalAlpha = 0.55;
     const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: 1,wallMask:g.def==='wall'||g.def==='gate'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick, level: g.def==='wall'||g.def==='gate'?this.world.wallLevel(g.owner):1,wallMask:g.def==='wall'||g.def==='gate'?this.wallConnections(g.tx,g.ty,g.owner,pending):undefined });
     ctx.globalAlpha = 1;
     if (g.def === "tower") {
       ctx.save();

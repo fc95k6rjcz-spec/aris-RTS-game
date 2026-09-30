@@ -552,7 +552,7 @@ const HUMAN_ART: Record<string, Drawer> = {
   townhall: a => {if(!paintedCamp(a,grandHall,buildingDrawScale('townhall')))townhall(a);},
   tower: a => {paintedCamp(a,outpost,1.05);},
   wall: (a) => {
-    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
+    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10,a.level??1))return;
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
     for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
   },
@@ -560,12 +560,14 @@ const HUMAN_ART: Record<string, Drawer> = {
     // A wall section with a gatehouse arch in it: timber doors bound in iron,
     // swung open when one of its own is passing, and the owner's pennant.
     const ctx=a.ctx,m=a.wallMask??10,w=a.w,x=a.x,y=a.y;
-    if(!drawJoinedWall(ctx,x,y,w,m)){shadow(a,.03,.35,.94,.5);stoneWall(a,.05,.34,.9,.47,"#989486");}
+    if(!drawJoinedWall(ctx,x,y,w,m,a.level??1)){shadow(a,.03,.35,.94,.5);stoneWall(a,.05,.34,.9,.47,"#989486");}
     const across=!(m&5)||!!(m&10); // wall runs left-right: face-on arch
     ctx.save();
     const cx=x+w*.5,base=y+w*.98,aw=across?w*.78:w*.5,ah=w*.95;
     // Gatehouse block with crenels.
-    ctx.fillStyle="#7d786c";ctx.strokeStyle="#3a372f";ctx.lineWidth=Math.max(1,w*.02);
+    // The gatehouse is built of the same stone as the wall it sits in.
+    const tier=Math.max(1,Math.min(10,a.level??1));
+    ctx.fillStyle=tier<=3?"#6f5c45":tier<=6?"#7d786c":"#b3aa95";ctx.strokeStyle="#3a372f";ctx.lineWidth=Math.max(1,w*.02);
     ctx.fillRect(cx-aw*.8,base-ah*1.25,aw*1.6,ah*1.25);ctx.strokeRect(cx-aw*.8,base-ah*1.25,aw*1.6,ah*1.25);
     for(let i=0;i<4;i++){ctx.fillRect(cx-aw*.8+i*aw*.44,base-ah*1.25-w*.08,aw*.26,w*.08);}
     // Arch.
