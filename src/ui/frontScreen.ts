@@ -34,6 +34,7 @@ export type FrontPane = "splash" | "menu" | "credits" | "multiplayer" | "host" |
 
 export type FrontAction =
   | { kind: "begin" }
+  | { kind: "wars" }
   | { kind: "skirmish" }
   | { kind: "loadSave" }
   | { kind: "host" }
@@ -331,6 +332,15 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
         },
         {
           numeral: numeral(1),
+          label: "Wars",
+          hint: "100 battles",
+          enabled: true,
+          marked: false,
+          action: { kind: "wars" },
+          note: "A hundred battles, one after another. Each one sets you a task and a limit; win it to unlock the next.",
+        },
+        {
+          numeral: numeral(2),
           label: "Load Saved Game",
           hint: state.saveAvailable ? "Resume" : "No save",
           enabled: !!state.saveAvailable,
@@ -339,7 +349,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Resume your latest save in this browser. Multiplayer saves open a room for your friend to rejoin.",
         },
         {
-          numeral: numeral(2),
+          numeral: numeral(3),
           label: "Settings",
           hint: "Gear",
           enabled: true,
@@ -348,7 +358,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Sound, speed, the opponent, and which of the hundred realms you fight over.",
         },
         {
-          numeral: numeral(3),
+          numeral: numeral(4),
           label: "Credits",
           hint: "",
           enabled: true,
@@ -357,7 +367,7 @@ function rowsFor(state: FrontState, difficulty: Difficulty, mapId: string): { ro
           note: "Who made this, and what with.",
         },
         {
-          numeral: numeral(4),
+          numeral: numeral(5),
           label: "Quit",
           hint: "Esc",
           enabled: true,

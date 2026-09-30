@@ -34,6 +34,8 @@ import { WEAPON_OF } from "../sim/relic";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
 import { RealmNet } from "../net/realm";
+import { BATTLE_COUNT, CHAPTERS, battle as battleById, describeGoal, type Battle } from "../data/wars";
+import { battleUnlocked, buildBattleWorld, goalState, loadWarProgress, saveWarResult, starsFor } from "./wars";
 import { VISIBLE } from "../sim/vision";
 import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
 
@@ -86,6 +88,9 @@ export class Game {
   private realm: RealmNet | null = null;
   private realmNote = "";
   private choiceBox: HTMLDivElement | null = null;
+  /** The Wars battle being fought, if any. */
+  private war: { b: Battle; startTick: number; sent: Set<number>; over: boolean } | null = null;
+  private warsBox: HTMLDivElement | null = null;
   private fallenShown = false;
   private recenterOnKing = false;
   private realmSavedAt = 0;
@@ -512,6 +517,7 @@ export class Game {
   tick(): void {
     if (this.menu && !this.realm) this.start();
     if (this.menu) return;
+    if (this.war?.over) return; // the verdict is in; the field holds still behind it
     const turn = this.realm ? this.realm.nextTick(performance.now()) : this.net.nextTick(performance.now(), () => this.world.checksum());
     if (!turn) return;
     this.renderer.snapshot();
@@ -520,6 +526,7 @@ export class Game {
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
+    if (this.war) this.stepWar();
     if (this.realm && performance.now() - this.realmSavedAt > 90000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
     if (this.realm && this.world.tick % 20 === 0) this.watchRealmSeat();
     // One tick's happenings, handed to the two things that show them. Neither
@@ -591,6 +598,7 @@ export class Game {
    */
   surrender(): void {
     if (this.menu) return;
+    this.war = null;
     const other = [...this.world.players.keys()].find((p) => !this.world.allied(p, this.player) && p !== WILD);
     this.world.winner = other ?? null;
     // Online, say goodbye: otherwise the other side's lockstep waits forever for
@@ -1604,6 +1612,9 @@ export class Game {
       case "loadSave":
         void this.loadGame();
         break;
+      case "wars":
+        this.openWars();
+        break;
       case "begin":
         void this.enterRealm();
         break;
@@ -1680,6 +1691,8 @@ export class Game {
    * saved copy -- or, the very first time, founds a new one.
    */
   private async enterRealm(): Promise<void> {
+    this.war = null;
+    this.warsBox?.remove(); this.warsBox = null;
     if (this.realm) return;
     this.closeRoom();
     this.transport = null;
@@ -1796,6 +1809,124 @@ export class Game {
     setTimeout(() => this.audio.play("swordLegend"), 1200);
   }
 
+  // ───────────────────────────── Wars ─────────────────────────────
+
+  /** The campaign map: ten chapters of ten battles, locked until the one before is won. */
+  private openWars(): void {
+    this.warsBox?.remove();
+    const progress = loadWarProgress();
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;inset:0;z-index:48;overflow:auto;background:rgba(8,8,10,0.94);color:#e9e2cf;font-family:Georgia,serif;padding:28px 16px";
+    const inner = document.createElement("div");
+    inner.style.cssText = "max-width:880px;margin:0 auto";
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:18px";
+    const h = document.createElement("div");
+    const total = Object.values(progress).reduce((a, n) => a + n, 0);
+    h.innerHTML = `<div style="font-size:30px;letter-spacing:.12em;color:#e8c56b">WARS</div><div style="font-size:14px;color:#a89f88">A hundred battles. ★ ${total} / ${BATTLE_COUNT * 3}</div>`;
+    const back = document.createElement("button");
+    back.textContent = "Back";
+    back.style.cssText = "padding:8px 20px;font:600 14px Georgia,serif;cursor:pointer;border:1px solid #b89a52;background:transparent;color:#e8c56b";
+    back.onclick = () => { box.remove(); this.warsBox = null; };
+    head.append(h, back);
+    inner.appendChild(head);
+    CHAPTERS.forEach((name, ci) => {
+      const row = document.createElement("div");
+      row.style.cssText = "margin:0 0 16px";
+      const t = document.createElement("div");
+      t.textContent = `Chapter ${ci + 1} · ${name} · up to level ${ci + 1}`;
+      t.style.cssText = "font-size:15px;color:#cdb77a;margin-bottom:6px;letter-spacing:.04em";
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px";
+      for (let k = 1; k <= 10; k++) {
+        const id = ci * 10 + k;
+        const b = battleById(id);
+        const open = !!b && battleUnlocked(id, progress);
+        const stars = progress[id] ?? 0;
+        const btn = document.createElement("button");
+        btn.innerHTML = `<div style="font-size:18px">${id}</div><div style="font-size:12px;color:${stars ? "#f3cf5a" : "#6d6656"}">${b ? (stars ? "★".repeat(stars) + "☆".repeat(3 - stars) : open ? "new" : "🔒") : "soon"}</div>`;
+        btn.title = b ? b.title : "Coming soon";
+        btn.disabled = !open;
+        btn.style.cssText = `padding:8px 4px;font-family:Georgia,serif;border:1px solid ${open ? "#b89a52" : "#3a362d"};background:${stars ? "#2a2413" : open ? "#1b1a16" : "#121210"};color:${open ? "#e9e2cf" : "#5a5446"};cursor:${open ? "pointer" : "default"}`;
+        if (open && b) btn.onclick = () => this.briefBattle(b);
+        grid.appendChild(btn);
+      }
+      row.append(t, grid);
+      inner.appendChild(row);
+    });
+    box.appendChild(inner);
+    document.body.appendChild(box);
+    this.warsBox = box;
+  }
+
+  private briefBattle(b: Battle): void {
+    const name = (def: string) => BUILDINGS[def]?.name ?? UNITS[def]?.name ?? def;
+    const goals = b.goals.map((g) => "• " + describeGoal(g, name)).join("\n");
+    this.showChoice(`BATTLE ${b.id} — ${b.title}`, `${b.story}\n\n${goals}\n\nNothing above level ${b.cap}. Par ${Math.round(b.par / 60)} minutes for three stars.`, [
+      { label: "Back", act: () => {} },
+      { label: "To Battle", primary: true, act: () => this.startBattle(b) },
+    ]);
+  }
+
+  private startBattle(b: Battle): void {
+    this.warsBox?.remove(); this.warsBox = null;
+    this.choiceBox?.remove(); this.choiceBox = null;
+    if (this.realm) { void this.storeLedger(); this.realm.close(); this.realm = null; }
+    this.player = 1;
+    this.setup = null;
+    const world = buildBattleWorld(b, settings.pace);
+    const map: MapDef = { id: `wars-${b.id}`, name: b.title, kind: "plains", seed: b.seed, size: world.map.width, open: 0.6 };
+    this.pendingSave = { version: 1, world, map, player: -1, multiplayer: false, setup: null, difficulty: b.enemy ?? "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] };
+    this.start(b.enemy ?? "none");
+    this.war = { b, startTick: this.world.tick, sent: new Set(), over: false };
+    const hall = this.world.buildings().find((x) => x.owner === 1 && x.def === "townhall");
+    if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
+    this.selected = new Set(this.world.units().filter((u) => u.owner === 1 && u.def === "worker").map((u) => u.id));
+    this.proclaim(`BATTLE ${b.id}`, b.title, 4000);
+  }
+
+  /** Scripted raids, then the verdict: every goal met, or the town lost, or out of time. */
+  private stepWar(): void {
+    const w = this.war;
+    if (!w || w.over || this.world.tick % 10 !== 0) return;
+    const secs = (this.world.tick - w.startTick) / TICKS_PER_SECOND;
+    (w.b.raids ?? []).forEach((r, i) => {
+      if (w.sent.has(i) || secs < r.at) return;
+      w.sent.add(i);
+      this.world.summonHorde(1, r.role ?? "raid", r.defs, r.shout);
+    });
+    const raidsLeft = (w.b.raids ?? []).length - w.sent.size;
+    const won = w.b.goals.every((g) => goalState(this.world, this.player, g, secs, raidsLeft).done);
+    const lost = !this.world.seatAlive(1) || (w.b.timeLimit !== undefined && secs > w.b.timeLimit);
+    if (!won && !lost) return;
+    w.over = true;
+    const b = w.b;
+    const next = battleById(b.id + 1);
+    if (won) {
+      const stars = starsFor(b, secs);
+      saveWarResult(b.id, stars);
+      this.audio.play("crown", 0.8);
+      const time = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}`;
+      this.showChoice(`VICTORY  ${"★".repeat(stars)}${"☆".repeat(3 - stars)}`, `${b.title} won in ${time}.${stars < 3 ? ` Beat ${Math.round(b.par / 60)} minutes for three stars.` : ""}`, [
+        { label: "Wars", act: () => this.leaveBattle(true) },
+        ...(next ? [{ label: `Battle ${next.id}`, primary: true, act: () => this.startBattle(next) }] : []),
+      ]);
+    } else {
+      this.showChoice("DEFEAT", w.b.timeLimit !== undefined && secs > w.b.timeLimit ? "Out of time." : "Your town has fallen.", [
+        { label: "Wars", act: () => this.leaveBattle(true) },
+        { label: "Try Again", primary: true, act: () => this.startBattle(b) },
+      ]);
+    }
+  }
+
+  private leaveBattle(toMap: boolean): void {
+    this.war = null;
+    this.selected.clear();
+    this.buildMode = null; this.wallStart = null;
+    this.menu = true;
+    if (toMap) this.openWars();
+  }
+
   /** A small centred choice over the map: a title, a line, and a few buttons. */
   private showChoice(title: string, line: string, buttons: Array<{ label: string; primary?: boolean; act: () => void }>): void {
     this.choiceBox?.remove();
@@ -1806,7 +1937,7 @@ export class Game {
     h.style.cssText = "font-size:24px;letter-spacing:.08em;color:#e8c56b;margin-bottom:10px";
     const p = document.createElement("div");
     p.textContent = line;
-    p.style.cssText = "font-size:15px;line-height:1.45;color:#cfc6b0;margin-bottom:20px";
+    p.style.cssText = "font-size:15px;line-height:1.45;color:#cfc6b0;margin-bottom:20px;white-space:pre-line";
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:12px;justify-content:center";
     for (const b of buttons) {
@@ -2145,7 +2276,15 @@ export class Game {
 
     const relic = this.world.relicFor(this.player);
     let objective: { title: string; line: string } | null = null;
-    if (relic && this.world.winner === null) {
+    if (this.war) {
+      const w = this.war;
+      const secs = (this.world.tick - w.startTick) / TICKS_PER_SECOND;
+      const raidsLeft = (w.b.raids ?? []).length - w.sent.size;
+      const parts = w.b.goals.map((g) => { const st = goalState(this.world, this.player, g, secs, raidsLeft); return `${st.done ? "✓" : "○"} ${st.text}`; });
+      const clock = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}`;
+      objective = { title: `BATTLE ${w.b.id} — ${w.b.title.toUpperCase()}`, line: `${parts.join("   ")}   ·   ${clock} (par ${Math.round(w.b.par / 60)} min)` };
+    }
+    if (!this.war && relic && this.world.winner === null) {
       const man = selUnits[0] ?? this.world.units().find((u) => u.owner === this.player) ?? null;
       const weapon = WEAPON_OF[p.faction].name;
       if (man) {

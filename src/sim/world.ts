@@ -549,6 +549,12 @@ export class World {
   patrolsEnabled = false;
   /** The Orc Horde scouts, raids and finally invades. On for every normal match. */
   hordeEnabled = true;
+  /** A Wars battle: its goals decide the winner, not the usual last-one-standing. */
+  war = false;
+  /** Wars battles: nothing may be upgraded past this level (null: no limit). */
+  levelCap: number | null = null;
+  /** Wars battles: the only buildings that may be raised (null: all of them). */
+  allowed: string[] | null = null;
   /**
    * Shared realm: the world lives on everyone's computer and people come and
    * go. No one ever "wins" it, and each traveller keeps a seat -- keyed by a
@@ -691,6 +697,9 @@ export class World {
   }
 
   /** Bring a Horde party in over the map edge furthest from everyone, aimed at one player. */
+  /** Wars battles script their own raids; the same arrival as the Horde's. */
+  summonHorde(target: PlayerId, role: "scout" | "raid", defs: string[], shout: string): void { this.sendHorde(target, role, defs, shout); }
+
   private sendHorde(target: PlayerId, role: "scout" | "raid", defs: string[], shout: string): void {
     const home = this.buildings().find((b) => b.owner === target && b.def === "townhall") ?? this.buildings().find((b) => b.owner === target);
     if (!home) return;
@@ -903,6 +912,7 @@ export class World {
    */
   upgradeBlocked(player: PlayerId, b: Building): string | null {
     const to = b.level + 1;
+    if (this.levelCap !== null && to > this.levelCap) return `This battle allows level ${this.levelCap} at most`;
     if (b.def === "townhall") {
       const need = (HALL_NEEDS[to] ?? []).filter((d) => !this.hasBuilding(player, d));
       return need.length ? `To grow the Town Hall you first need: ${need.map((d) => BUILDINGS[d]!.name).join(", ")}` : null;
@@ -1131,6 +1141,7 @@ export class World {
   wallUpgradeBlocked(id: PlayerId): string | null {
     const next = this.wallLevel(id) + 1;
     if (next > WALL_TIERS.length) return "Your walls are as strong as walls get";
+    if (this.levelCap !== null && next > this.levelCap) return `This battle allows level ${this.levelCap} at most`;
     const hall = Math.max(0, ...this.buildings().filter((b) => b.owner === id && b.def === "townhall" && b.complete).map((b) => b.level));
     if (hall < next) return `Needs a level ${next} Town Hall first`;
     return null;
@@ -1730,6 +1741,7 @@ export class World {
   placementError(player: PlayerId, def: string, tx: number, ty: number, builderIsRoyal = false): string | null {
     const d = BUILDINGS[def];
     if (!d) return "Unknown building";
+    if (this.allowed && !this.allowed.includes(def)) return `${d.name} is not available in this battle`;
     // A King may raise a watchtower wherever he stands, without a barracks
     // behind him to justify it. He is walking his own country with no army yet,
     // and putting a tower on the ground he means to keep is exactly what a man
@@ -2941,7 +2953,7 @@ export class World {
 
   /** A player with nothing left that could build has lost. */
   private checkVictory(): void {
-    if (this.realm) return;
+    if (this.realm || this.war) return;
     if (this.winner !== null || this.tick % 20 !== 0) return;
     // Alive means "can still do something": a standing building, or a worker who
     // could raise one. Counting buildings alone declared a winner on the first

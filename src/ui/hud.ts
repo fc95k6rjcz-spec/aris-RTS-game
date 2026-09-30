@@ -612,7 +612,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
 
   if (builders.length > 0) {
     const list = (ids: readonly string[]): CommandEntry[] =>
-      ids.map((id) => {
+      ids.filter((id) => !world.allowed || world.allowed.includes(id)).map((id) => {
         const d = BUILDINGS[id]!;
         const royal = builders.some(u => !!UNITS[u.def]!.royal);
         const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
