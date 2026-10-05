@@ -1293,7 +1293,7 @@ export class Renderer {
         ctx.scale(swell, swell);
         ctx.translate(-(p.x + w / 2), -(p.y + w));
       }
-      if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
+      if (!((faction === "human" || faction === "orc") && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
       if (swell !== 1) ctx.restore();
       if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
     }
@@ -1874,7 +1874,7 @@ export class Renderer {
       u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
     const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
-    const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
+    const peasant = framed === null && painted === null && (player.faction === "human" || player.faction === "orc") && u.def === "worker"
       ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, swimming ? false : afloat)
       : null;
     if (framed !== null) {
