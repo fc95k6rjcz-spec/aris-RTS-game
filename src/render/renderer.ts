@@ -1,4 +1,8 @@
-import { BUILDINGS, buildingName } from "../data/buildings";
+import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
+import { towerRange } from "../sim/world";
+import { constructionFrame } from './constructionFrame';
+import { BUILDINGS } from "../data/buildings";
+import { buildingName } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
 import { UNITS } from "../data/units";
 import type { Building, Unit } from "../sim/entities";
@@ -6,6 +10,7 @@ import { SUB, Tile } from "../sim/types";
 import type { World } from "../sim/world";
 import type { Camera } from "./camera";
 import { artFor, drawConstruction } from "./buildingArt";
+import {wallMask} from './walls';
 import { unitArtFor } from "./unitArt";
 import { bakeRegion, CHUNK, T as TERRAIN_T, T_FAR } from "./terrain";
 import { bucket, stamp } from "./stamp";
@@ -16,7 +21,11 @@ import { drawCampfire, drawFire, drawFireGlow, BURN_AT } from "./fire";
 import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
 import { WEAPON_OF } from "../sim/relic";
 import { drawWeapon } from "./weaponArt";
-import { anySheets, clipFor, frameAt, isRunning, sheetFor, stateFor } from "./anim";
+import { AnimationClock, anySheets, clipFor, frameAt, sheetFor, stateFor, type AnimState } from "./anim";
+import { motionFor } from "./motion";
+import { drawCreature, drawDirectional, hasDirectional } from "./directional";
+import { drawFoundingHall } from "./construction";
+import { redesignedArt } from "./redesign";
 import { groundFor } from "./ground";
 import relicSword from "../assets/ui/relic_sword.jpg";
 import { darkness, lightAt } from "../sim/weather";
@@ -113,6 +122,8 @@ export interface Ghost {
    * to a gold mine" is advice, not a verdict.
    */
   reason: string | null;
+  /** A dragged run of wall, drawn as one ghost with a section per tile. */
+  segments?: Ghost[];
 }
 
 /**
@@ -139,10 +150,16 @@ const TILE_COLORS: Record<number, string> = {
  * Canvas 2D renderer. Everything is drawn procedurally so the project has no
  * art dependencies yet; swap in sprite sheets later without touching the sim.
  */
+/** How long an attack alert pulses, in milliseconds. */
+const ATTACK_PING_MS = 4000;
+
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
   /** Previous-tick unit positions for interpolation. */
   private prev = new Map<number, { x: number; y: number }>();
+  private animationClock = new AnimationClock();
+  private travelDistance = new WeakMap<Unit, number>();
+  private gateMotion = new WeakMap<Building, { amount: number; tick: number }>();
   /** Near-detail terrain, baked one chunk at a time and kept while it is used. */
   private chunks = new Map<number, { img: HTMLCanvasElement; used: number }>();
   /** The whole map at a coarse resolution, trees and all, for zoomed-out views. */
@@ -185,6 +202,8 @@ export class Renderer {
   /** Fog baked at one pixel per tile, redrawn only when vision changes. */
   private fogTile: HTMLCanvasElement | null = null;
   private fogTileTick = -1;
+  private forestBackdrop: HTMLCanvasElement | null = null;
+  private forestMask: HTMLCanvasElement | null = null;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -196,6 +215,11 @@ export class Renderer {
 
   /** Call once per sim tick, before stepping, to capture positions. */
   snapshot(): void {
+    for (const u of this.world.units()) {
+      const previous = this.prev.get(u.id);
+      if (previous) this.travelDistance.set(u, (this.travelDistance.get(u) ?? 0)
+        + Math.hypot(u.pos.x - previous.x, u.pos.y - previous.y));
+    }
     this.prev.clear();
     for (const u of this.world.units()) this.prev.set(u.id, { x: u.pos.x, y: u.pos.y });
   }
@@ -208,9 +232,14 @@ export class Renderer {
     ctx.beginPath();
     ctx.rect(0, 0, cam.viewW, viewH);
     ctx.clip();
+    ctx.save();
+    // Atmosphere is applied once below; avoid a full-screen filter every frame.
     this.drawTerrain();
+    ctx.restore();
+    if (settings.animations) this.drawWaterMotion();
     // Tracks go on the ground, under everything that stands on it.
     this.drawPaths();
+    this.drawOilGround();
     this.drawOreCarts(alpha);
     this.drawGoldMines();
     this.drawCampfires(alpha);
@@ -220,7 +249,10 @@ export class Renderer {
     // Draw buildings then units so units walk in front of walls; sort by y for a bit of depth.
     const buildings = this.world
       .buildings()
-      .filter((b) => b.owner === this.viewer || this.exploredAt(b.tx + b.size / 2, b.ty + b.size / 2));
+      .filter((b) => b.owner === this.viewer || this.exploredAt(b.tx + b.size / 2, b.ty + b.size / 2))
+      // Back to front by where each one meets the ground, so a tower stands in
+      // front of the wall behind it rather than the wall cutting across it.
+      .sort((a, b) => a.ty + a.size - (b.ty + b.size) || a.tx - b.tx);
     for (const b of buildings) this.drawBuilding(b, selected.has(b.id), alpha);
     this.drawCorpses();
     const units = [...this.world.units()]
@@ -229,16 +261,29 @@ export class Renderer {
       // ground whether or not anyone is watching it now.
       .filter((u) => this.world.canSeeEntity(this.viewer, u))
       .sort((a, b) => a.pos.y - b.pos.y);
-    for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
-    this.drawProjectiles();
-    this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
-    if (ghost) this.drawGhost(ghost);
     this.drawFog(viewH);
     this.drawRelicPointer(viewH);
     this.drawDaylight(viewH);
     // After the wash, never before it: see drawFireGlow.
     this.drawFirelight(alpha);
+    this.drawLocalLights(viewH);
     this.drawWeather(viewH);
+    // Preserve the already lit/fogged forest so canopy occlusion cannot expose
+    // unexplored terrain or brighten rectangular patches around a person.
+    this.forestBackdrop ??= document.createElement("canvas");
+    if (this.forestBackdrop.width !== this.canvas.width || this.forestBackdrop.height !== this.canvas.height) {
+      this.forestBackdrop.width = this.canvas.width; this.forestBackdrop.height = this.canvas.height;
+    }
+    const backdrop = this.forestBackdrop.getContext("2d")!;
+    backdrop.clearRect(0,0,this.canvas.width,this.canvas.height);
+    backdrop.drawImage(this.canvas,0,0);
+    // Keep visible people readable over the atmospheric terrain wash. The
+    // visibility filter above still hides enemies outside our actual sight.
+    for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
+    this.drawAttackPings();
+    this.drawProjectiles();
+    this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
+    if (ghost) this.drawGhost(ghost);
     if (box) {
       ctx.strokeStyle = "rgba(120,255,120,0.9)";
       ctx.lineWidth = 1;
@@ -487,7 +532,7 @@ export class Renderer {
    * resampling a large image per trunk per frame, which was 31 ms a frame on a
    * wooded 160x160 board -- the single biggest thing making the game stutter.
    */
-  private drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number): void {
+  private drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, cx: number, cy: number, mask = false): void {
     const map = this.world.map;
     if (map.isHidden(x, y)) return;
     if (map.get(x, y) !== Tile.Tree) {
@@ -522,7 +567,81 @@ export class Renderer {
       c.fill();
       c.drawImage(img, (cw - w) / 2, 0, w, th);
     });
-    ctx.drawImage(canopy, Math.round(cx + jx - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+    const live = (ctx === this.ctx || mask) && settings.animations;
+    const sway = live ? Math.sin((this.world.tick + x * 7 + y * 11) / 18) * s * 0.028 : 0;
+    if(mask) ctx.drawImage(img, Math.round(cx+jx+sway-w/2), Math.round(cy+jy+s*.34-th-shadowH*.45), w, th);
+    else ctx.drawImage(canopy, Math.round(cx + jx + sway - canopy.width / 2), Math.round(cy + jy + s * 0.34 - th - shadowH * 0.45));
+  }
+
+  /**
+   * Cheap live water detail layered over the baked terrain.
+   * Only a fraction of visible water tiles draw a ripple, so large maps remain cheap.
+   */
+  private drawWaterMotion(): void {
+    const s = this.cam.zoom;
+    if (s < 18) return;
+    const map = this.world.map;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const t = performance.now() / 1000;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(220,240,255,0.2)";
+    ctx.lineWidth = Math.max(0.75, s * 0.015);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (map.get(x, y) !== Tile.Water) continue;
+        const hash = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        if ((hash & 3) !== 0) continue;
+        const p = this.cam.toScreen((x + 0.5) * SUB, (y + 0.5) * SUB);
+        const phase = t * (0.8 + ((hash >>> 5) & 7) * 0.05) + (hash % 17);
+        const drift = Math.sin(phase) * s * 0.08;
+        const len = s * (0.18 + ((hash >>> 8) & 7) * 0.018);
+        ctx.globalAlpha = 0.12 + (Math.sin(phase * 1.7) + 1) * 0.07;
+        ctx.beginPath();
+        ctx.moveTo(p.x - len + drift, p.y);
+        ctx.quadraticCurveTo(p.x + drift, p.y - s * 0.035, p.x + len + drift, p.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Pools of warm light from completed Torches are drawn after the global
+   * day/night wash. Higher tiers have both a larger radius and stronger light.
+   * This is presentation only; actual sight radius is handled by vision.
+   */
+  private drawLocalLights(viewH: number): void {
+    if (!settings.animations) return;
+    const night = lightAt(this.world.tick).alpha;
+    if (night < 0.06) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (const b of this.world.buildings()) {
+      if (!b.complete || b.def !== "torch") continue;
+      if (b.owner !== this.viewer && !this.world.canSeeEntity(this.viewer, b)) continue;
+      const lv = levelDef("torch", b.level);
+      const radius = (lv.radius ?? 4) * this.cam.zoom;
+      const power = lv.light ?? 0.3;
+      const centre = this.cam.toScreen((b.tx + 0.5) * SUB, (b.ty + 0.5) * SUB);
+      if (centre.x + radius < 0 || centre.y + radius < 0 || centre.x - radius > this.cam.viewW || centre.y - radius > viewH) continue;
+
+      const flicker = 0.92 + Math.sin(performance.now() / 85 + b.id * 1.7) * 0.08;
+      const alpha = Math.min(0.72, night * power * 0.62 * flicker);
+      const g = ctx.createRadialGradient(centre.x, centre.y, 0, centre.x, centre.y, radius);
+      g.addColorStop(0, b.level >= 10 ? `rgba(170,215,255,${alpha})` : `rgba(255,205,105,${alpha})`);
+      g.addColorStop(0.28, `rgba(255,175,70,${alpha * 0.58})`);
+      g.addColorStop(1, "rgba(255,150,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /**
@@ -599,14 +718,14 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = "multiply";
-    ctx.globalAlpha = light.alpha;
+    ctx.globalAlpha = Math.min(0.22, light.alpha * 0.4);
     ctx.fillStyle = light.css;
     ctx.fillRect(0, 0, this.cam.viewW, viewH);
     ctx.restore();
     // A touch of the same colour laid on top, so a dawn actually glows rather
     // than merely failing to be dark.
     ctx.save();
-    ctx.globalAlpha = light.alpha * 0.28;
+    ctx.globalAlpha = light.alpha * 0.08;
     ctx.fillStyle = light.css;
     ctx.fillRect(0, 0, this.cam.viewW, viewH);
     ctx.restore();
@@ -682,6 +801,150 @@ export class Renderer {
    * Drawn live rather than baked, because wear and mud change constantly and
    * rebaking a terrain chunk every time somebody walks over it would be absurd.
    */
+  /**
+   * The level-up reveal. Behind the building: a warm halo and slowly turning
+   * rays. In front: a ring of light that sweeps outward and a shimmer that
+   * rises off the roof. Everything fades over the reveal's second or so.
+   */
+  private drawLevelUpGlow(cx: number, cy: number, w: number, f: number, behind: boolean): void {
+    const ctx = this.ctx;
+    const fade = 1 - f;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    if (behind) {
+      const r = w * (1.1 + f * 0.6);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(255,220,120,${0.55 * fade})`);
+      g.addColorStop(0.5, `rgba(255,180,60,${0.25 * fade})`);
+      g.addColorStop(1, "rgba(255,160,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,230,150,${0.22 * fade})`;
+      const rays = 12;
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2 + f * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a - 0.08) * r * 1.3, cy + Math.sin(a - 0.08) * r * 1.3);
+        ctx.lineTo(cx + Math.cos(a + 0.08) * r * 1.3, cy + Math.sin(a + 0.08) * r * 1.3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      ctx.strokeStyle = `rgba(255,226,140,${0.8 * fade})`;
+      ctx.lineWidth = Math.max(2, w * 0.05 * fade);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + w * 0.35, w * (0.3 + f * 1.1), w * (0.12 + f * 0.45), 0, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 10; i++) {
+        const ox = Math.sin(i * 2.3) * w * 0.45;
+        const oy = -f * w * (0.8 + (i % 3) * 0.3) - w * 0.2;
+        ctx.fillStyle = `rgba(255,240,180,${0.9 * fade})`;
+        ctx.beginPath();
+        ctx.arc(cx + ox, cy + oy, Math.max(1.5, w * 0.022), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Attack alerts. Fed from the sim's hit events: anything of yours struck by
+   * someone else. One ping per patch of ground every few seconds, so a long
+   * fight is one pulsing alarm rather than a hundred.
+   */
+  private attackPings: Array<{ x: number; y: number; at: number }> = [];
+  noteAttacks(events: readonly { kind: string; owner?: number; attackerOwner?: number; x?: number; y?: number }[]): void {
+    const now = performance.now();
+    this.attackPings = this.attackPings.filter((p) => now - p.at < ATTACK_PING_MS);
+    for (const e of events) {
+      const alarm = e.kind === "alarm" && e.owner === this.viewer;
+      if (!alarm && (e.kind !== "hit" || e.owner !== this.viewer || e.attackerOwner === this.viewer)) continue;
+      if (e.x === undefined || e.y === undefined) continue;
+      const near = this.attackPings.find((p) => Math.hypot(p.x - e.x!, p.y - e.y!) < SUB * 7);
+      if (near) { if (now - near.at > ATTACK_PING_MS * 0.6) { near.at = now; near.x = e.x; near.y = e.y; } continue; }
+      this.attackPings.push({ x: e.x, y: e.y, at: now });
+    }
+  }
+
+  /** Red rings pulsing on the ground where you are being hit. */
+  private drawAttackPings(): void {
+    const ctx = this.ctx, now = performance.now(), s = this.cam.zoom;
+    for (const pg of this.attackPings) {
+      const age = (now - pg.at) / ATTACK_PING_MS;
+      if (age > 1) continue;
+      const p = this.cam.toScreen(pg.x, pg.y);
+      ctx.save();
+      for (const lag of [0, 0.5]) {
+        const a = (age * 2.5 + lag) % 1;
+        ctx.strokeStyle = `rgba(255,50,40,${(1 - a) * 0.85 * (1 - age * 0.5)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + s * 0.3, s * (0.6 + a * 2.2), s * (0.25 + a * 0.95), 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** A great harpoon ballista on a tower's top: timber stock, bow arms, iron-tipped bolt. */
+  private drawDragonbane(cx: number, cy: number, w: number): void {
+    const ctx = this.ctx, k = w / 3;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#3a2814"; ctx.lineWidth = Math.max(2, k * 0.14);
+    ctx.beginPath(); ctx.moveTo(cx - k * 0.55, cy + k * 0.35); ctx.lineTo(cx + k * 0.55, cy - k * 0.2); ctx.stroke();
+    ctx.strokeStyle = "#6b4a2a"; ctx.lineWidth = Math.max(2, k * 0.1);
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.15, cy - k * 0.55); ctx.quadraticCurveTo(cx + k * 0.45, cy + k * 0.05, cx + k * 0.05, cy + k * 0.45); ctx.stroke();
+    ctx.strokeStyle = "#d9d2c0"; ctx.lineWidth = Math.max(1, k * 0.03);
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.15, cy - k * 0.55); ctx.lineTo(cx - k * 0.2, cy + k * 0.05); ctx.lineTo(cx + k * 0.05, cy + k * 0.45); ctx.stroke();
+    ctx.strokeStyle = "#8f8f8f"; ctx.lineWidth = Math.max(1.5, k * 0.06);
+    ctx.beginPath(); ctx.moveTo(cx - k * 0.45, cy + k * 0.28); ctx.lineTo(cx + k * 0.8, cy - k * 0.35); ctx.stroke();
+    ctx.fillStyle = "#c9c9c9";
+    ctx.beginPath(); ctx.moveTo(cx + k * 0.95, cy - k * 0.42); ctx.lineTo(cx + k * 0.72, cy - k * 0.44); ctx.lineTo(cx + k * 0.78, cy - k * 0.24); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  /** Tar-dark seeps where oil comes up through the ground: where oil rigs go. */
+  private drawOilGround(): void {
+    const map = this.world.map;
+    if (!map.oil) return;
+    const s = this.cam.zoom;
+    const x0 = Math.max(0, Math.floor(this.cam.x / SUB) - 1);
+    const y0 = Math.max(0, Math.floor(this.cam.y / SUB) - 1);
+    const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
+    const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
+    const ctx = this.ctx;
+    const t = this.world.tick / 20;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = map.idx(x, y);
+        if (!map.oil[i] || map.isHidden(x, y)) continue;
+        const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
+        // Irregular per tile, so a seep reads as a stain, not a grid.
+        const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        const ox = ((h % 17) / 17 - 0.5) * s * 0.25, oy = (((h >> 5) % 17) / 17 - 0.5) * s * 0.25;
+        const r = s * (0.72 + ((h >> 9) % 7) / 30);
+        const g = ctx.createRadialGradient(p.x + ox, p.y + oy, r * 0.1, p.x + ox, p.y + oy, r);
+        g.addColorStop(0, "rgba(14,10,8,0.8)");
+        g.addColorStop(0.6, "rgba(34,24,14,0.5)");
+        g.addColorStop(1, "rgba(40,30,18,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(p.x + ox, p.y + oy, r, r * 0.8, (h % 10) / 3, 0, Math.PI * 2);
+        ctx.fill();
+        // A slow oily sheen.
+        if ((h & 3) === 0) {
+          ctx.fillStyle = `rgba(120,110,160,${0.12 + 0.08 * Math.sin(t * 0.8 + h)})`;
+          ctx.beginPath();
+          ctx.ellipse(p.x + ox - r * 0.2, p.y + oy - r * 0.15, r * 0.28, r * 0.12, -0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+  }
+
   private drawPaths(): void {
     const s = this.cam.zoom;
     const map = this.world.map;
@@ -714,6 +977,14 @@ export class Renderer {
         // the traffic actually is. A laid road is never faded in -- it was
         // built, so it is there from the day it was built.
         if ((!road && w < 46) || map.isHidden(x, y)) continue;
+        // A lone worn tile is not a path, it is a smudge: only draw wear that
+        // joins up with a neighbour. A road is deliberate, so it is exempt.
+        const joined = road
+          || (x > 0 && map.wear[i - 1]! >= 18)
+          || (x < map.width - 1 && map.wear[i + 1]! >= 18)
+          || (y > 0 && map.wear[i - map.width]! >= 18)
+          || (y < map.height - 1 && map.wear[i + map.width]! >= 18);
+        if (!joined) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
         const g = groundFor(road ? ROAD_SURFACE : w, map.mud[i]!, paved, rain);
@@ -747,16 +1018,13 @@ export class Renderer {
    * One unit, from a cut sheet. Returns the height drawn, or null if this unit
    * has no sheet and should fall through to the painted still.
    */
-  private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, moving: boolean): number | null {
+  private drawUnitFrames(u: Unit, x: number, y: number, s: number, faction: string, state: AnimState, seconds: number): number | null {
     const sheet = sheetFor(faction, u.def);
     if (!sheet) return null;
-    let state = stateFor(u, moving);
-    if (state === "walk" && moving && isRunning(u)) state = "run";
     const clip = clipFor(sheet, state);
     if (!clip) return null;
-    // Wall clock, not sim tick: which frame is showing is not a decision the
-    // simulation is allowed to see, so it must never be derived from its state.
-    const src = frameAt(clip, performance.now() / 1000, u.id);
+    // Action time starts at the gesture, not at application launch.
+    const src = frameAt(clip, settings.animations ? seconds : 0, settings.animations ? u.id : 0);
     if (!src) return null;
     const img = spriteImage(src);
     if (!img) {
@@ -995,13 +1263,18 @@ export class Renderer {
     const s = this.cam.zoom;
     const t = this.world.tick;
     for (const r of this.world.relics) {
-      if (r.taken || r.owner !== this.viewer) continue;
+      // Your own weapon, or any realm sword out in the open.
+      if (r.taken || (r.owner !== this.viewer && r.owner !== 0)) continue;
+      // A crowned clan has no use for a realm sword, so it doesn't see them.
+      if (r.owner === 0 && this.world.hasRoyal(this.viewer)) continue;
       const v = this.world.vision.get(this.viewer);
       if (this.world.fogEnabled && v && v.at(r.x, r.y) !== VISIBLE) continue;
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
       const pulse = 0.55 + 0.45 * Math.sin(t * 0.08);
 
-      const size = bucket(s * 2.6);
+      const relicImage = spriteImage(relicSword);
+      if (!relicImage) { this.missedArt = true; continue; }
+      const size = bucket(Math.max(72, s * 2.6));
       const art = stamp(`relic@${size}`, size, size, (c, w, h) => {
         const img = spriteImage(relicSword);
         if (!img) return;
@@ -1041,7 +1314,7 @@ export class Renderer {
    * still the walk.
    */
   private drawRelicPointer(viewH: number): void {
-    const r = this.world.relics.find((x) => !x.taken && x.owner === this.viewer);
+    const r = this.world.relicFor(this.viewer);
     if (!r) return;
     const ctx = this.ctx;
     const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
@@ -1178,18 +1451,58 @@ export class Renderer {
     const s = this.cam.zoom;
     const p = this.cam.toScreen(b.tx * SUB, b.ty * SUB);
     const w = b.size * s;
-    if (p.x + w < 0 || p.y + w < 0 || p.x > this.cam.viewW || p.y > this.cam.viewH) return;
+    const overhang=b.def==='tower'?w*3:b.def==='townhall'?w*2:w;
+    if (p.x + w*2 < 0 || p.y + w < 0 || p.x-w > this.cam.viewW || p.y-overhang > this.cam.viewH) return;
     const color = this.world.players.get(b.owner)!.color;
     const d = BUILDINGS[b.def]!;
 
     const faction = this.world.players.get(b.owner)!.faction;
-    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick };
-    if (!b.complete) {
-      drawConstruction(art);
-      this.bar(p.x, p.y - 6, w, art.progress, "#e8c547");
-    } else if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) {
-      artFor(faction, b.def)?.(art);
+    const gateOpen = b.def==='gate' && this.world.units().some(u=>this.world.allied(u.owner,b.owner)&&Math.abs(u.pos.x-(b.tx+.5)*SUB)<SUB*1.3&&Math.abs(u.pos.y-(b.ty+.5)*SUB)<SUB*1.3);
+    let openAmount = gateOpen ? 1 : 0;
+    if (b.def==='gate' && settings.animations) {
+      const now=this.world.tick+alpha;
+      const motion=this.gateMotion.get(b)??{amount:0,tick:now};
+      const step=Math.max(0,now-motion.tick)/8;
+      motion.amount += Math.sign(openAmount-motion.amount)*Math.min(Math.abs(openAmount-motion.amount),step);
+      motion.tick=now;this.gateMotion.set(b,motion);openAmount=motion.amount;
     }
+    const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
+      open: gateOpen, openAmount };
+    if (!b.complete) {
+      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+        if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
+      });
+      // Under the site, where the eye already is -- not floating a tile above it.
+      this.bar(p.x + w * 0.15, p.y + w + 4, w * 0.7, art.progress, "#e8c547");
+    } else {
+      // A fresh tier swells up and settles, lit gold from behind: the upgrade
+      // should feel like getting something, not a quiet swap of pictures.
+      const lu = this.fx.levelUpProgress(b.id, this.world.tick + alpha);
+      if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, true);
+      const swell = lu !== null && lu < 0.45 ? 1 + 0.14 * Math.sin((Math.PI * lu) / 0.45) : 1;
+      if (swell !== 1) {
+        ctx.save();
+        ctx.translate(p.x + w / 2, p.y + w);
+        ctx.scale(swell, swell);
+        ctx.translate(-(p.x + w / 2), -(p.y + w));
+      }
+      if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
+      if (swell !== 1) ctx.restore();
+      if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
+    }
+    if (b.complete && settings.animations && !redesignedArt(b.def,'level',1)) this.drawBuildingActivity(b, p.x, p.y, w, alpha);
+    // Archers standing on the wall walk.
+    if (b.def === "wall" && b.complete && b.garrison?.length) {
+      const view = unitViewSprite("archer", 2, color);
+      if (view) {
+        const n = b.garrison.length, h = w * 0.8, aw = (view.img.width / view.img.height) * h;
+        for (let k = 0; k < n; k++) {
+          const cx = p.x + w / 2 + (k - (n - 1) / 2) * w * 0.42;
+          ctx.drawImage(view.img, cx - aw / 2, p.y + w * 0.12 - h, aw, h);
+        }
+      }
+    }
+    if (b.dragonbane && b.complete) this.drawDragonbane(p.x + w / 2, p.y + w * 1.06 - w * 2.1 * (LEVELLED.tower ? levelDef("tower", b.level).scale : 1), w);
     if (selected) {
       // Corner brackets on the ground footprint — a full box would cut across
       // the painted art, which deliberately overhangs its tiles.
@@ -1213,7 +1526,22 @@ export class Renderer {
     // Show a levelled building's area of effect while it is selected.
     if (selected && b.complete) {
       const lv = LEVELLED[b.def] ? levelDef(b.def, b.level) : null;
-      if (lv?.radius) {
+      if (b.def === "tower") {
+        // The reach of the archers on top: a red ring on the ground, so you
+        // can see exactly what the tower covers.
+        const c = { x: p.x + w / 2, y: p.y + w / 2 };
+        const r = towerRange(b.level) * s;
+        ctx.save();
+        ctx.fillStyle = "rgba(255,90,60,0.06)";
+        ctx.strokeStyle = "rgba(255,120,90,0.75)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 6]);
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      } else if (lv?.radius) {
         const c = { x: p.x + w / 2, y: p.y + w / 2 };
         ctx.strokeStyle = lv.heal ? "rgba(150,230,150,0.55)" : "rgba(150,200,255,0.45)";
         ctx.setLineDash([6, 5]);
@@ -1226,12 +1554,16 @@ export class Renderer {
     }
     // Fire, straight off the health bar's own number: no state, no events. A
     // building that is being repaired stops burning by itself.
-    if (b.complete && settings.animations) {
-      drawFire(ctx, p.x, p.y, w, b.hp / b.maxHp, this.world.tick + alpha, b.id);
+    if (b.complete) {
+      const frac = b.hp / b.maxHp;
+      this.drawBuildingDamage(b, p.x, p.y, w, frac);
+      if (settings.animations) drawFire(ctx, p.x, p.y, w, frac, this.world.tick + alpha, b.id);
     }
     // A damaged building shows its health, selected or not, unless the player
     // has asked for bars only on selection.
-    if (this.wantsBar(b.hp / b.maxHp, selected)) this.bar(p.x, p.y - 6, w, b.hp / b.maxHp, b.hp / b.maxHp < 0.35 ? "#e04c4c" : "#4ce04c");
+    // A site's health rises with the work, so a half-built barracks always
+    // "looks damaged"; only show its health when it is actually selected.
+    if ((b.complete || selected) && this.wantsBar(b.hp / b.maxHp, selected)) this.bar(p.x, p.y - 6, w, b.hp / b.maxHp, b.hp / b.maxHp < 0.35 ? "#e04c4c" : "#4ce04c");
     if (b.research) this.bar(p.x, p.y + w - 9, w, 1 - b.research.remaining / b.research.total, "#c98bff");
     // Training / upgrade progress.
     if (b.complete) {
@@ -1241,6 +1573,327 @@ export class Renderer {
         if (job) this.bar(p.x, p.y + w - 5, w, 1 - job.remaining / job.total, "#5ab0ff");
       }
     }
+  }
+
+  /**
+   * Small, cheap loops that keep completed structures alive even when their
+   * painted tier sprite is static. Bespoke building sheets can replace these
+   * later without changing simulation or building data.
+   */
+  private drawBuildingActivity(b: Building, x: number, y: number, w: number, alpha: number): void {
+    const ctx = this.ctx;
+    const t = (this.world.tick + alpha) / 20 + b.id * 0.173;
+    const cx = x + w * 0.5;
+    const cy = y + w * 0.5;
+
+    const puff = (px: number, py: number, phase: number, scale = 1): void => {
+      const k = ((t * 0.32 + phase) % 1 + 1) % 1;
+      ctx.globalAlpha = (1 - k) * 0.26;
+      ctx.fillStyle = "#c9c7c2";
+      ctx.beginPath();
+      ctx.arc(px + Math.sin(t * 1.7 + phase * 5) * w * 0.025, py - k * w * 0.3, w * (0.018 + k * 0.035) * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+
+    const pennant = (px: number, py: number, h: number): void => {
+      const player = this.world.players.get(b.owner);
+      if (!player) return;
+      const wave = Math.sin(t * 4.2) * w * 0.035;
+      ctx.strokeStyle = "#3a2a1a";
+      ctx.lineWidth = Math.max(1, w * 0.009);
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, py + h);
+      ctx.stroke();
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.quadraticCurveTo(px + w * 0.12, py + h * 0.1 + wave, px + w * 0.2, py + h * 0.22);
+      ctx.lineTo(px, py + h * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    ctx.save();
+    switch (b.def) {
+      case "barracks":
+      case "stables":
+      case "gryphonaviary":
+        pennant(cx, y + w * 0.06, w * 0.26);
+        break;
+
+      case "farm": {
+        // A few foreground stalks bend together in the wind.
+        ctx.strokeStyle = "rgba(221,190,89,0.75)";
+        ctx.lineWidth = Math.max(1, w * 0.008);
+        const sway = Math.sin(t * 2.4) * w * 0.025;
+        for (let i = 0; i < 6; i++) {
+          const px = x + w * (0.18 + i * 0.12);
+          const py = y + w * 0.83;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.quadraticCurveTo(px + sway, py - w * 0.12, px + sway * 1.4, py - w * 0.2);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "lumbermill": {
+        // Visible saw wheel: enough motion to read as a working mill over any
+        // painted tier sprite.
+        const sx = x + w * 0.8;
+        const sy = y + w * 0.7;
+        const r = w * 0.075;
+        ctx.strokeStyle = "#c8cdd1";
+        ctx.lineWidth = Math.max(1, w * 0.012);
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 6; i++) {
+          const a = t * 7 + (i / 6) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "shipyard": {
+        const sway = Math.sin(t * 1.8) * w * 0.08;
+        ctx.strokeStyle = "#d9d1bf";
+        ctx.lineWidth = Math.max(1, w * 0.007);
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.78, y + w * 0.25);
+        ctx.lineTo(x + w * 0.61 + sway, y + w * 0.67);
+        ctx.stroke();
+        ctx.fillStyle = "#777d82";
+        ctx.fillRect(x + w * 0.59 + sway, y + w * 0.66, w * 0.045, w * 0.035);
+        break;
+      }
+
+      case "church": {
+        const pulse = 0.45 + Math.sin(t * 2.2) * 0.18;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.22;
+        const g = ctx.createRadialGradient(cx, y + w * 0.28, 0, cx, y + w * 0.28, w * 0.28);
+        g.addColorStop(0, "rgba(255,232,155,1)");
+        g.addColorStop(1, "rgba(255,232,155,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, y + w * 0.28, w * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      case "magetower": {
+        ctx.globalCompositeOperation = "lighter";
+        const r = w * 0.16;
+        for (let i = 0; i < 3; i++) {
+          const a = t * (1.1 + i * 0.18) + (i / 3) * Math.PI * 2;
+          const px = cx + Math.cos(a) * r;
+          const py = y + w * 0.28 + Math.sin(a) * r * 0.42;
+          ctx.fillStyle = i === 0 ? "rgba(120,205,255,0.8)" : "rgba(135,120,255,0.62)";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "foundry":
+        puff(x + w * 0.35, y + w * 0.3, 0.1, 1.2);
+        puff(x + w * 0.68, y + w * 0.26, 0.58, 1.1);
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 4; i++) {
+          const k = ((t * 1.4 + i * 0.23) % 1 + 1) % 1;
+          ctx.globalAlpha = 1 - k;
+          ctx.fillStyle = "#ffb43d";
+          ctx.beginPath();
+          ctx.arc(x + w * 0.54 + Math.sin(i * 2.2) * w * 0.07 * k, y + w * 0.73 - k * w * 0.18, Math.max(1, w * 0.009), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+
+      case "oilrig": {
+        const a = Math.sin(t * 2.1) * 0.32;
+        const px = x + w * 0.52;
+        const py = y + w * 0.42;
+        ctx.strokeStyle = "#4b4240";
+        ctx.lineWidth = Math.max(2, w * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(a) * w * 0.23, py + Math.sin(a) * w * 0.13);
+        ctx.stroke();
+        break;
+      }
+
+      case "refinery":
+        puff(x + w * 0.34, y + w * 0.24, 0.2, 1.1);
+        puff(x + w * 0.62, y + w * 0.2, 0.66, 1.35);
+        break;
+
+      case "airfactory": {
+        // A test propeller on the apron.
+        const px = x + w * 0.76;
+        const py = y + w * 0.7;
+        ctx.strokeStyle = "#d6dadd";
+        ctx.lineWidth = Math.max(1.2, w * 0.012);
+        for (let i = 0; i < 2; i++) {
+          const a = t * 11 + i * Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(px - Math.cos(a) * w * 0.09, py - Math.sin(a) * w * 0.09);
+          ctx.lineTo(px + Math.cos(a) * w * 0.09, py + Math.sin(a) * w * 0.09);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case "torch": {
+        // The main flame is part of the tier art. Loose embers make it feel
+        // alive and scale naturally with the larger upper-tier beacon.
+        const lv = levelDef("torch", b.level);
+        const power = lv.light ?? 0.3;
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 5; i++) {
+          const k = ((t * (0.7 + i * 0.09) + i * 0.21) % 1 + 1) % 1;
+          const px = cx + Math.sin(i * 3.1 + t) * w * 0.08 * k;
+          const py = y + w * (0.39 - b.level * 0.012) - k * w * (0.18 + power * 0.2);
+          ctx.globalAlpha = (1 - k) * (0.3 + power * 0.55);
+          ctx.fillStyle = b.level >= 10 ? "#9bd7ff" : "#ffbe55";
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(1, w * (0.008 + power * 0.008) * (1 - k)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case "golddepot": {
+        const pulse = 0.45 + Math.sin(t * 3.4) * 0.35;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = pulse * 0.5;
+        ctx.fillStyle = "#ffd85e";
+        ctx.beginPath();
+        ctx.arc(cx + w * 0.18, cy - w * 0.12, Math.max(1.5, w * 0.018), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+
+    // Any active upgrade/research gets a few work sparks so progress is visible
+    // in the world as well as on the HUD bar.
+    if (b.upgrade || b.research) {
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        const k = ((t * 1.7 + i * 0.31) % 1 + 1) % 1;
+        ctx.globalAlpha = 1 - k;
+        ctx.fillStyle = b.research ? "#cfa5ff" : "#ffd36b";
+        ctx.beginPath();
+        ctx.arc(cx + Math.sin(i * 4 + t) * w * 0.12, y + w * 0.68 - k * w * 0.16, Math.max(1, w * 0.008), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Readable structural damage layered over the finished building art.
+   *
+   * This gives every Human structure seven visible damage bands even where a
+   * bespoke destroyed sprite has not been painted yet: cracks, soot, missing
+   * masonry, exposed beams and rubble intensify as HP falls. Fire remains a
+   * separate animated layer so repairing a building naturally reverses both.
+   */
+  private drawBuildingDamage(b: Building, x: number, y: number, w: number, frac: number): void {
+    if (frac > 0.9) return;
+    const ctx = this.ctx;
+    const severity = Math.max(0, Math.min(1, (0.9 - frac) / 0.9));
+    ctx.save();
+
+    // Soot and scorching start early and become much stronger below half health.
+    ctx.globalAlpha = 0.08 + severity * 0.22;
+    ctx.fillStyle = "#171719";
+    for (let i = 0; i < 2 + Math.floor(severity * 5); i++) {
+      const h = ((b.id * 1103515245 + i * 12345) >>> 0) / 4294967296;
+      const k = ((b.id * 2654435761 + i * 7919) >>> 0) / 4294967296;
+      ctx.beginPath();
+      ctx.ellipse(
+        x + w * (0.15 + h * 0.7),
+        y + w * (0.2 + k * 0.55),
+        w * (0.05 + severity * 0.05),
+        w * (0.025 + severity * 0.04),
+        h * 2,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+
+    // Masonry cracks. Fixed from id/index so they do not shimmer frame to frame.
+    ctx.globalAlpha = 0.55 + severity * 0.35;
+    ctx.strokeStyle = "#2b2522";
+    ctx.lineWidth = Math.max(1, w * 0.012);
+    const cracks = 1 + Math.floor(severity * 7);
+    for (let i = 0; i < cracks; i++) {
+      const sx = x + w * (0.15 + (((b.id * 17 + i * 31) % 67) / 100));
+      const sy = y + w * (0.28 + (((b.id * 29 + i * 19) % 48) / 100));
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + w * (0.025 + (i % 3) * 0.015), sy + w * 0.07);
+      ctx.lineTo(sx - w * (0.015 + (i % 2) * 0.02), sy + w * 0.12);
+      if (severity > 0.45) ctx.lineTo(sx + w * 0.03, sy + w * 0.18);
+      ctx.stroke();
+    }
+
+    // Heavy damage exposes timber and drops rubble around the footprint.
+    if (frac < 0.55) {
+      const heavy = (0.55 - frac) / 0.55;
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = "#5b4028";
+      ctx.lineWidth = Math.max(2, w * 0.025);
+      for (let i = 0; i < 2 + Math.floor(heavy * 4); i++) {
+        const bx = x + w * (0.18 + (((b.id + i * 13) % 61) / 100));
+        const by = y + w * (0.32 + (((b.id * 7 + i * 23) % 47) / 100));
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + w * (i % 2 ? 0.09 : -0.07), by + w * 0.16);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#6d665d";
+      const rubble = 3 + Math.floor(heavy * 8);
+      for (let i = 0; i < rubble; i++) {
+        const rx = x + w * (0.04 + (((b.id * 11 + i * 37) % 91) / 100));
+        const ry = y + w * (0.82 + (((b.id * 5 + i * 17) % 15) / 100));
+        const rw = w * (0.025 + (i % 3) * 0.012);
+        ctx.fillRect(rx, ry, rw, rw * 0.65);
+      }
+    }
+
+    // Near collapse: dark broken voids imply missing roof/wall sections.
+    if (frac < 0.28) {
+      const collapse = (0.28 - frac) / 0.28;
+      ctx.globalAlpha = 0.35 + collapse * 0.35;
+      ctx.fillStyle = "#171516";
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.14, y + w * 0.22);
+      ctx.lineTo(x + w * (0.35 + collapse * 0.08), y + w * 0.18);
+      ctx.lineTo(x + w * 0.31, y + w * (0.42 + collapse * 0.08));
+      ctx.lineTo(x + w * 0.11, y + w * 0.38);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  private wallConnections(x:number,y:number,owner:number,pending:Ghost[]=[]):number {
+    return wallMask(x,y,(tx,ty)=>{
+      if(pending.some(g=>g.ok&&g.owner===owner&&g.tx===tx&&g.ty===ty))return true;
+      if(!this.world.map.inBounds(tx,ty))return false;
+      const b=this.world.entities.get(this.world.map.occupant[this.world.map.idx(tx,ty)]!);
+      return b?.kind==='building'&&(b.def==='wall'||b.def==='gate')&&b.owner===owner;
+    });
   }
 
   /**
@@ -1262,7 +1915,25 @@ export class Renderer {
    *   - and a card says what it is, what it costs, and -- when it cannot go
    *     here -- why not, while you can still move it.
    */
-  private drawGhost(g: Ghost): void {
+  private drawGhost(g: Ghost, pending: Ghost[] = []): void {
+    // A dragged wall is a chain of sections. Each section draws plainly -- a
+    // lattice and a card per section would be twenty of each -- and the run as
+    // a whole gets one line saying what it comes to.
+    if (g.segments) {
+      for (const part of [...g.segments].sort((a, b) => a.ty - b.ty || a.tx - b.tx)) this.drawGhost(part, g.segments);
+      const valid = g.segments.filter((x) => x.ok).length;
+      this.ctx.save();
+      this.ctx.font = "bold 15px serif";
+      this.ctx.fillStyle = "#ffe0a0";
+      this.ctx.fillText(
+        `${valid} wall sections · ${valid * BUILDINGS.wall!.cost.gold} gold · ${valid * BUILDINGS.wall!.cost.lumber} lumber`,
+        20,
+        30,
+      );
+      this.ctx.restore();
+      return;
+    }
+    const chained = pending.length > 0;
     const ctx = this.ctx;
     const s = this.cam.zoom;
     const d = BUILDINGS[g.def]!;
@@ -1277,38 +1948,66 @@ export class Renderer {
     // region is two strokes rather than ninety-eight.
     const lo = -GRID_MARGIN;
     const hi = d.size + GRID_MARGIN;
-    for (let y = lo; y < hi; y++) {
-      for (let x = lo; x < hi; x++) {
-        const tx = g.tx + x;
-        const ty = g.ty + y;
-        const inside = x >= 0 && y >= 0 && x < d.size && y < d.size;
-        const free = this.world.map.inBounds(tx, ty) && this.world.map.isBuildable(tx, ty);
-        // Inside the footprint the answer matters, so it is stated plainly.
-        // Outside it this is context, and context should not shout.
-        ctx.fillStyle = inside
-          ? free ? "rgba(96,230,110,0.3)" : "rgba(255,70,60,0.42)"
-          : free ? "rgba(96,230,110,0.09)" : "rgba(255,70,60,0.14)";
-        ctx.fillRect(p.x + x * s, p.y + y * s, s, s);
+    if (!chained) {
+      for (let y = lo; y < hi; y++) {
+        for (let x = lo; x < hi; x++) {
+          const tx = g.tx + x;
+          const ty = g.ty + y;
+          const inside = x >= 0 && y >= 0 && x < d.size && y < d.size;
+          const free = this.world.map.inBounds(tx, ty) && this.world.map.isBuildable(tx, ty);
+          // Inside the footprint the answer matters, so it is stated plainly.
+          // Outside it this is context, and context should not shout.
+          ctx.fillStyle = inside
+            ? free ? "rgba(96,230,110,0.3)" : "rgba(255,70,60,0.42)"
+            : free ? "rgba(96,230,110,0.09)" : "rgba(255,70,60,0.14)";
+          ctx.fillRect(p.x + x * s, p.y + y * s, s, s);
+        }
       }
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,150,70,0.5)";
+      ctx.beginPath();
+      for (let i = lo; i <= hi; i++) {
+        const gx = Math.round(p.x + i * s) + 0.5;
+        const gy = Math.round(p.y + i * s) + 0.5;
+        ctx.moveTo(gx, Math.round(p.y + lo * s));
+        ctx.lineTo(gx, Math.round(p.y + hi * s));
+        ctx.moveTo(Math.round(p.x + lo * s), gy);
+        ctx.lineTo(Math.round(p.x + hi * s), gy);
+      }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = g.ok ? "rgba(80,255,80,0.25)" : "rgba(255,60,60,0.45)";
+      ctx.fillRect(p.x, p.y, w, w);
     }
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(255,150,70,0.5)";
-    ctx.beginPath();
-    for (let i = lo; i <= hi; i++) {
-      const gx = Math.round(p.x + i * s) + 0.5;
-      const gy = Math.round(p.y + i * s) + 0.5;
-      ctx.moveTo(gx, Math.round(p.y + lo * s));
-      ctx.lineTo(gx, Math.round(p.y + hi * s));
-      ctx.moveTo(Math.round(p.x + lo * s), gy);
-      ctx.lineTo(Math.round(p.x + hi * s), gy);
-    }
-    ctx.stroke();
 
     // ── the building ──
     const faction = this.world.players.get(g.owner)!.faction;
     ctx.globalAlpha = 0.85;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick });
+    artFor(faction, g.def)?.({
+      ctx,
+      faction,
+      def: g.def,
+      x: p.x,
+      y: p.y,
+      w,
+      color: g.ok ? "#9cff9c" : "#ff6b6b",
+      progress: 1,
+      tick: this.world.tick,
+      level: 1,
+      wallMask: g.def === "wall" || g.def === "gate" ? this.wallConnections(g.tx, g.ty, g.owner, pending) : undefined,
+    });
     ctx.globalAlpha = 1;
+    // What a watch tower would actually cover from here.
+    if (g.def === "tower") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,120,90,0.7)";
+      ctx.setLineDash([10, 6]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x + w / 2, p.y + w / 2, towerRange(1) * s, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // The footprint itself, picked out of the lattice.
     ctx.strokeStyle = g.ok ? "rgba(140,255,150,0.95)" : "rgba(255,110,100,0.95)";
@@ -1316,8 +2015,9 @@ export class Renderer {
     ctx.strokeRect(Math.round(p.x) + 1, Math.round(p.y) + 1, Math.round(w) - 2, Math.round(w) - 2);
     ctx.restore();
 
-    this.drawPlacementCard(g, d, p, w);
+    if (!chained) this.drawPlacementCard(g, d, p, w);
   }
+
 
   /**
    * The card beside the site: what it is, what it costs, and why not.
@@ -1426,7 +2126,10 @@ export class Renderer {
 
   private drawUnit(u: Unit, alpha: number, selected: boolean): void {
     const ctx = this.ctx;
-    const s = this.cam.zoom;
+    const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
+      && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
+    const land = UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious";
+    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? 1.18 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
       if (selected) {
@@ -1456,29 +2159,70 @@ export class Renderer {
       p.y += off.y;
     }
     const player = this.world.players.get(u.owner)!;
+    if (u.recruitBand !== undefined && u.id === u.recruitBand) {
+      ctx.save();
+      ctx.font = "bold 12px serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffe6a0";
+      ctx.strokeStyle = "#171b18";
+      ctx.lineWidth = 3;
+      const label = "Wandering band · bring your king";
+      ctx.strokeText(label, p.x, p.y - s * 1.15);
+      ctx.fillText(label, p.x, p.y - s * 1.15);
+      ctx.restore();
+    }
     const def = UNITS[u.def]!;
-    const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1) * FIGURE_SCALE;
-    const moving = u.path.length > 0;
-    // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
-    const phase = (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1;
+    const swimming = def.domain === "amphibious" && this.world.isAfloat(u);
+    const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
+    const moving = pv.x !== u.pos.x || pv.y !== u.pos.y ||
+      (u.path.length > 0 && !!u.moveRemainder && (u.moveRemainder.x !== 0 || u.moveRemainder.y !== 0));
+    // Feet follow actual distance, so a slow crowd does not run in place.
+    const stepDistance = Math.hypot(u.pos.x - pv.x, u.pos.y - pv.y);
+    const distance = (this.travelDistance.get(u) ?? 0) + stepDistance * alpha;
+    const phase = settings.animations ? ((distance / (SUB * 0.95) + u.id * 0.37) % 1 + 1) % 1 : 0;
+    const state = stateFor(u, moving);
+    const seconds = (this.world.tick + alpha) / 20;
+    const elapsed = this.animationClock.elapsed(u, state, seconds);
 
-    if (selected) {
-      ctx.strokeStyle = "#9cff9c";
-      ctx.lineWidth = 1.5;
+    if (selected || (person && u.owner === this.viewer)) {
+      ctx.save();
+      ctx.strokeStyle = selected ? "#b9ff9c" : def.royal ? "rgba(242,193,78,0.8)" : "rgba(189,215,172,0.6)";
+      ctx.lineWidth = selected ? 2 : 1;
+      ctx.fillStyle = "rgba(12,18,12,0.3)";
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y + h * 0.42, h * 0.4, h * 0.17, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y + (swimming ? s*.13 : h * 0.42), h * 0.4, h * 0.17, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
+      ctx.restore();
+    }
+    if ((u.ralliedUntil ?? 0) > this.world.tick || (this.world.rain > .15 && this.world.isSheltered(u))) {
+      ctx.save(); ctx.font = "bold 11px serif"; ctx.textAlign = "center";
+      ctx.fillStyle = (u.ralliedUntil ?? 0) > this.world.tick ? "#ffdc7a" : "#b9e1ea";
+      ctx.fillText((u.ralliedUntil ?? 0) > this.world.tick ? "RALLIED +50%" : "SHELTERED", p.x, p.y - s * 1.15); ctx.restore();
     }
     const draw = unitArtFor(player.faction, u.def);
     const afloat = this.world.isAfloat(u);
-    // A struck sprite lights up for a few ticks. `filter` is not universal, so a
-    // browser without it simply shows no flash rather than failing to draw.
+    // A struck sprite lights up for a few ticks. Real frame clips own their body
+    // motion; procedural/still art receives the universal fallback pose.
     const flash = settings.animations ? this.fx.flashAt(u.id, this.world.tick + alpha) : 0;
+    const sheet = anySheets() ? sheetFor(player.faction, u.def) : null;
+    const hasClip = hasDirectional(u.def,state) || (sheet ? !!sheet.clips[state]?.srcs.length : false);
+    const pose = settings.animations && !hasClip
+      ? motionFor(u, state, seconds, flash)
+      : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
+    const ax = p.x + pose.dx * h;
+    const ay = p.y + pose.dy * h;
+
     if (flash > 0) {
       ctx.save();
-      // Enough to register as a blow landing, not enough to bleach the armour.
       ctx.filter = `brightness(${1 + flash * 0.55}) saturate(${1 - flash * 0.25})`;
     }
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(pose.rotate);
+    ctx.scale(pose.sx, pose.sy);
+    ctx.translate(-ax, -ay);
+
     // How tall the thing that was actually drawn turned out to be. The painted
     // sprites are half again as tall as the fallback figure, and hanging a crown
     // off the fallback's height put it through the King's head.
@@ -1487,27 +2231,33 @@ export class Renderer {
     //
     // Rotating rather than cutting a lying-down pose means every unit in the
     // game -- painted sheet, painted still, procedural drawing, plain fallback
-    // circle -- lies down the same way and none of them needed new art. It is a
-    // cheat and it looks like one at maximum zoom; at the zoom anybody plays at
-    // it reads as a camp turning in, which is what it is for.
+    // circle -- lies down the same way and none of them needed new art. It
+    // rides inside the pose transform opened above, so it costs no extra
+    // save/restore and cannot leave the context tilted.
     const sleeping = u.asleep;
     if (sleeping) {
-      ctx.save();
-      const feet = p.y + s * 0.4;
-      ctx.translate(p.x, feet);
+      const feet = ay + s * 0.4;
+      ctx.translate(ax, feet);
       // Not quite flat, and to the side he is facing, so a row of sleepers is
       // not a row of identical logs.
       ctx.rotate((u.facing >= 2 && u.facing <= 5 ? -1 : 1) * 1.35);
       ctx.scale(0.92, 0.92);
-      ctx.translate(-p.x, -feet);
+      ctx.translate(-ax, -feet);
     }
-    // A cut sheet wins over the painted still, and everything else -- crown,
-    // health bar, selection ring -- hangs off whatever actually got drawn, so
-    // the two paths are interchangeable from the outside.
-    const framed = anySheets() ? this.drawUnitFrames(u, p.x, p.y, s, player.faction, moving) : null;
-    const painted = framed === null ? this.drawUnitSprite(u, p.x, p.y, s, player.color, moving, phase) : null;
+    if(swimming) {
+      this.drawSwimWake(p.x,p.y+s*.13,s,u,seconds,moving);
+      ctx.save();
+      ctx.beginPath();ctx.rect(p.x-s*2,p.y-s*3,s*4,s*3.13);ctx.clip();
+      ctx.translate(0,s*(.25+(settings.animations?Math.sin(seconds*3+u.id)*.025:0)));
+      if(settings.animations){ctx.translate(ax,ay);ctx.rotate(Math.sin(seconds*3.5+u.id)*.035);ctx.translate(-ax,-ay);}
+    }
+    const swimPhase=settings.animations?((seconds*.55+u.id*.13)%1+1)%1:0;
+    const direct = drawDirectional(ctx,u,swimming?"walk":state,ax,ay,s,swimming?swimPhase:phase,
+      u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
+    const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
+    const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
-      ? this.drawPeasant(u, p.x, p.y, s, player.color, moving, phase, afloat)
+      ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, swimming ? false : afloat)
       : null;
     if (framed !== null) {
       drawnH = framed;
@@ -1516,16 +2266,22 @@ export class Renderer {
     } else if (peasant !== null) {
       drawnH = peasant;
     } else if (draw) {
-      draw({ ctx, x: p.x, y: p.y, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
+      draw({ ctx, x: ax, y: ay, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
     } else {
       ctx.fillStyle = player.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, h * 0.3, 0, Math.PI * 2);
+      ctx.arc(ax, ay, h * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
+    if(swimming) ctx.restore();
+    ctx.restore();
     if (flash > 0) ctx.restore();
+    if(swimming) {
+      ctx.save();ctx.strokeStyle='rgba(176,223,230,.75)';ctx.lineWidth=Math.max(1,s*.018);
+      ctx.beginPath();ctx.ellipse(p.x,p.y+s*.13,s*.22,s*.07,0,0,Math.PI);ctx.stroke();ctx.restore();
+    }
+    if (def.domain !== "air") this.occludeWithForest(wx, wy, p.x, p.y, selected);
     if (sleeping) {
-      ctx.restore();
       this.drawSleepMark(p.x, p.y, s, this.world.tick + alpha, u.id);
       // Nothing else hangs off a sleeper: a crown lying in the grass beside a
       // rotated King looks like he dropped it, and a health bar over a man who
@@ -1539,20 +2295,20 @@ export class Renderer {
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
       const king = u.def === "king";
-      const cy = p.y + s * 0.45 - drawnH - s * 0.1;
+      const cy = ay + s * 0.45 - drawnH - s * 0.1;
       const cw = s * (king ? 0.26 : 0.2);
       ctx.save();
       ctx.strokeStyle = "rgba(20,14,4,0.85)";
       ctx.lineWidth = Math.max(1, s * 0.025);
       ctx.fillStyle = king ? "#f2c14e" : "#cfd6e0";
       ctx.beginPath();
-      ctx.moveTo(p.x - cw, cy);
-      ctx.lineTo(p.x - cw, cy - s * 0.1);
-      ctx.lineTo(p.x - cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x, cy - s * (king ? 0.14 : 0.11));
-      ctx.lineTo(p.x + cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(p.x + cw, cy - s * 0.1);
-      ctx.lineTo(p.x + cw, cy);
+      ctx.moveTo(ax - cw, cy);
+      ctx.lineTo(ax - cw, cy - s * 0.1);
+      ctx.lineTo(ax - cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax, cy - s * (king ? 0.14 : 0.11));
+      ctx.lineTo(ax + cw * 0.5, cy - s * 0.04);
+      ctx.lineTo(ax + cw, cy - s * 0.1);
+      ctx.lineTo(ax + cw, cy);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
@@ -1561,8 +2317,8 @@ export class Renderer {
     if (this.wantsBar(u.hp / u.maxHp, selected)) {
       // Above the head of whatever was drawn, and above the crown if there is
       // one, rather than across the chest of a tall sprite.
-      const barY = p.y + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
-      this.bar(p.x - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
+      const barY = ay + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
+      this.bar(ax - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
     }
   }
 
@@ -1601,18 +2357,96 @@ export class Renderer {
    * everything needed to draw it -- what it was, whose it was, which way it faced
    * -- travelled in the death event.
    */
+  private occludeWithForest(wx:number, wy:number, px:number, py:number, selected:boolean):void {
+    if(!this.forestBackdrop)return;
+    const s=this.cam.zoom,map=this.world.map,tx=Math.floor(wx/SUB),ty=Math.floor(wy/SUB);
+    const trees:Array<[number,number]>=[];
+    for(let y=ty;y<=ty+4;y++)for(let x=tx-2;x<=tx+2;x++){
+      const h=((x*73856093)^(y*19349663))>>>0;
+      const base=y+.5+(((h>>4)&15)/15-.5)*.18;
+      if(base>wy/SUB && map.get(x,y)===Tile.Tree && !map.isHidden(x,y))trees.push([x,y]);
+    }
+    if(!trees.length)return;
+    const size=Math.ceil(s*5),left=Math.floor(px-size/2),top=Math.floor(py-s*3);
+    this.forestMask??=document.createElement("canvas");
+    const c=this.forestMask;if(c.width!==size||c.height!==size){c.width=size;c.height=size;}
+    const m=c.getContext("2d")!;m.clearRect(0,0,size,size);m.save();m.translate(-left,-top);
+    for(const [x,y] of trees){const p=this.cam.toScreen((x+.5)*SUB,(y+.5)*SUB);this.drawTree(m,x,y,s,p.x,p.y,true);}
+    m.restore();m.globalCompositeOperation="source-in";m.drawImage(this.forestBackdrop,-left,-top);m.globalCompositeOperation="source-over";
+    this.ctx.save();this.ctx.globalAlpha=selected?.82:.94;this.ctx.drawImage(c,left,top);this.ctx.restore();
+  }
+
   private drawCorpses(): void {
     const ctx = this.ctx;
     const s = this.cam.zoom;
     const now = this.world.tick;
     for (const c of this.fx.corpses) {
-      if (c.building) continue; // buildings leave rubble via the dust puff instead
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);
-      if (p.x < -s || p.y < -s || p.x > this.cam.viewW + s || p.y > this.cam.viewH + s) continue;
+      if (p.x < -s * 6 || p.y < -s * 6 || p.x > this.cam.viewW + s * 6 || p.y > this.cam.viewH + s * 6) continue;
       const player = this.world.players.get(c.owner);
       if (!player) continue;
+
+      if (c.building) {
+        const size = BUILDINGS[c.def]?.size ?? 2;
+        const w = size * s;
+        const collapse = Math.min(1, k / 0.2);
+        const fade = k < 0.78 ? 1 : Math.max(0, (1 - k) / 0.22);
+        ctx.save();
+        ctx.globalAlpha = fade;
+
+        // The footprint remains as charred rubble after the vertical collapse.
+        ctx.fillStyle = "rgba(42,38,35,0.78)";
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + w * 0.2, w * 0.48, w * 0.24, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Chunks fall outward during the first second, then stay where they land.
+        const seed = c.def.length * 97 + c.t0;
+        for (let i = 0; i < 12; i++) {
+          const a = ((seed + i * 43) % 360) * Math.PI / 180;
+          const dist = w * (0.08 + ((seed + i * 17) % 23) / 100) * collapse;
+          const bx = p.x + Math.cos(a) * dist;
+          const by = p.y + w * 0.1 + Math.sin(a) * dist * 0.45 + collapse * w * 0.12;
+          const bw = w * (0.045 + (i % 4) * 0.012);
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.rotate(a + collapse * (i % 2 ? 0.8 : -0.6));
+          ctx.fillStyle = i % 3 === 0 ? player.color : i % 2 === 0 ? "#6f6860" : "#4f4438";
+          ctx.fillRect(-bw / 2, -bw * 0.35, bw, bw * 0.7);
+          ctx.restore();
+        }
+
+        // A shrinking upright silhouette sells the actual collapse rather than
+        // making the building pop straight into a rubble decal.
+        if (collapse < 1) {
+          ctx.globalAlpha = fade * (1 - collapse) * 0.75;
+          ctx.fillStyle = "#514942";
+          ctx.save();
+          ctx.translate(p.x, p.y + w * 0.16);
+          ctx.scale(1 + collapse * 0.25, 1 - collapse * 0.85);
+          ctx.fillRect(-w * 0.32, -w * 0.8, w * 0.64, w * 0.8);
+          ctx.restore();
+        }
+
+        // Dust rolls outward while the walls are coming down.
+        if (collapse < 1) {
+          ctx.globalAlpha = (1 - collapse) * 0.32;
+          ctx.strokeStyle = "#c9bda8";
+          ctx.lineWidth = Math.max(2, s * 0.06);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y + w * 0.16, w * (0.28 + collapse * 0.35), w * (0.1 + collapse * 0.14), 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        continue;
+      }
+
+      if(["knight","grunt","direwolf","dragon"].includes(c.def)){
+        ctx.save();ctx.globalAlpha=1-k*k;
+        const drawn=drawCreature(ctx,c.def,c.facing,"die",p.x,p.y,s,0,now-c.t0,settings.animations);ctx.restore();if(drawn!==null)continue;
+      }
       const view = unitViewSprite(c.def, c.facing, player.color);
       ctx.save();
       ctx.globalAlpha = 1 - k * k;
@@ -1648,16 +2482,35 @@ export class Renderer {
    * footprint, so it is anchored to the FRONT-BOTTOM of the footprint and allowed
    * to overhang upward — higher Town Hall tiers visibly sprawl past their base.
    */
+  private drawRedesignedConstruction(def:string,x:number,y:number,w:number,progress:number):boolean {
+    const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
+    const src=redesignedArt(def,'build',stage);if(!src)return false;
+    const image=spriteImage(src);if(!image)return false;
+    const draw=(img:HTMLImageElement)=>{const width=w*buildingDrawScale(def),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x+(w-width)/2,y+w*1.06-height,width,height);};
+    draw(image);
+    const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
+    if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}
+    return true;
+  }
+
   private drawPaintedBuilding(b: Building, x: number, y: number, w: number, color: string): boolean {
     const faction = this.world.players.get(b.owner)!.faction;
     const sprite = tierSprite(b.def, b.level, color, faction);
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
     const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
-    const dw = w * scale;
+    const dw = w * scale * buildingDrawScale(b.def);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
     this.ctx.drawImage(sprite, x + (w - dw) / 2, y + w + w * 0.06 - dh, dw, dh);
+    if(b.upgrade){
+      const next=tierSprite(b.def,b.upgrade.toLevel,color,faction);
+      if(next){const progress=1-b.upgrade.remaining/b.upgrade.total;
+        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*buildingDrawScale(b.def),nextH=next.height/next.width*nextW;
+        this.ctx.save();this.ctx.beginPath();this.ctx.rect(x+(w-nextW)/2,y+w*1.06-nextH*progress,nextW,nextH*progress);this.ctx.clip();
+        this.ctx.drawImage(next,x+(w-nextW)/2,y+w*1.06-nextH,nextW,nextH);this.ctx.restore();
+      }
+    }
     return true;
   }
 
@@ -1666,7 +2519,7 @@ export class Renderer {
     const view = unitViewSprite(u.def, u.facing, color);
     if (!view) return null;
     const ctx = this.ctx;
-    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? 1.5) * FIGURE_SCALE;
+    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? (UNITS[u.def]!.royal ? 1.4 : 1.5));
     const w = (view.img.width / view.img.height) * h;
     // Wheeled things roll rather than step, so they get the sway and no bounce.
     const heavy = UNIT_VIEW_HEIGHT[u.def] !== undefined;
@@ -1712,6 +2565,25 @@ export class Renderer {
       ctx.stroke();
     }
     return h;
+  }
+
+  /** Ripples and alternating stroke splashes around a submerged swimmer. */
+  private drawSwimWake(x:number,y:number,s:number,u:Unit,seconds:number,moving:boolean):void {
+    const ctx=this.ctx,now=settings.animations?seconds:0;
+    ctx.save();ctx.lineWidth=Math.max(1,s*.015);
+    const angle=u.facing*Math.PI/4-Math.PI;
+    for(let i=0;i<3;i++) {
+      const t=((now*.8+i/3+u.id*.13)%1+1)%1;
+      const trail=moving?t*s*.5:0;
+      ctx.strokeStyle=`rgba(169,219,230,${(1-t)*.35})`;
+      ctx.beginPath();ctx.ellipse(x-Math.cos(angle)*trail,y-Math.sin(angle)*trail,s*(.20+t*.25),s*(.07+t*.10),0,0,Math.PI*2);ctx.stroke();
+    }
+    if(moving&&settings.animations)for(const side of [-1,1]){
+      const stroke=(Math.sin(now*3.5+u.id+(side<0?Math.PI:0))+1)/2;
+      ctx.strokeStyle=`rgba(211,240,242,${.2+stroke*.45})`;
+      ctx.beginPath();ctx.ellipse(x+side*s*(.18+stroke*.08),y+s*.015,s*(.035+stroke*.035),s*.025,side*.3,0,Math.PI*1.5);ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Painted peasant sprites: the variant follows the worker's current task. */
@@ -1817,6 +2689,16 @@ export class Renderer {
       ctx.drawImage(fog, x, y, size, size);
       ctx.imageSmoothingEnabled = true;
     }
+    // Oil ground shows on the minimap once explored, so a player can plan a rig.
+    if (map.oil) {
+      ctx.fillStyle = "#15100c";
+      for (let ty = 0; ty < map.height; ty++)
+        for (let tx = 0; tx < map.width; tx++) {
+          if (!map.oil[map.idx(tx, ty)]) continue;
+          if (v && v.at(tx, ty) === UNEXPLORED) continue;
+          ctx.fillRect(x + tx * sx, y + ty * sy, Math.max(1.5, sx), Math.max(1.5, sy));
+        }
+    }
     for (const b of this.world.buildings()) {
       // Buildings are remembered: explored ground is enough.
       if (v && b.owner !== this.viewer && v.at(b.tx, b.ty) === UNEXPLORED) continue;
@@ -1829,13 +2711,31 @@ export class Renderer {
       ctx.fillStyle = this.world.players.get(u.owner)!.color;
       ctx.fillRect(x + (u.pos.x / SUB) * sx - 1, y + (u.pos.y / SUB) * sy - 1, 2, 2);
     }
+    // Where you are being hit: expanding red rings, so a glance at the corner
+    // tells you where the fight is.
+    const now = performance.now();
+    for (const pg of this.attackPings) {
+      const age = (now - pg.at) / ATTACK_PING_MS;
+      if (age > 1) continue;
+      const px = x + (pg.x / SUB) * sx, py = y + (pg.y / SUB) * sy;
+      for (const lag of [0, 0.33]) {
+        const a = ((age * 3 + lag) % 1);
+        ctx.strokeStyle = `rgba(255,60,50,${(1 - a) * (1 - age * 0.6)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 3 + a * 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = `rgba(255,70,60,${0.6 + 0.4 * Math.sin(now / 90)})`;
+      ctx.fillRect(px - 2, py - 2, 4, 4);
+    }
     // Your own weapon is marked, always, fog or no fog. He is walking to his
     // own destiny: the game is waiting on him reaching it, and a player who
     // cannot find the thing the game is waiting on has no game at all. Where it
     // lies is knowledge his own people would have; what is between him and it is
     // not, and that stays dark.
-    for (const r of this.world.relics) {
-      if (r.taken || r.owner !== this.viewer) continue;
+    for (const r of [this.world.relicFor(this.viewer)]) {
+      if (!r) continue;
       const pulse = 0.6 + 0.4 * Math.sin(this.world.tick * 0.09);
       ctx.fillStyle = `rgba(255,226,140,${pulse})`;
       ctx.beginPath();

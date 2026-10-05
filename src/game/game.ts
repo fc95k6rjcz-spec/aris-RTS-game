@@ -1,12 +1,17 @@
+import { createWarAtlas } from '../ui/warAtlas';
+import { LEVELLED, levelDef } from "../data/levels";
+import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, type SavedGame } from './saveGame';
+import { createGamePanel } from '../ui/createGamePanel';
 import { buildingName, BUILDINGS, BUILD_MENU } from "../data/buildings";
 import { unitName, UNITS } from "../data/units";
+import { UPGRADES } from "../data/upgrades";
 import { Camera } from "../render/camera";
-import { spriteImage } from "../render/sprites";
 import { Renderer, type Ghost } from "../render/renderer";
+import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { Faction, MARAUDER, TICKS_PER_SECOND, WILD, World } from "../sim/world";
+import { WALL_TIERS, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -22,20 +27,30 @@ import { commandArt, portraitArt } from "../ui/art";
 import { SkirmishAI, type Difficulty } from "../ai/skirmish";
 import { loadSettings, saveSettings, settings } from "./settings";
 import { createSettingsPanel, type SettingsPanel } from "../ui/settingsPanel";
+import { createAlliancePanel, type AlliancePanel } from "../ui/alliancePanel";
 import { createPauseButton, type PauseButton } from "../ui/pauseButton";
 import { Audio } from "./audio";
+import { Callouts } from "./callouts";
 import { MAPS, MAP_BY_ID, type MapDef } from "../data/maps";
 import { WEAPON_OF } from "../sim/relic";
-import crowning0 from "../assets/anim/crowning_0.png";
-import crowning1 from "../assets/anim/crowning_1.png";
-import crowning2 from "../assets/anim/crowning_2.png";
-import crowning3 from "../assets/anim/crowning_3.png";
 import { Lockstep, LocalTransport, type Transport } from "../net/lockstep";
 import { host as hostRoom, join as joinRoom, type MatchSetup, type Room } from "../net/room";
-import { clockAt, darkness, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
+import { RealmNet } from "../net/realm";
+import { BATTLE_COUNT, CHAPTERS, battle as battleById, describeGoal, type Battle } from "../data/wars";
+import { battleUnlocked, buildBattleWorld, goalState, loadWarProgress, saveWarResult, starsFor } from "./wars";
+import { VISIBLE } from "../sim/vision";
+import { clockAt, dayAt, phaseAt, phaseName, skyName } from "../sim/weather";
+import { darkness } from "../sim/weather";
 import { BURN_AT } from "../render/fire";
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+/**
+ * The shared realm runs on one clock for everybody. The keeper's computer sets
+ * the pace every other machine follows, so a personal "Game speed" slider left
+ * at 2x or 3x on the keeper put the whole realm in fast forward. In the realm
+ * the slider is ignored and everyone runs at this speed instead.
+ */
+const REALM_SPEED = 0.75;
 /** How long the crowning plays for, in milliseconds. */
 const CROWNING_MS = 2600;
 
@@ -47,6 +62,9 @@ const EDGE_SPEED = 14;
  * The local player's commands are queued and applied on the next tick,
  * exactly as they would be in a lockstep session.
  */
+/** Where this computer keeps its copy of the shared realm. */
+const REALM_LEDGER = "rov-realm-ledger";
+
 export class Game {
   world: World;
   cam: Camera;
@@ -70,15 +88,37 @@ export class Game {
    * cannot rot while nobody is looking at multiplayer.
    */
   private net: Lockstep = new Lockstep(new LocalTransport());
+  /** The shared realm this machine is part of, when playing New Campaign. */
+  private realm: RealmNet | null = null;
+  private realmNote = "";
+  private choiceBox: HTMLDivElement | null = null;
+  /** The Wars battle being fought, if any. */
+  private war: { b: Battle; startTick: number; sent: Set<number>; over: boolean } | null = null;
+  private warsBox: HTMLDivElement | null = null;
+  private fallenShown = false;
+  private recenterOnKing = false;
+  private realmSavedAt = 0;
   private pending: Command[] = [];
   private selected = new Set<EntityId>();
   private buildMode: string | null = null;
+  private wallStart: {x:number;y:number}|null = null;
+  private callouts = new Callouts();
   /** Which page of the worker build menu is showing. */
   private menuPage: MenuPage = "basic";
   /** Next left-click issues an attack-move rather than a selection. */
   private attackMoveMode = false;
   private mouse = { x: 0, y: 0, inside: false };
   private drag: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** Middle-mouse camera drag, in screen pixels. */
+  private panDrag: { x: number; y: number } | null = null;
+  /** Smoothed camera velocity, screen pixels per frame at 60 Hz. */
+  private camVelocity = { x: 0, y: 0 };
+  /** Classic RTS control groups. UI state only; unit ids are cleaned every tick. */
+  private controlGroups = new Map<number, Set<EntityId>>();
+  /** Last single-click, for same-type double-click selection. */
+  private lastUnitClick: { id: EntityId; at: number } | null = null;
+  /** Presentation-only order pings. They never enter the simulation. */
+  private commandMarkers: Array<{ x: number; y: number; kind: "move" | "attack" | "gather" | "repair"; at: number }> = [];
   private keys = new Set<string>();
   private message: { text: string; until: number; level: "info" | "error" } | null = null;
   /**
@@ -99,10 +139,8 @@ export class Game {
   /**
    * The crowning, while it is playing.
    *
-   * Four painted frames -- reach, grasp, pull, raise -- shown where it actually
-   * happened. The whole opening is a walk towards this moment, and it used to
-   * be a line of text in the corner of the screen. It plays once, at the
-   * relic's own position, and then the game carries on.
+   * A restrained gold flourish follows the actual king. The unit keeps its
+   * normal scale instead of being covered by an oversized second character.
    */
   private crowningAt: { x: number; y: number; at: number } | null = null;
   /** Whether this player's king has already been proclaimed, so it happens once. */
@@ -128,8 +166,14 @@ export class Game {
   /** Clickable rectangles the front screen put on the canvas this frame. */
   private frontHits: FrontHit[] = [];
   private difficulty: Difficulty = "normal";
+  private pendingSave: SavedGame | null = null;
+  private saving = false;
+  private loadingSave = false;
   /** The room this machine is in, if any. */
   private room: Room | null = null;
+  private pendingRoom: AbortController | null = null;
+  private startHostedGame: (() => void) | null = null;
+  private createPanel: ReturnType<typeof createGamePanel> | null = null;
   /** Set before start() to play over a network instead of alone. */
   transport: Transport | null = null;
   /**
@@ -144,6 +188,7 @@ export class Game {
    */
   setup: MatchSetup | null = null;
   private settingsPanel: SettingsPanel | null = null;
+  private alliancePanel: AlliancePanel | null = null;
   /** The DOM chrome: top bar, command bar, minimap. Null in headless tests. */
   private shell: Shell | null = null;
   /** Which command tab is showing. */
@@ -203,6 +248,7 @@ export class Game {
   constructor(readonly canvas: HTMLCanvasElement, seed?: number) {
     // Settings first: the renderer and the opening menu both read them.
     loadSettings();
+    this.front.saveAvailable = hasSavedGame();
     this.difficulty = settings.difficulty;
     const def = this.chooseMap();
     this.map = def;
@@ -222,6 +268,7 @@ export class Game {
       });
       this.shell.onPause(() => this.setPaused(!this.paused));
       this.shell.onSettings(() => this.settingsPanel?.toggle());
+      this.shell.onSave(() => void this.saveGame());
       this.bindMinimap(this.shell.minimap);
       // The game opens on the front screen, which wants the whole window. The
       // frame loop only toggles this on a change, so the opening state has to
@@ -236,6 +283,7 @@ export class Game {
     // Browsers will not start audio before a gesture, so this arms it on the
     // first click or key rather than trying (and failing) at load.
     this.audio.install();
+    this.audio.setScene(this.menu ? "menu" : "game");
     if (typeof document !== "undefined" && document.body) {
       this.pauseButton = createPauseButton(() => this.setPaused(!this.paused));
       this.pauseButton.sync(this.paused);
@@ -249,9 +297,47 @@ export class Game {
         if (settings.music) this.audio.startMusic();
         else this.audio.stopMusic();
         this.audio.syncMusic();
+      }, parent => {
+        this.alliancePanel = createAlliancePanel(parent, () => ({ world: this.world, player: this.player, menu: this.menu }), (target, allied) => this.issue({ type: "alliance", player: this.player, target, allied }));
       });
     }
     requestAnimationFrame(this.frame);
+    this.keepTimeWhenHidden();
+    // Leaving or hiding the tab is the moment to write the ledger, not mid-battle.
+    addEventListener("pagehide", () => void this.storeLedger());
+    document.addEventListener("visibilitychange", () => { if (document.hidden) void this.storeLedger(); });
+  }
+
+  /**
+   * A shared realm cannot stop because someone switched tabs.
+   *
+   * Browsers stop animation frames in a hidden tab and slow ordinary timers to
+   * a crawl, so a keeper who looked at their email would freeze the realm for
+   * everyone. A worker's timer keeps running, so while the tab is hidden it
+   * drives the ticks instead (no drawing -- nobody is looking).
+   */
+  private keepTimeWhenHidden(): void {
+    if (typeof Worker === "undefined" || typeof Blob === "undefined") return;
+    try {
+      const src = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0),50)"], { type: "text/javascript" }));
+      const worker = new Worker(src);
+      let last = performance.now();
+      worker.onmessage = () => {
+        const now = performance.now();
+        const dt = Math.min(1000, now - last);
+        last = now;
+        if (!document.hidden || !this.realm || this.menu) return;
+        this.acc += dt;
+        const step = this.tickStep();
+        let n = 0;
+        while (this.acc >= step && n++ < 40) { this.acc -= step; this.tick(); }
+        let extra = Math.min(80, this.realm.backlog() * 4);
+        while (extra-- > 0) this.tick();
+        this.last = now;
+      };
+    } catch {
+      /* no workers: a hidden tab simply pauses, as before */
+    }
   }
 
   /** The map the settings ask for, resolving "random" against the catalogue. */
@@ -264,7 +350,9 @@ export class Game {
       if (found) return found;
     }
     // Random means random per match, not one map picked once at load.
-    return MAPS[Math.floor(Math.random() * MAPS.length)] ?? MAPS[0]!;
+    const template=MAPS[Math.floor(Math.random()*MAPS.length)] ?? MAPS[0]!;
+    const seed=crypto.getRandomValues(new Uint32Array(1))[0]! & 0x7fffffff;
+    return {...template, seed, name: "Uncharted " + template.name};
   }
 
   /** A fresh world on the given map, with both players seated at its starts. */
@@ -273,11 +361,10 @@ export class Game {
     const m = this.setup;
     const w = new World(n, n, seedOverride ?? m?.seed ?? def.seed, def.kind, m?.pace ?? settings.pace, m?.stockade ?? settings.stockade);
     w.addPlayer(1, Faction.Human, "#3b82f6");
-    w.addPlayer(2, Faction.Human, "#ef4444");
+    w.addPlayer(2, Faction.Human, m?.mode === "coop" ? "#22c55e" : "#ef4444");
+    if (m?.mode === "coop") { w.addPlayer(3, Faction.Human, "#ef4444"); w.prepareCoop(); }
     // The country itself, and whatever lives in it.
     w.addPlayer(WILD, Faction.Human, "#8a6b3f");
-    // And whoever was holding the middle of it before either of you arrived.
-    w.addPlayer(MARAUDER, Faction.Orc, "#4c7a3a");
     // Seats come from the map, not from two hard-coded corners, so a layout can
     // put them where it makes sense -- and so more than two will fit later.
     const starts = w.map.starts;
@@ -296,32 +383,20 @@ export class Game {
       w.spawnStart(1, starts[0]!.x - 1, starts[0]!.y - 1);
       w.spawnStart(2, starts[1]!.x - 2, starts[1]!.y - 2);
     }
+    if (m?.mode === "coop") {
+      const enemy = starts[2]!;
+      if (crowning) w.spawnCrowning(3, enemy.x-1, enemy.y-1);
+      else if (nomad) w.spawnNomad(3, enemy.x-1, enemy.y-1);
+      else w.spawnStart(3, enemy.x-1, enemy.y-1);
+    }
     // Scaled to the board: the same dozen bears that fill a 64-tile map are
     // invisible on a 160-tile one.
-    if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
-    // War camps, scaled to the board like everything else out here.
-    //
-    // One per a hundred tiles square, which is three on the big map.
-    //
-    // This has been walked down twice, both times because of what the camps do
-    // to the SKIRMISH AI rather than to the player. Measured on fixed maps, the
-    // AI trains exactly the army it always did -- fourteen footmen on Open
-    // Steppe by the sixteen minute mark -- and with camps on the board it has
-    // one of them left. A human picks a route and picks a moment; the AI walks
-    // its waves across the country and feeds them in. Thirteen camps was a raid
-    // somewhere every forty seconds; six still cost the AI most of its army.
-    // Three leaves the middle of the map worth clearing without deciding the
-    // match between two players who never touched each other.
-    //
-    // BEFORE the fires, and the order matters. Camp placement only asks whether
-    // the ground is free, so laying the fires first meant a stronghold could be
-    // dropped straight on top of one -- a hearth burning inside a hut, on a tile
-    // nothing can walk to. Fire placement checks walkability, so putting the
-    // buildings down first makes the fires route around them for free.
-    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (100 * 100))));
-    // Somebody's camp, every so often, and one at each seat. Scaled the same
-    // way, and laid whatever the wildlife setting says -- an empty country
-    // still had people through it once.
+    if (wild) w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
+    w.spawnWanderers();
+    w.updateVision(true);
+    // Somebody's camp, every so often, and one at each seat. Scaled to the
+    // board the same way as everything else out here -- an empty country still
+    // had people through it once.
     w.spawnCampfires(Math.round(5 * ((n * n) / (64 * 64))));
     return w;
   }
@@ -331,8 +406,10 @@ export class Game {
     this.menu = false;
     // Rebuild the world so the map choice takes effect and a second game is not
     // played on the wreckage of the first.
-    this.map = this.chooseMap();
-    this.world = this.buildWorld(this.map);
+    const saved = this.pendingSave; this.pendingSave = null;
+    this.difficulty = difficulty;
+    this.map = saved?.map ?? this.chooseMap();
+    this.world = saved?.world ?? this.buildWorld(this.map);
     // A new camera as well: it carries the map bounds it clamps against, and a
     // stale one would pin the view inside the old map's corner.
     this.cam = new Camera(this.world.map.width, this.world.map.height);
@@ -341,8 +418,12 @@ export class Game {
     // view, and the guest's is not seat one.
     this.renderer.viewer = this.player;
     this.selected.clear();
+    const firstPerson = this.world.units().find(u => u.owner === this.player);
+    if (firstPerson) this.selected.add(firstPerson.id);
+    this.controlGroups.clear();
+    this.commandMarkers = [];
     this.pending = [];
-    this.buildMode = null;
+    this.buildMode = null; this.wallStart = null;
     // A fresh scheduler for a fresh match: turn numbers start again, and a
     // stale one would be waiting on orders from the last game.
     this.net.close();
@@ -373,11 +454,18 @@ export class Game {
     this.renderer.fx.clear();
     // Player 2 is run by the AI, issuing the same commands a human would.
     // Nobody plays the other seat in a network game; there is somebody in it.
-    this.ai = this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    this.ai = this.setup?.mode === "coop" ? new SkirmishAI(this.world, 3, this.setup.aiDifficulty ?? "normal") : this.transport || difficulty === "none" ? null : new SkirmishAI(this.world, 2, difficulty);
+    if (saved?.ai && this.ai) this.ai.restoreState(saved.ai);
+    if (saved && saved.player === this.player) {
+      Object.assign(this.cam,saved.camera); this.cam.clamp();
+      this.selected=new Set(saved.selected.filter(id=>this.world.entities.get(id)?.owner===this.player));
+    }
+    this.paused=false; this.keys.clear();
     this.banner = null;
-    this.crowned = false;
+    this.crowned = saved ? !this.world.relics.some(r=>r.owner===this.player&&!r.taken) : false;
+    this.crowningAt = null;
     // The crowning opening sends one unarmed man into fog full of bears. Say so.
-    if (this.setup?.crowning ?? settings.crowning) {
+    if (!saved && !this.realm && (this.setup?.crowning ?? settings.crowning)) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
     }
     // Hand the player whatever he opened with, already selected.
@@ -396,7 +484,13 @@ export class Game {
 
   // ───────────────────────────── loop ─────────────────────────────
 
+  /** Wall-clock milliseconds per sim tick: fixed in the realm, the player's own choice elsewhere. */
+  private tickStep(): number {
+    return TICK_MS / (this.realm ? REALM_SPEED : Math.max(0.1, settings.gameSpeed));
+  }
+
   private frame = (now: number): void => {
+    this.alliancePanel?.sync();
     if (!this.running) return;
     const dt = Math.min(250, now - this.last);
     this.last = now;
@@ -405,6 +499,8 @@ export class Game {
     if (this.menu !== this.shownMenu) {
       this.shownMenu = this.menu;
       this.shell?.setPlaying(!this.menu);
+      // Menu theme fades out as a match starts, and back in on return.
+      this.audio.setScene(this.menu ? "menu" : "game");
       this.resize();
     }
     if (this.menu) {
@@ -424,14 +520,32 @@ export class Game {
     const open = this.settingsPanel?.open === true;
     // Game speed is wall-clock only: it changes how often real time asks for a
     // tick, never what a tick computes, so the sim stays deterministic.
-    const step = TICK_MS / Math.max(0.1, settings.gameSpeed);
-    this.acc += open ? 0 : dt;
+    const step = this.tickStep();
+    // In the realm, keep a small cushion of turns in hand and drift the pace
+    // to hold it: a touch slower when running low, a touch faster when
+    // behind. Smooth, instead of freezing on every late turn and then racing.
+    let pace = 1;
+    if (this.realm && !this.menu) {
+      const behind = this.realm.backlog();
+      pace = behind <= 1 ? 0.85 : behind <= 4 ? 1 : behind <= 10 ? 1.15 : behind <= 40 ? 1.5 : 1;
+    }
+    this.acc += open ? 0 : dt * pace;
     if (!open) this.updateCamera(dt);
     while (this.acc >= step) {
       this.acc -= step;
       if (!this.paused) this.tick();
     }
-    this.render(this.acc / step);
+    // Behind the realm's keeper (just joined, or a slow moment): catch up --
+    // gently. Running a whole backlog in one frame made units leap across the
+    // screen; a tick or two extra per frame is a quick walk, not a teleport.
+    if (this.realm && !this.menu) {
+      const behind = this.realm.backlog();
+      // Only a long way behind (just joined) runs extra ticks; ordinary lag
+      // is handled by the pace above.
+      let extra = behind > 40 ? 6 : 0;
+      while (extra-- > 0) this.tick();
+    }
+    this.render(this.paused ? 1 : this.acc / step);
     requestAnimationFrame(this.frame);
   };
 
@@ -444,16 +558,20 @@ export class Game {
    * going, so the game does not appear frozen; it simply stops advancing.
    */
   tick(): void {
-    if (this.menu) this.start();
-    const turn = this.net.nextTick(performance.now(), () => this.world.checksum());
+    if (this.menu && !this.realm) this.start();
+    if (this.menu) return;
+    if (this.war?.over) return; // the verdict is in; the field holds still behind it
+    const turn = this.realm ? this.realm.nextTick(performance.now()) : this.net.nextTick(performance.now(), () => this.world.checksum());
     if (!turn) return;
     this.renderer.snapshot();
     const cmds = turn.commands;
-    // The AI is local and is not a seat: it plays on whichever machine is
-    // running it. In a network game there is no AI, so this never fires.
+    // Both peers run the same deterministic AI after the same ordered human commands.
     if (this.ai) cmds.push(...this.ai.think(this.world.tick));
     this.world.step(cmds);
     this.ticks++;
+    if (this.war) this.stepWar();
+    if (this.realm && performance.now() - this.realmSavedAt > 90000) { this.realmSavedAt = performance.now(); void this.storeLedger(); }
+    if (this.realm && this.world.tick % 20 === 0) this.watchRealmSeat();
     // One tick's happenings, handed to the two things that show them. Neither
     // can write back, so the sim stays the only author of state.
     // The one moment the whole opening is waiting on.
@@ -469,18 +587,20 @@ export class Game {
         }
       }
     }
-    // A dragon coming over the hills is worth stopping the player for. The
-    // roar and the toast both fire from the sim; this is the third leg of it,
-    // and the only one you cannot miss while looking at the other side of the
-    // map.
+    // Your own building going up a tier is an occasion: name it, and play it.
     for (const e of this.world.fx) {
-      if (e.kind === "call" && e.def === "dragon" && !this.dragonSeen) {
-        this.dragonSeen = true;
-        this.proclaim("A DRAGON IS ON THE WING", "It answers to nobody and it burns what it finds. Get them inside.", 7000);
-        break;
-      }
+      if (e.kind !== "levelUp" || e.owner !== this.player) continue;
+      const lv = levelDef(e.def, e.level);
+      this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
+      this.audio.play("crown", 0.8);
     }
-    if (this.dragonSeen && !this.world.units().some((u) => u.def === "dragon")) this.dragonSeen = false;
+    this.renderer.noteAttacks(this.world.fx);
+    if (this.world.fx.some((e) => e.kind === "alarm" && e.owner === this.player)) {
+      // A dragon raid raises the same alarm; it gets its own line instead.
+      const dragon = this.world.events.some((ev) => ev.player === this.player && ev.text === "A dragon is flying at your settlement!");
+      const scouts = this.world.events.some((ev) => ev.player === this.player && ev.text.startsWith("Orc scouts are watching"));
+      this.audio.play(dragon ? "dragon" : scouts ? "orcScouts" : "warning");
+    }
     this.renderer.fx.apply(this.world.fx, this.world.tick);
     this.renderer.fx.resolve(this.world.units());
     this.renderer.fx.prune(this.world.tick);
@@ -489,9 +609,23 @@ export class Game {
       y: this.cam.y + this.cam.viewH / this.cam.scale / 2,
       r: this.cam.viewW / this.cam.scale / 2,
     });
-    for (const ev of this.world.events) if (ev.player === this.player) this.toast(ev.text, ev.level);
-    // Drop selections of entities that no longer exist.
+    for (const ev of this.world.events) if (ev.player === this.player) {
+      this.toast(ev.text, ev.level);
+      if (ev.text === NO_STORE_LINE) this.audio.play("noStore");
+      else if (ev.text === LOW_MINE_LINE) this.callouts.say(ev.text);
+    }
+    const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
+      if(u.owner !== this.player) return false;
+      const p=this.cam.toScreen(u.pos.x,u.pos.y);
+      return p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH;
+    }));
+    if(line) { const alarm = line === "The Realm is under attack!"; this.toast(line, alarm ? "error" : "info"); if (alarm) this.audio.play("warning"); }
+    // Drop selections and control-group members that no longer exist.
     for (const id of this.selected) if (!this.world.entities.has(id)) this.selected.delete(id);
+    for (const [n, ids] of this.controlGroups) {
+      for (const id of ids) if (!this.world.entities.has(id)) ids.delete(id);
+      if (ids.size === 0) this.controlGroups.delete(n);
+    }
   }
 
   /**
@@ -507,17 +641,22 @@ export class Game {
    */
   surrender(): void {
     if (this.menu) return;
-    const other = [...this.world.players.keys()].find((p) => p !== this.player && p !== WILD);
+    this.war = null;
+    const other = [...this.world.players.keys()].find((p) => !this.world.allied(p, this.player) && p !== WILD);
     this.world.winner = other ?? null;
+    // Online, say goodbye: otherwise the other side's lockstep waits forever for
+    // turns that will never come, instead of hearing that we left.
+    if (this.transport) this.net.close();
     this.setPaused(false);
     this.surrenderRect = null;
     this.selected.clear();
-    this.buildMode = null;
+    this.buildMode = null; this.wallStart = null;
     this.menu = true;
   }
 
   setPaused(paused: boolean): void {
     if (this.paused === paused) return;
+    if (this.realm && paused) { this.toast("The realm does not pause — it lives on everyone's computer", "info"); return; }
     this.paused = paused;
     // Hand time back cleanly: without this the accumulated milliseconds spent
     // paused are spent all at once on resume, and the game lurches forward.
@@ -527,7 +666,8 @@ export class Game {
   }
 
   issue(c: Command): void {
-    this.net.issue(c);
+    if (this.realm) this.realm.issue(c);
+    else this.net.issue(c);
   }
 
   stop(): void {
@@ -559,7 +699,7 @@ export class Game {
   }
 
   private toast(text: string, level: "info" | "error" = "error"): void {
-    this.message = { text, until: performance.now() + 2500, level };
+    this.message = { text, until: performance.now() + (level === "error" ? 3500 : 2500), level };
   }
 
   private proclaim(title: string, line: string, ms: number): void {
@@ -624,25 +764,30 @@ export class Game {
    * on it. A click in the margin clamps to the edge of the map rather than
    * doing nothing, so dragging off the side keeps panning the way you expect.
    */
+  /** Left-drag the minimap to move the camera; right-click sends an order. */
   private bindMinimap(mm: HTMLCanvasElement): void {
-    const jump = (e: MouseEvent) => {
+    const point = (e: MouseEvent) => {
       const r = mm.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return;
-      const { x, y, size } = Game.minimapLayout(mm);
-      if (size <= 0) return;
-      // CSS pixels to canvas pixels. They are the same today because `resize`
-      // sets the backing store from the element's client size, but a device
-      // pixel ratio or a CSS transform would part them, and a minimap that is
-      // subtly wrong is worse than one that is obviously wrong.
-      const px = (e.clientX - r.left) * (mm.width / r.width) - x;
-      const py = (e.clientY - r.top) * (mm.height / r.height) - y;
-      const map = this.world.map;
-      const tx = Math.max(0, Math.min(map.width, (px / size) * map.width));
-      const ty = Math.max(0, Math.min(map.height, (py / size) * map.height));
-      this.cam.centerOn(tx * SUB, ty * SUB);
+      const size = Math.min(r.width, r.height);
+      const ox = (r.width - size) / 2;
+      const oy = (r.height - size) / 2;
+      const fx = Math.max(0, Math.min(1, (e.clientX - r.left - ox) / Math.max(1, size)));
+      const fy = Math.max(0, Math.min(1, (e.clientY - r.top - oy) / Math.max(1, size)));
+      return { x: fx * this.world.map.width * SUB, y: fy * this.world.map.height * SUB };
     };
+    const jump = (e: MouseEvent) => {
+      const p = point(e);
+      this.cam.centerOn(p.x, p.y);
+    };
+    mm.addEventListener("contextmenu", (e) => e.preventDefault());
     mm.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      if (e.button === 2) {
+        const p = point(e);
+        this.contextOrder(p.x, p.y, e.shiftKey);
+        return;
+      }
+      if (e.button !== 0) return;
       jump(e);
       const move = (m: MouseEvent) => jump(m);
       const up = () => {
@@ -655,20 +800,28 @@ export class Game {
   }
 
   private updateCamera(dt: number): void {
-    const k = (dt / 16.67) * EDGE_SPEED * settings.scrollSpeed;
-    let dx = 0;
-    let dy = 0;
-    if (this.keys.has("a") || this.keys.has("arrowleft")) dx -= k;
-    if (this.keys.has("d") || this.keys.has("arrowright")) dx += k;
-    if (this.keys.has("w") || this.keys.has("arrowup")) dy -= k;
-    if (this.keys.has("s") || this.keys.has("arrowdown")) dy += k;
-    if (settings.edgeScroll && this.mouse.inside && !this.drag) {
-      if (this.mouse.x < EDGE) dx -= k;
-      if (this.mouse.x > this.canvas.width - EDGE) dx += k;
-      if (this.mouse.y < EDGE) dy -= k;
-      if (this.mouse.y > this.canvas.height - EDGE && this.mouse.y < this.canvas.height) dy += k;
+    const frame = Math.min(3, dt / 16.67);
+    const top = EDGE_SPEED * settings.scrollSpeed;
+    let wantX = 0;
+    let wantY = 0;
+    if (this.keys.has("a") || this.keys.has("arrowleft")) wantX -= top;
+    if (this.keys.has("d") || this.keys.has("arrowright")) wantX += top;
+    if (this.keys.has("w") || this.keys.has("arrowup")) wantY -= top;
+    if (this.keys.has("s") || this.keys.has("arrowdown")) wantY += top;
+    if (settings.edgeScroll && this.mouse.inside && !this.drag && !this.panDrag) {
+      if (this.mouse.x < EDGE) wantX -= top;
+      if (this.mouse.x > this.canvas.width - EDGE) wantX += top;
+      if (this.mouse.y < EDGE) wantY -= top;
+      if (this.mouse.y > this.canvas.height - EDGE && this.mouse.y < this.canvas.height) wantY += top;
     }
-    if (dx || dy) this.cam.pan(dx, dy);
+    // Quick acceleration and a softer coast make keyboard/edge scrolling feel
+    // deliberate without leaving the camera drifting after the player lets go.
+    const accel = 1 - Math.pow(wantX || wantY ? 0.58 : 0.28, frame);
+    this.camVelocity.x += (wantX - this.camVelocity.x) * accel;
+    this.camVelocity.y += (wantY - this.camVelocity.y) * accel;
+    if (Math.abs(this.camVelocity.x) < 0.05) this.camVelocity.x = 0;
+    if (Math.abs(this.camVelocity.y) < 0.05) this.camVelocity.y = 0;
+    if (this.camVelocity.x || this.camVelocity.y) this.cam.pan(this.camVelocity.x * frame, this.camVelocity.y * frame);
   }
 
   // ───────────────────────────── input ─────────────────────────────
@@ -682,13 +835,40 @@ export class Game {
     c.addEventListener("mousemove", (e) => {
       this.mouse.x = e.offsetX;
       this.mouse.y = e.offsetY;
-      if (this.drag) {
+      if (this.panDrag) {
+        this.cam.pan(this.panDrag.x - e.offsetX, this.panDrag.y - e.offsetY);
+        this.panDrag = { x: e.offsetX, y: e.offsetY };
+        this.camVelocity.x = 0;
+        this.camVelocity.y = 0;
+      } else if (this.drag) {
         this.drag.x1 = e.offsetX;
         this.drag.y1 = e.offsetY;
       }
     });
     c.addEventListener("mousedown", (e) => this.onMouseDown(e));
-    c.addEventListener("mouseup", (e) => this.onMouseUp(e));
+    // A selection box has to survive the pointer drifting over something that is
+    // not the canvas -- a banner, the pause button, a tooltip, the HUD bar. The
+    // release used to be caught on the canvas only, and anywhere else simply
+    // threw the box away, which is most of "the selection box sometimes doesn't
+    // work". Track the drag and finish it at window level, in canvas pixels.
+    window.addEventListener("mousemove", (e) => {
+      if (!this.drag || e.target === c) return;
+      const p = this.canvasPoint(e);
+      this.drag.x1 = p.x;
+      this.drag.y1 = p.y;
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 1) this.panDrag = null;
+      if (e.target === c) { this.onMouseUp(e); return; }
+      if (e.button === 0 && this.drag) {
+        const p = this.canvasPoint(e);
+        this.drag.x1 = p.x;
+        this.drag.y1 = p.y;
+        this.onMouseUp(e);
+        return;
+      }
+      if (e.button === 0) this.wallStart = null;
+    });
     c.addEventListener("wheel", (e) => {
       e.preventDefault();
       // On the front screen the wheel scrolls the realm list; there is no camera
@@ -697,10 +877,13 @@ export class Game {
         this.runFront({ kind: "scroll", by: e.deltaY > 0 ? 1 : -1 });
         return;
       }
-      this.cam.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      this.mouse.x = e.offsetX; this.mouse.y = e.offsetY; this.mouse.inside = true;
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.canvas.height : 1);
+      this.cam.zoomAt(e.offsetX, e.offsetY, Math.exp(-Math.max(-100, Math.min(100, delta)) * .001));
     }, { passive: false });
     window.addEventListener("keydown", (e) => this.onKey(e));
     window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('blur', () => { this.keys.clear(); this.drag = null; this.panDrag = null; this.wallStart = null; this.camVelocity = {x:0,y:0}; });
   }
 
   /**
@@ -711,6 +894,14 @@ export class Game {
    */
   private inViewport(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < this.canvas.width && y < this.canvas.height;
+  }
+
+  /** A window-level mouse event in canvas pixels (offsetX is relative to whatever element was hit). */
+  private canvasPoint(e: MouseEvent): { x: number; y: number } {
+    const r = this.canvas.getBoundingClientRect();
+    const sx = r.width > 0 ? this.canvas.width / r.width : 1;
+    const sy = r.height > 0 ? this.canvas.height / r.height : 1;
+    return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
   }
 
   private onMouseDown(e: MouseEvent): void {
@@ -739,52 +930,133 @@ export class Game {
     if (e.button === 0) {
       if (!this.inViewport(x, y)) return;
       if (this.buildMode) {
+        if(this.buildMode === "wall"){const p=this.cam.toWorld(x,y);this.wallStart={x:Math.floor(p.x/SUB),y:Math.floor(p.y/SUB)};return;}
         this.tryPlace();
-        if (!e.shiftKey) this.buildMode = null;
+        if (!e.shiftKey) this.buildMode = null; this.wallStart = null;
         return;
       }
       if (this.attackMoveMode) {
         const w = this.cam.toWorld(x, y);
-        const ids = this.selectedUnits().filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);
-        if (ids.length) this.issue({ type: "attackMove", player: this.player, units: ids, x: Math.round(w.x), y: Math.round(w.y) });
+        const fighters = this.selectedUnits().filter((u) => UNITS[u.def]!.damage > 0);
+        // Attack aimed at your own (or a friend's) property knocks it down.
+        const own = this.pick(w.x, w.y, true);
+        const ownEnt = own === null ? undefined : this.world.entities.get(own);
+        if (ownEnt && this.world.allied(ownEnt.owner, this.player) && fighters.length && !fighters.some((f) => f.id === ownEnt.id)) {
+          this.issue({ type: "attack", player: this.player, units: fighters.map((f) => f.id), target: ownEnt.id, force: true });
+          this.marker(w.x, w.y, "attack");
+          this.attackMoveMode = false;
+          return;
+        }
+        for (const target of this.formationTargets(fighters, w.x, w.y))
+          this.issue({ type: "attackMove", player: this.player, units: [target.unit.id], x: target.x, y: target.y });
+        if (fighters.length) this.marker(w.x, w.y, "attack");
         this.attackMoveMode = false;
         return;
       }
       this.drag = { x0: x, y0: y, x1: x, y1: y };
+    } else if (e.button === 1) {
+      if (!this.inViewport(x, y)) return;
+      e.preventDefault();
+      this.panDrag = { x, y };
+      this.camVelocity.x = 0;
+      this.camVelocity.y = 0;
     } else if (e.button === 2) {
       if (this.buildMode) {
-        this.buildMode = null;
+        this.buildMode = null; this.wallStart = null;
         return;
       }
       if (!this.inViewport(x, y)) return;
       const w = this.cam.toWorld(x, y);
-      this.contextOrder(w.x, w.y);
+      this.contextOrder(w.x, w.y, e.shiftKey, e.ctrlKey || e.metaKey);
     }
   }
 
+  /** Selecting your own men gets a spoken reply from them. */
   private onMouseUp(e: MouseEvent): void {
+    const before = new Set(this.selected);
+    this.onMouseUpInner(e);
+    const fresh = [...this.selected].map((id) => before.has(id) ? undefined : this.world.entities.get(id)).filter((e) => e?.kind === "unit" && e.owner === this.player);
+    // The King answers for himself.
+    if (fresh.some((e) => e!.def === "king")) this.audio.say("king");
+    else if (fresh.some((e) => e!.def === "footman")) this.audio.say("footman");
+    else if (fresh.length) this.audio.say("select");
+  }
+
+  private onMouseUpInner(e: MouseEvent): void {
+    if(e.button===0&&this.wallStart){
+      const tiles=this.wallTiles();this.wallStart=null;
+      this.issue({type:"buildWallLine",player:this.player,units:this.selectedUnits().filter(u=>UNITS[u.def]!.canBuild).map(u=>u.id),tiles:tiles.map(t=>({x:t.tx,y:t.ty}))});this.audio.say("build");
+      if(!e.shiftKey)this.buildMode=null;return;
+    }
+    if (e.button === 1) {
+      this.panDrag = null;
+      return;
+    }
     if (e.button !== 0 || !this.drag) return;
     const d = this.drag;
     this.drag = null;
-    const isClick = Math.abs(d.x1 - d.x0) < 4 && Math.abs(d.y1 - d.y0) < 4;
+    const isClick = Math.hypot(d.x1 - d.x0, d.y1 - d.y0) < 9;
     const shift = e.shiftKey;
     if (isClick) {
       const w = this.cam.toWorld(d.x0, d.y0);
-      const hit = this.pick(w.x, w.y);
+      let hit = this.pick(w.x, w.y, true);
+      // With left-click-to-move on, a click that just misses your own man would
+      // march the selection there instead of picking him. Forgive a near miss
+      // on your own people before treating the click as a move order.
+      if (hit === null || this.world.entities.get(hit)?.owner !== this.player) {
+        const near = this.pickOwnNear(w.x, w.y);
+        if (near !== null) hit = near;
+      }
+      const clicked = hit === null ? undefined : this.world.entities.get(hit);
+      if (!shift && (!clicked || clicked.owner !== this.player) && this.selectedUnits().some(u => u.owner === this.player && UNITS[u.def]!.canGather) && this.swordAt(w.x, w.y)) {
+        this.contextOrder(w.x, w.y);
+        this.lastUnitClick = null;
+        return;
+      }
+      if (settings.clickToMove && !shift && this.selectedUnits().some(u => u.owner === this.player) && (!clicked || clicked.owner !== this.player)) {
+        const destination = clicked?.kind === "unit" ? clicked.pos : clicked ? centerOf(clicked) : w;
+        this.contextOrder(destination.x, destination.y);
+        this.lastUnitClick = null;
+        return;
+      }
       if (hit === null) {
         if (!shift) this.selected.clear();
       } else if (shift) {
         if (this.selected.has(hit)) this.selected.delete(hit);
         else this.selected.add(hit);
       } else {
-        this.selected = new Set([hit]);
+        const entity = this.world.entities.get(hit);
+        const now = performance.now();
+        const double = entity?.kind === "unit" && entity.owner === this.player && this.lastUnitClick?.id === hit && now - this.lastUnitClick.at < 360;
+        if (double && entity?.kind === "unit") {
+          const ids: EntityId[] = [];
+          for (const u of this.world.units()) {
+            if (u.owner !== this.player || u.def !== entity.def || !this.world.canSeeEntity(this.player, u)) continue;
+            const p = this.cam.toScreen(u.pos.x, u.pos.y);
+            if (p.x >= 0 && p.y >= 0 && p.x < this.cam.viewW && p.y < this.cam.viewH) ids.push(u.id);
+          }
+          this.selected = new Set(ids);
+          this.lastUnitClick = null;
+        } else {
+          this.selected = new Set([hit]);
+          this.lastUnitClick = entity?.kind === "unit" && entity.owner === this.player ? { id: hit, at: now } : null;
+        }
       }
     } else {
       const a = this.cam.toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
       const b = this.cam.toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
       const ids: EntityId[] = [];
+      // Test the body the player sees, not the point at his feet: a box drawn
+      // around a man's torso used to miss him because his feet were below it.
+      const mx = SUB * 0.3, up = SUB * 0.25, down = SUB * 0.9;
       for (const u of this.world.units())
-        if (u.owner === this.player && u.pos.x >= a.x && u.pos.x <= b.x && u.pos.y >= a.y && u.pos.y <= b.y) ids.push(u.id);
+        if (u.owner === this.player && u.pos.x >= a.x - mx && u.pos.x <= b.x + mx && u.pos.y >= a.y - up && u.pos.y <= b.y + down) ids.push(u.id);
+      // Boxing only a building of your own selects it, rather than nothing.
+      if (ids.length === 0) {
+        const tx = Math.floor((a.x + b.x) / 2 / SUB), ty = Math.floor((a.y + b.y) / 2 / SUB);
+        for (const bld of this.world.buildings())
+          if (bld.owner === this.player && tx >= bld.tx && tx < bld.tx + bld.size && ty >= bld.ty && ty < bld.ty + bld.size) { ids.push(bld.id); break; }
+      }
       if (!shift) this.selected.clear();
       for (const id of ids) this.selected.add(id);
     }
@@ -792,12 +1064,42 @@ export class Game {
     if (this.selectedUnits().length > 0) for (const b of this.selectedBuildings()) this.selected.delete(b.id);
   }
 
-  /** Entity under a world point: units first (they're smaller), then buildings. */
-  private pick(wx: number, wy: number): EntityId | null {
-    let best: EntityId | null = null;
-    let bestD = SUB * 0.6;
+  /** Nearest of the player's own units within a generous, zoom-aware radius of a click. */
+  /** A sword under the pointer that this clan could take up (or its own weapon). */
+  private swordAt(wx: number, wy: number): { x: number; y: number; owner: PlayerId } | null {
+    const v = this.world.vision.get(this.player);
+    let best: { x: number; y: number; owner: PlayerId } | null = null, bd = 0.9 * SUB;
+    for (const r of this.world.relics) {
+      if (r.taken) continue;
+      if (r.owner !== this.player && !(r.owner === 0 && !this.world.hasRoyal(this.player))) continue;
+      if (this.world.fogEnabled && v && v.at(r.x, r.y) !== VISIBLE) continue;
+      const d = Math.hypot((r.x + 0.5) * SUB - wx, (r.y + 0.5) * SUB - wy);
+      if (d < bd) { bd = d; best = r; }
+    }
+    return best;
+  }
+
+  private pickOwnNear(wx: number, wy: number): EntityId | null {
+    const r = Math.max(SUB * 0.7, 22 / this.cam.scale);
+    let best: EntityId | null = null, bestD = r;
     for (const u of this.world.units()) {
-      const d = Math.hypot(u.pos.x - wx, u.pos.y - wy);
+      // Units already selected are excluded: clicking just beside your own
+      // group is a short move order, not a request to shrink the selection.
+      if (u.owner !== this.player || this.selected.has(u.id)) continue;
+      const d = Math.hypot(u.pos.x - wx, u.pos.y - SUB * 0.3 - wy);
+      if (d < bestD) { bestD = d; best = u.id; }
+    }
+    return best;
+  }
+
+  /** Entity under a world point: units first (they're smaller), then buildings. */
+  private pick(wx: number, wy: number, visual = false): EntityId | null {
+    let best: EntityId | null = null;
+    let bestD = visual ? 1 : SUB * 0.6;
+    for (const u of this.world.units()) {
+      if (!this.world.canSeeEntity(this.player, u)) continue;
+      // Match the visible body, while retaining precise world targeting for orders.
+      const d = visual ? Math.hypot((u.pos.x - wx) / Math.max(SUB * .5, 16 / this.cam.scale), (u.pos.y - SUB * .32 - wy) / Math.max(SUB * .95, 22 / this.cam.scale)) : Math.hypot(u.pos.x - wx, u.pos.y - wy);
       if (d < bestD) {
         bestD = d;
         best = u.id;
@@ -808,50 +1110,205 @@ export class Game {
     const ty = Math.floor(wy / SUB);
     if (!this.world.map.inBounds(tx, ty)) return null;
     const occ = this.world.map.occupant[this.world.map.idx(tx, ty)]!;
-    return occ !== 0 ? occ : null;
+    const building = occ ? this.world.entities.get(occ) : undefined;
+    return building && this.world.canSeeEntity(this.player, building) ? occ : null;
   }
 
-  private contextOrder(wx: number, wy: number): void {
+  /**
+   * Give a group distinct destinations around the clicked point.
+   *
+   * This is deliberately client-side: the result is a set of ordinary,
+   * serialisable move commands, so the simulation still receives nothing but
+   * commands and lockstep peers receive the exact same destinations.
+   */
+  private formationTargets(units: Unit[], wx: number, wy: number): Array<{ unit: Unit; x: number; y: number }> {
+    if (units.length <= 1) return units.map((unit) => ({ unit, x: Math.round(wx), y: Math.round(wy) }));
+
+    const cx = units.reduce((n, u) => n + u.pos.x, 0) / units.length;
+    const cy = units.reduce((n, u) => n + u.pos.y, 0) / units.length;
+    let fx = wx - cx;
+    let fy = wy - cy;
+    const fm = Math.hypot(fx, fy);
+    if (fm < 1) {
+      fx = 0;
+      fy = -1;
+    } else {
+      fx /= fm;
+      fy /= fm;
+    }
+    const rx = -fy;
+    const ry = fx;
+
+    // Front-line first, then short ranged, long ranged/air, and siege/heavy.
+    // Id is the tie-breaker, making repeated orders stable rather than shuffling.
+    const role = (u: Unit): number => {
+      const d = UNITS[u.def]!;
+      // Support stays furthest back; it should never be sorted into the melee
+      // line merely because its attack range is zero.
+      if ((d.heal ?? 0) > 0) return 5;
+      if (d.domain === "air") return 3;
+      if (d.range >= 4) return 3;
+      if (d.range >= 2) return 2;
+      if (d.speed <= 4 && d.damage > 0) return 4;
+      return 1;
+    };
+    const ordered = [...units].sort((a, b) => role(a) - role(b) || a.id - b.id);
+    const cols = Math.max(2, Math.ceil(Math.sqrt(ordered.length * 1.6)));
+    const spacing = SUB * (ordered.some((u) => UNITS[u.def]!.domain === "sea") ? 1.35 : 0.92);
+    const out: Array<{ unit: Unit; x: number; y: number }> = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      const unit = ordered[i]!;
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(cols, ordered.length - row * cols);
+      const col = i % cols;
+      const side = (col - (inRow - 1) / 2) * spacing;
+      const back = row * spacing;
+      let x = Math.round(wx + rx * side - fx * back);
+      let y = Math.round(wy + ry * side - fy * back);
+
+      // If a slot lands in water/rock/building, spiral locally for a valid tile
+      // rather than sending the whole formation back onto the centre point.
+      const domain = UNITS[unit.def]!.domain;
+      let tx = Math.floor(x / SUB);
+      let ty = Math.floor(y / SUB);
+      if (!this.world.map.isWalkable(tx, ty, domain)) {
+        let found = false;
+        for (let ring = 1; ring <= 4 && !found; ring++) {
+          for (let dy = -ring; dy <= ring && !found; dy++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+              const nx = tx + dx;
+              const ny = ty + dy;
+              if (!this.world.map.isWalkable(nx, ny, domain)) continue;
+              tx = nx;
+              ty = ny;
+              x = nx * SUB + SUB / 2;
+              y = ny * SUB + SUB / 2;
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+      out.push({ unit, x, y });
+    }
+    return out;
+  }
+
+  private marker(x: number, y: number, kind: "move" | "attack" | "gather" | "repair"): void {
+    this.audio.play("command", 0.55);
+    this.commandMarkers.push({ x, y, kind, at: performance.now() });
+    if (this.commandMarkers.length > 12) this.commandMarkers.shift();
+  }
+
+  private contextOrder(wx: number, wy: number, queue = false, force = false): void {
     const units = this.selectedUnits().filter((u) => u.owner === this.player);
+    if (force && units.length) {
+      // Ctrl + right-click: attack whatever is there, even your own.
+      const hit = this.pick(wx, wy, true);
+      const ent = hit === null ? undefined : this.world.entities.get(hit);
+      const fighters = units.filter((u) => UNITS[u.def]!.damage > 0 && u.id !== hit);
+      if (ent && fighters.length) {
+        this.issue({ type: "attack", player: this.player, units: fighters.map((u) => u.id), target: ent.id, force: true });
+        this.marker(wx, wy, "attack");
+        return;
+      }
+    }
     const tx = Math.floor(wx / SUB);
     const ty = Math.floor(wy / SUB);
     const map = this.world.map;
     if (units.length === 0) {
-      // Building selected → set rally.
-      for (const b of this.selectedBuildings()) if (b.owner === this.player && b.complete) b.rally = { x: Math.round(wx), y: Math.round(wy) };
+      for (const b of this.selectedBuildings()) {
+        if (b.owner === this.player && b.complete) {
+          if (b.def === 'tower') {
+            const target=this.pick(wx,wy,true);
+            const enemy=target===null?undefined:this.world.entities.get(target);
+            if (enemy && !this.world.allied(enemy.owner,this.player)) { this.issue({type:'towerAttack',player:this.player,building:b.id,target:enemy.id}); this.marker(wx,wy,'attack'); }
+            else this.toast('Right-click an enemy to focus tower fire. The tower also attacks automatically.','info');
+            continue;
+          }
+          this.issue({ type: "setRally", player: this.player, building: b.id, x: Math.round(wx), y: Math.round(wy) });
+          this.marker(wx, wy, "move");
+        }
+      }
       return;
     }
     const ids = units.map((u) => u.id);
+    // Clicking on a sword sends your people to pick it up. The blade is drawn
+    // standing up out of its tile, so a click on the glow above counts too,
+    // and it wins over the trees it often lies among.
+    // Only a man who can take it up is sent to it; soldiers just move as told.
+    const sword = units.some((u) => UNITS[u.def]!.canGather) ? this.swordAt(wx, wy) : null;
+    if (sword) {
+      const takers = units.filter((u) => UNITS[u.def]!.canGather || sword.owner === this.player);
+      const go = takers.length ? takers : units;
+      const sx = (sword.x + 0.5) * SUB, sy = (sword.y + 0.5) * SUB;
+      for (const u of go) this.issue({ type: "move", player: this.player, units: [u.id], x: Math.round(sx), y: Math.round(sy), queue });
+      this.marker(sx, sy, "move");
+      if (!takers.length) this.toast("Only a worker can take up the sword.", "info");
+      return;
+    }
     if (map.inBounds(tx, ty)) {
       const t = map.get(tx, ty);
       const gatherers = units.filter((u) => UNITS[u.def]!.canGather).map((u) => u.id);
       if ((t === Tile.Gold || t === Tile.Tree) && gatherers.length > 0) {
         this.issue({ type: "gather", player: this.player, units: gatherers, tx, ty });
-        const others = ids.filter((id) => !gatherers.includes(id));
-        if (others.length) this.issue({ type: "move", player: this.player, units: others, x: Math.round(wx), y: Math.round(wy) });
+        const others = units.filter((u) => !gatherers.includes(u.id));
+        for (const target of this.formationTargets(others, wx, wy))
+          this.issue({ type: "move", player: this.player, units: [target.unit.id], x: target.x, y: target.y, queue });
+        this.marker(wx, wy, "gather");
         return;
       }
-      // An enemy under the cursor is an attack order.
       const foe = this.pick(wx, wy);
       const fe = foe !== null ? this.world.entities.get(foe) : undefined;
-      if (fe && fe.owner !== this.player) {
+      if (fe && !this.world.allied(fe.owner, this.player)) {
         const fighters = units.filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);
         if (fighters.length > 0) {
           this.issue({ type: "attack", player: this.player, units: fighters, target: fe.id });
+          this.marker(wx, wy, "attack");
           return;
         }
       }
       const occ = map.occupant[map.idx(tx, ty)]!;
       const b = occ ? this.world.entities.get(occ) : undefined;
       if (b?.kind === "building" && b.owner === this.player) {
+        const bowmen = units.filter((u) => u.def === "archer").map((u) => u.id);
+        if (b.def === "tower" && b.complete && bowmen.length > 0) {
+          this.issue({ type: "garrison", player: this.player, units: bowmen, building: b.id });
+          this.marker(wx, wy, "move");
+          this.toast(`Archers climbing the tower (${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} places taken)`, "info");
+          return;
+        }
+        if (b.def === "wall" && b.complete && bowmen.length > 0) {
+          // Up onto the wall walk, one or two to a section; the rest take the next sections along.
+          const cap = wallGarrisonCap(this.world.wallLevel(this.player));
+          if (!cap) { this.issue({ type: "garrison", player: this.player, units: bowmen, building: b.id }); return; }
+          const sections = this.world.buildings().filter((w) => w.def === "wall" && w.complete && w.owner === this.player && (w.garrison?.length ?? 0) < cap)
+            .sort((p, q) => Math.hypot(p.tx - b.tx, p.ty - b.ty) - Math.hypot(q.tx - b.tx, q.ty - b.ty));
+          let i = 0;
+          for (const w of sections) {
+            const room = cap - (w.garrison?.length ?? 0);
+            const go = bowmen.slice(i, i + room);
+            if (!go.length) break;
+            this.issue({ type: "garrison", player: this.player, units: go, building: w.id });
+            i += go.length;
+          }
+          this.marker(wx, wy, "move");
+          this.toast("Archers taking the wall", "info");
+          return;
+        }
         const builders = units.filter((u) => UNITS[u.def]!.canBuild).map((u) => u.id);
         if (builders.length > 0 && (!b.complete || b.hp < b.maxHp)) {
           this.issue({ type: "repair", player: this.player, units: builders, target: b.id });
+          this.marker(wx, wy, "repair");
           return;
         }
       }
     }
-    this.issue({ type: "move", player: this.player, units: ids, x: Math.round(wx), y: Math.round(wy) });
+    for (const target of this.formationTargets(units, wx, wy))
+      this.issue({ type: "move", player: this.player, units: [target.unit.id], x: target.x, y: target.y, queue });
+    this.marker(wx, wy, "move");
   }
 
   /**
@@ -901,22 +1358,43 @@ export class Game {
     ctx.restore();
   }
 
+  private wallTiles(): Ghost[] {
+    if(!this.wallStart)return [];
+    const end=this.cam.toWorld(this.mouse.x,this.mouse.y),tx=Math.floor(end.x/SUB),ty=Math.floor(end.y/SUB);
+    const dx=tx-this.wallStart.x,dy=ty-this.wallStart.y,n=Math.min(63,Math.abs(dx)+Math.abs(dy));
+    const out:Ghost[]=[];let x=this.wallStart.x,y=this.wallStart.y;
+    const p=this.world.players.get(this.player)!,cost=BUILDINGS.wall!.cost;let gold=p.gold,lumber=p.lumber;
+    for(let i=0;i<=n;i++){
+      const why=this.world.placementError(this.player,"wall",x,y,this.selectedUnits().some(u=>!!UNITS[u.def]!.royal));
+      const afford=gold>=cost.gold&&lumber>=cost.lumber;
+      const ok=why===null&&afford;
+      out.push({def:"wall",owner:this.player,tx:x,ty:y,ok,reason:why??(afford?null:"Not enough gold or lumber")});
+      if(ok){gold-=cost.gold;lumber-=cost.lumber;}
+      if(x!==tx && (y===ty || Math.abs((x+Math.sign(dx)-this.wallStart.x)*dy-(y-this.wallStart.y)*dx)<=Math.abs((x-this.wallStart.x)*dy-(y+Math.sign(dy)-this.wallStart.y)*dx)))x+=Math.sign(dx);else y+=Math.sign(dy);
+    }return out;
+  }
+
   private ghost(): Ghost | null {
     if (!this.buildMode || !this.mouse.inside || !this.inViewport(this.mouse.x, this.mouse.y)) return null;
+    if(this.wallStart){const tiles=this.wallTiles();return {...tiles[0]!,segments:tiles};}
     const d = BUILDINGS[this.buildMode]!;
     const w = this.cam.toWorld(this.mouse.x, this.mouse.y);
     const tx = Math.floor(w.x / SUB - d.size / 2 + 0.5);
     const ty = Math.floor(w.y / SUB - d.size / 2 + 0.5);
-    // The reason travels with the ghost, so the card can say why while the
-    // player can still do something about it.
-    const reason = this.world.placementError(this.player, this.buildMode, tx, ty);
+    const reason = this.world.placementError(
+      this.player,
+      this.buildMode,
+      tx,
+      ty,
+      this.selectedUnits().some((u) => !!UNITS[u.def]!.royal),
+    );
     return { def: this.buildMode, owner: this.player, tx, ty, ok: reason === null, reason };
   }
 
   private tryPlace(): void {
     const g = this.ghost();
     if (!g) return;
-    const err = this.world.placementError(this.player, g.def, g.tx, g.ty);
+    const err = this.world.placementError(this.player, g.def, g.tx, g.ty, this.selectedUnits().some(u => !!UNITS[u.def]!.royal));
     if (err) {
       this.toast(err);
       return;
@@ -924,6 +1402,7 @@ export class Game {
     const builders = this.selectedUnits().filter((u) => UNITS[u.def]!.canBuild && u.owner === this.player);
     if (builders.length === 0) return;
     this.issue({ type: "build", player: this.player, units: builders.map((u) => u.id), building: g.def, tx: g.tx, ty: g.ty });
+    this.audio.say("build");
   }
 
   private clickHud(x: number, y: number): void {
@@ -941,6 +1420,9 @@ export class Game {
   /** One place a command turns into something happening, whatever pressed it. */
   private runAction(a: HudButton["action"]): void {
     switch (a.type) {
+      case "battleRally":
+        this.issue({ type: "battleRally", player: this.player, units: this.selectedUnits().map(u => u.id) });
+        break;
       case "build":
         this.buildMode = a.def;
         break;
@@ -956,6 +1438,11 @@ export class Game {
         const gatherers = this.selectedUnits().filter((u) => UNITS[u.def]!.canGather);
         if (gatherers.length === 0) {
           this.toast("Select a Worker first");
+          break;
+        }
+        if (!this.world.hasDropOff(this.player, "gold") && !this.world.hasDropOff(this.player, "lumber")) {
+          this.toast(NO_STORE_LINE);
+          this.callouts.say(NO_STORE_LINE);
           break;
         }
         let sent = 0;
@@ -982,6 +1469,20 @@ export class Game {
       case "upgrade": {
         const b = this.selectedBuildings()[0];
         if (b) this.issue({ type: "upgrade", player: this.player, building: b.id });
+        break;
+      }
+      case "upgradeWalls": {
+        this.issue({ type: "upgradeWalls", player: this.player });
+        break;
+      }
+      case "dragonbane": {
+        const b = this.selectedBuildings()[0];
+        if (b) this.issue({ type: "dragonbane", player: this.player, building: b.id });
+        break;
+      }
+      case "ungarrison": {
+        const b = this.selectedBuildings()[0];
+        if (b) this.issue({ type: "ungarrison", player: this.player, building: b.id });
         break;
       }
       case "cancelUpgrade": {
@@ -1013,6 +1514,7 @@ export class Game {
   }
 
   private onKey(e: KeyboardEvent): void {
+    if (this.createPanel?.visible) return;
     const k = e.key.toLowerCase();
     if (this.menu) {
       // Any key at all opens the gate; after that the keyboard drives the column.
@@ -1022,7 +1524,7 @@ export class Game {
       }
       // The join screen takes typing before it takes navigation: W and S are
       // letters here, not up and down.
-      if (this.front.pane === "join") {
+      if (this.front.pane === "join" && !this.front.net.busy) {
         if (k === "backspace") {
           this.front.net.typed = this.front.net.typed.slice(0, -1);
           this.front.net.status = "";
@@ -1051,17 +1553,57 @@ export class Game {
       }
       return;
     }
+    if (k === 'home') {
+      e.preventDefault();
+      let units = this.selectedUnits().filter(u => u.owner === this.player);
+      if (!units.length) { const own = this.world.units().find(u => u.owner === this.player); if (own) { units = [own]; this.select([own.id]); } }
+      if (units.length) this.cam.centerOn(units.reduce((n,u)=>n+u.pos.x,0)/units.length, units.reduce((n,u)=>n+u.pos.y,0)/units.length);
+      this.camVelocity = {x:0,y:0};
+      return;
+    }
     if (k === " " || k === "p") {
       e.preventDefault();
       this.setPaused(!this.paused);
       return;
     }
+    if (/^[1-9]$/.test(k)) {
+      const n = Number(k);
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const ids = this.selectedUnits().filter((u) => u.owner === this.player).map((u) => u.id);
+        this.controlGroups.set(n, new Set(ids));
+        this.toast(ids.length ? `Group ${n} set — ${ids.length} unit${ids.length === 1 ? "" : "s"}` : `Group ${n} cleared`, "info");
+      } else if (e.shiftKey) {
+        const group = this.controlGroups.get(n) ?? new Set<EntityId>();
+        for (const u of this.selectedUnits()) if (u.owner === this.player) group.add(u.id);
+        this.controlGroups.set(n, group);
+        this.toast(`Added to group ${n}`, "info");
+      } else {
+        const group = this.controlGroups.get(n);
+        if (group) {
+          this.selected = new Set([...group].filter((id) => this.world.entities.has(id)));
+          const units = this.selectedUnits();
+          if (units.length) {
+            const now = performance.now();
+            const double = this.lastUnitClick?.id === -n && now - this.lastUnitClick.at < 360;
+            if (double) {
+              const cx = units.reduce((s, u) => s + u.pos.x, 0) / units.length;
+              const cy = units.reduce((s, u) => s + u.pos.y, 0) / units.length;
+              this.cam.centerOn(cx, cy);
+            }
+            this.lastUnitClick = { id: -n as EntityId, at: now };
+          }
+        }
+      }
+      return;
+    }
     if (k === "escape") {
       if (this.attackMoveMode) this.attackMoveMode = false;
-      else if (this.buildMode) this.buildMode = null;
+      else if (this.buildMode) { this.buildMode = null; this.wallStart = null; }
       else {
         const b = this.selectedBuildings()[0];
         if (b && !b.complete) this.issue({ type: "cancelBuild", player: this.player, building: b.id });
+        else if (b?.research && b.owner === this.player) this.issue({ type: "cancelResearch", player: this.player, building: b.id });
         else this.selected.clear();
       }
       return;
@@ -1079,6 +1621,16 @@ export class Game {
       else this.toast(btn.tooltip);
       return;
     }
+    // Buttons only the on-screen card has (wall and gate upgrades, tower Release, Dragonbane).
+    if (!e.ctrlKey && !e.metaKey) {
+      const card = commandSets(this.world, this.player, this.selectedUnits(), this.selectedBuildings()).byTab[this.tab] ?? [];
+      const entry = card.find((c) => c.hotkey.toLowerCase() === k);
+      if (entry) {
+        if (entry.enabled) this.runAction(entry.action);
+        else this.toast(entry.description);
+        return;
+      }
+    }
     // Quick build hotkeys even when the card doesn't show (e.g. no worker selected → message).
     if (BUILD_MENU.some((id) => BUILDINGS[id]!.hotkey.toLowerCase() === k) && this.selectedUnits().length === 0) {
       this.toast("Select a Worker first");
@@ -1087,6 +1639,42 @@ export class Game {
   }
 
   // ───────────────────────────── menu ─────────────────────────────
+
+  private async saveGame(): Promise<void> {
+    if (this.realm) { await this.storeLedger(); this.toast("The realm is saved on this computer too", "info"); return; }
+    if (this.menu || this.saving) return;
+    this.saving=true;
+    try {
+      const setup=this.setup ? {...this.setup} : null;
+      if (setup) { delete setup.resume; delete setup.resumeHostPlayer; }
+      const json=encodeSave({version:1,world:this.world,map:this.map,player:this.player,multiplayer:!!this.transport,setup,difficulty:this.difficulty,ai:this.ai?.saveState()??null,camera:{x:this.cam.x,y:this.cam.y,zoom:this.cam.zoom},selected:[...this.selected]});
+      const packed=await packSave(json);
+      if (this.transport && packed.length>900000) throw new Error('This multiplayer save is too large to share.');
+      storeSave(packed);
+      this.front.saveAvailable=true;
+      this.toast('Game saved in this browser. Use Load Saved Game on the main menu.','info');
+    } catch (error) {
+      this.toast(error instanceof Error ? 'Could not save: '+error.message : 'Could not save. Browser storage may be full or unavailable.');
+    } finally { this.saving=false; }
+  }
+
+  private async loadGame(): Promise<void> {
+    if (this.loadingSave || !this.menu) return;
+    this.loadingSave=true;
+    try {
+      const packed=readSave(), saved=await unpackSave(packed);
+      if (saved.multiplayer) {
+        if (!saved.setup) throw new Error('The multiplayer setup is missing.');
+        void this.openRoom({...saved.setup,resume:packed,resumeHostPlayer:saved.player});
+      } else {
+        this.closeRoom();
+        this.pendingSave=saved; this.player=saved.player; this.setup=saved.setup;
+        this.start(saved.difficulty);
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? 'Could not load: '+error.message : 'Could not load this saved game.');
+    } finally { this.loadingSave=false; }
+  }
 
   private drawMenu(): void {
     const ctx = this.canvas.getContext("2d")!;
@@ -1107,10 +1695,20 @@ export class Game {
    */
   private runFront(a: FrontAction): void {
     switch (a.kind) {
+      case "loadSave":
+        void this.loadGame();
+        break;
+      case "wars":
+        this.openWars();
+        break;
       case "begin":
+        void this.enterRealm();
+        break;
+      case "skirmish":
         this.start(this.difficulty);
         break;
       case "pane":
+        if ((this.front.pane === 'host' || this.front.pane === 'join') && a.pane !== this.front.pane) this.closeRoom();
         this.front.pane = a.pane;
         this.front.cursor = 0;
         this.front.scroll = 0;
@@ -1131,7 +1729,11 @@ export class Game {
         this.settingsPanel?.toggle();
         break;
       case "host":
-        void this.openRoom();
+        this.createPanel ??= createGamePanel(setup => { void this.openRoom(setup); });
+        this.createPanel.open();
+        break;
+      case "startRoom":
+        this.startHostedGame?.();
         break;
       case "join":
         void this.knock();
@@ -1167,39 +1769,279 @@ export class Game {
     };
   }
 
-  /** Open a room and wait for a friend to walk in. */
-  private async openRoom(): Promise<void> {
-    this.front.pane = "host";
-    this.front.cursor = 0;
-    this.front.net = { code: "", typed: "", status: "Opening a room…", busy: true };
+  /**
+   * New Campaign: walk into the shared realm.
+   *
+   * If somebody is already there, this machine is handed a copy of their
+   * world and a seat in it. If nobody is, it picks the realm up from its own
+   * saved copy -- or, the very first time, founds a new one.
+   */
+  private async enterRealm(): Promise<void> {
+    this.war = null;
+    this.warsBox?.remove(); this.warsBox = null;
+    if (this.realm) return;
+    this.closeRoom();
+    this.transport = null;
+    this.setup = null;
+    this.front.net = { code: "", typed: "", status: "Looking for the realm…", busy: true };
+    const realm = new RealmNet({
+      snapshot: () => {
+        const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] });
+        return packSave(json);
+      },
+      load: async (packed, _n) => {
+        const saved = await unpackSave(packed);
+        const mine = saved.world.realmSeats.get(realm.seat);
+        this.installRealmWorld(saved.world, saved.map, mine);
+      },
+      checksum: () => this.world.checksum(),
+      claim: (seat) => { this.world.claimSeat(seat); },
+      status: (text) => { this.realmNote = text; this.toast(text, "info"); },
+    });
+    this.realm = realm;
+    this.realmNote = "Looking for the realm…";
+    const how = await realm.connect();
+    if (this.realm !== realm) return;
+    if (how === "joining") {
+      // Stay on the front screen until the copy arrives; load() takes it from there.
+      this.front.net.status = "Entering the realm…";
+      return;
+    }
+    // Alone: our own copy of the realm, or a brand new one.
+    let world: World | null = null;
+    let map: MapDef | null = null;
     try {
-      const room = await hostRoom(this.proposal(), (e) => {
-        if (e.kind === "waiting") {
-          this.front.net.code = e.code;
-          this.front.net.status = "Waiting for your friend to join.";
-        }
-      });
-      this.beginNetworkMatch(room);
-    } catch (err) {
-      this.front.net = { code: "", typed: "", status: err instanceof Error ? err.message : "Could not open a room.", busy: false };
-      this.front.pane = "multiplayer";
-      this.front.cursor = 0;
+      const packed = localStorage.getItem(REALM_LEDGER);
+      if (packed) { const saved = await unpackSave(packed); world = saved.world; map = saved.map; }
+    } catch { world = null; }
+    if (!world || !world.realm) {
+      map = this.chooseMap();
+      world = this.buildRealmWorld(map);
+    }
+    const mine = world.claimSeat(realm.seat) ?? undefined;
+    this.installRealmWorld(world, map!, mine);
+    if (how === "offline") this.toast("Could not reach the realm — playing your own copy for now", "info");
+  }
+
+  /** A fresh realm: a big map, its wildlife, and nobody in it yet. */
+  private buildRealmWorld(def: MapDef): World {
+    const n = Math.max(def.size ?? 64, 128);
+    const w = new World(n, n, def.seed, def.kind, 1, false);
+    w.realm = true;
+    w.addPlayer(WILD, Faction.Human, "#8a6b3f");
+    w.spawnWildlife(Math.round(9 * ((n * n) / (64 * 64))));
+    // Swords all over the realm, for anyone who arrives without a King.
+    w.scatterSwords(Math.max(10, Math.round((n * n) / 1600)));
+    w.updateVision(true);
+    return w;
+  }
+
+  /** Put a realm world on screen as this player's. */
+  private installRealmWorld(world: World, map: MapDef, player: PlayerId | undefined): void {
+    this.player = player ?? this.player;
+    this.pendingSave = { version: 1, world, map, player: -1, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] };
+    this.start("none");
+    this.realmSavedAt = performance.now();
+    const hall = this.world.buildings().find((b) => b.owner === this.player && b.def === "townhall");
+    const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal) ?? this.world.units().find((u) => u.owner === this.player);
+    if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
+    else if (king) this.cam.centerOn(king.pos.x, king.pos.y);
+    if (this.world.relicFor(this.player)) {
+      this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
+      this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Find it, and be crowned.", 8000);
+      this.tellSwordLegend();
+    }
+    this.selected = new Set(this.world.units().filter((u) => u.owner === this.player && u.def === "worker").map((u) => u.id));
+    this.fallenShown = false;
+    if (this.world.buildings().some((b) => b.owner === this.player)) {
+      this.showChoice("WELCOME BACK", "Your kingdom stands as you left it. Carry on where you were, or abandon it and start again somewhere new?", [
+        { label: "Continue", primary: true, act: () => {} },
+        { label: "Start again", act: () => this.startAgain() },
+      ]);
     }
   }
 
-  /** Knock on somebody else's room. */
-  private async knock(): Promise<void> {
-    const code = this.front.net.typed;
-    if (code.length !== 4) return;
-    this.front.net.status = `Knocking on ${code}…`;
-    this.front.net.busy = true;
-    try {
-      const room = await joinRoom(code, () => {});
-      this.beginNetworkMatch(room);
-    } catch (err) {
-      this.front.net.status = err instanceof Error ? err.message : "Could not join.";
-      this.front.net.busy = false;
+  /** Every second in the realm: has our kingdom fallen, and has a new camp arrived to look at? */
+  private watchRealmSeat(): void {
+    if (this.recenterOnKing) {
+      const king = this.world.units().find((u) => u.owner === this.player);
+      if (king) {
+        this.recenterOnKing = false;
+        this.cam.centerOn(king.pos.x, king.pos.y);
+        this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
+        this.proclaim("A NEW BEGINNING", "One man, one weapon in the ground. Find it, and be crowned again.", 6000);
+      }
+      return;
     }
+    const alive = this.world.seatAlive(this.player);
+    if (alive) { this.fallenShown = false; return; }
+    if (this.fallenShown) return;
+    this.fallenShown = true;
+    this.showChoice("YOUR KINGDOM HAS FALLEN", "Nothing of yours still stands. Gather what you can and start again as a new camp somewhere in the realm.", [
+      { label: "Start again", primary: true, act: () => this.startAgain() },
+    ]);
+  }
+
+  private startAgain(): void {
+    this.issue({ type: "restartSeat", player: this.player });
+    this.recenterOnKing = true;
+    this.selected.clear();
+    this.tellSwordLegend();
+  }
+
+  /** "There is a great legend of a sword in this area" -- once the sounds are ready. */
+  private tellSwordLegend(tries = 0): void {
+    if (!this.audio.ready && tries < 20) { setTimeout(() => this.tellSwordLegend(tries + 1), 500); return; }
+    setTimeout(() => this.audio.play("swordLegend"), 1200);
+  }
+
+  // ───────────────────────────── Wars ─────────────────────────────
+
+  /** The campaign map: ten chapters of ten battles, locked until the one before is won. */
+  private openWars(): void {
+    this.warsBox?.remove();
+    this.warsBox=createWarAtlas(loadWarProgress(),b=>this.briefBattle(b),()=>{this.warsBox=null;});
+    document.body.append(this.warsBox);
+  }
+
+  private briefBattle(b: Battle): void {
+    const name = (def: string) => BUILDINGS[def]?.name ?? UNITS[def]?.name ?? def;
+    const goals = b.goals.map((g) => "• " + describeGoal(g, name)).join("\n");
+    this.showChoice(`BATTLE ${b.id} — ${b.title}`, `${b.story}\n\n${goals}\n\nNothing above level ${b.cap}. Par ${Math.round(b.par / 60)} minutes for three stars.`, [
+      { label: "Back", act: () => {} },
+      { label: "To Battle", primary: true, act: () => this.startBattle(b) },
+    ]);
+  }
+
+  private startBattle(b: Battle): void {
+    this.warsBox?.remove(); this.warsBox = null;
+    this.choiceBox?.remove(); this.choiceBox = null;
+    if (this.realm) { void this.storeLedger(); this.realm.close(); this.realm = null; }
+    this.player = 1;
+    this.setup = null;
+    const world = buildBattleWorld(b, settings.pace);
+    const map: MapDef = { id: `wars-${b.id}`, name: b.title, kind: "plains", seed: b.seed, size: world.map.width, open: 0.6 };
+    this.pendingSave = { version: 1, world, map, player: -1, multiplayer: false, setup: null, difficulty: b.enemy ?? "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] };
+    this.start(b.enemy ?? "none");
+    this.war = { b, startTick: this.world.tick, sent: new Set(), over: false };
+    const hall = this.world.buildings().find((x) => x.owner === 1 && x.def === "townhall");
+    if (hall) this.cam.centerOn((hall.tx + 2) * SUB, (hall.ty + 2) * SUB);
+    this.selected = new Set(this.world.units().filter((u) => u.owner === 1 && u.def === "worker").map((u) => u.id));
+    this.proclaim(`BATTLE ${b.id}`, b.title, 4000);
+  }
+
+  /** Scripted raids, then the verdict: every goal met, or the town lost, or out of time. */
+  private stepWar(): void {
+    const w = this.war;
+    if (!w || w.over || this.world.tick % 10 !== 0) return;
+    const secs = (this.world.tick - w.startTick) / TICKS_PER_SECOND;
+    (w.b.raids ?? []).forEach((r, i) => {
+      if (w.sent.has(i) || secs < r.at) return;
+      w.sent.add(i);
+      this.world.summonHorde(1, r.role ?? "raid", r.defs, r.shout);
+    });
+    const raidsLeft = (w.b.raids ?? []).length - w.sent.size;
+    const won = w.b.goals.every((g) => goalState(this.world, this.player, g, secs, raidsLeft).done);
+    const lost = !this.world.seatAlive(1) || (w.b.timeLimit !== undefined && secs > w.b.timeLimit);
+    if (!won && !lost) return;
+    w.over = true;
+    const b = w.b;
+    const next = battleById(b.id + 1);
+    if (won) {
+      const stars = starsFor(b, secs);
+      saveWarResult(b.id, stars);
+      this.audio.play("crown", 0.8);
+      const time = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}`;
+      this.showChoice(`VICTORY  ${"★".repeat(stars)}${"☆".repeat(3 - stars)}`, `${b.title} won in ${time}.${stars < 3 ? ` Beat ${Math.round(b.par / 60)} minutes for three stars.` : ""}`, [
+        { label: "Wars", act: () => this.leaveBattle(true) },
+        ...(next ? [{ label: `Battle ${next.id}`, primary: true, act: () => this.startBattle(next) }] : []),
+      ]);
+    } else {
+      this.showChoice("DEFEAT", w.b.timeLimit !== undefined && secs > w.b.timeLimit ? "Out of time." : "Your town has fallen.", [
+        { label: "Wars", act: () => this.leaveBattle(true) },
+        { label: "Try Again", primary: true, act: () => this.startBattle(b) },
+      ]);
+    }
+  }
+
+  private leaveBattle(toMap: boolean): void {
+    this.war = null;
+    this.selected.clear();
+    this.buildMode = null; this.wallStart = null;
+    this.menu = true;
+    if (toMap) this.openWars();
+  }
+
+  /** A small centred choice over the map: a title, a line, and a few buttons. */
+  private showChoice(title: string, line: string, buttons: Array<{ label: string; primary?: boolean; act: () => void }>): void {
+    this.choiceBox?.remove();
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:50;min-width:340px;max-width:520px;padding:26px 30px 22px;background:rgba(12,12,14,0.96);border:1px solid #b89a52;box-shadow:0 12px 40px rgba(0,0,0,.7);color:#e9e2cf;font-family:Georgia,serif;text-align:center";
+    const h = document.createElement("div");
+    h.textContent = title;
+    h.style.cssText = "font-size:24px;letter-spacing:.08em;color:#e8c56b;margin-bottom:10px";
+    const p = document.createElement("div");
+    p.textContent = line;
+    p.style.cssText = "font-size:15px;line-height:1.45;color:#cfc6b0;margin-bottom:20px;white-space:pre-line";
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;justify-content:center";
+    for (const b of buttons) {
+      const btn = document.createElement("button");
+      btn.textContent = b.label;
+      btn.style.cssText = `padding:9px 22px;font:600 14px Georgia,serif;letter-spacing:.06em;cursor:pointer;border:1px solid #b89a52;${b.primary ? "background:#b89a52;color:#15120c" : "background:transparent;color:#e8c56b"}`;
+      btn.onclick = () => { box.remove(); if (this.choiceBox === box) this.choiceBox = null; b.act(); };
+      row.appendChild(btn);
+    }
+    box.append(h, p, row);
+    document.body.appendChild(box);
+    this.choiceBox = box;
+  }
+
+  /** Keep this computer's copy of the realm: the ledger it resumes from when alone. */
+  private async storeLedger(): Promise<void> {
+    if (!this.realm || this.menu) return;
+    try {
+      const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: this.cam.x, y: this.cam.y, zoom: this.cam.zoom }, selected: [] });
+      localStorage.setItem(REALM_LEDGER, await packSave(json));
+    } catch {
+      /* storage full or blocked: the realm lives on in everyone else's copy */
+    }
+  }
+
+  /** Open a room and wait for a friend to walk in. */
+  private async openRoom(setup: MatchSetup = this.proposal()): Promise<void> {
+    this.closeRoom();
+    const pending=new AbortController();this.pendingRoom=pending;
+    this.front.pane='host';this.front.cursor=0;
+    this.front.net={code:'',typed:'',status:'Opening your room…',busy:true};
+    try {
+      const room=await hostRoom(setup,e=>{
+        if(pending.signal.aborted)return;
+        if(e.kind==='waiting'){this.front.net.code=e.code;this.front.net.status=(MAP_BY_ID.get(setup.mapId)?.name??setup.mapId)+(setup.mode==='coop'?' · Co-op vs AI':' · Versus')+' · Waiting for player 2.';}
+        if(e.kind==='ready'){this.startHostedGame=e.start;this.front.net.ready=true;this.front.net.status='2 / 2 players · Your friend is ready. Start when you are.';this.front.cursor=0;}
+        if(e.kind==='peerLeft'){this.startHostedGame=null;this.front.net.ready=false;this.front.net.status='Your friend left. Waiting for player 2.';}
+      },pending.signal);
+      if(pending.signal.aborted){room.transport.close();return;}
+      this.pendingRoom=null;this.startHostedGame=null;this.beginNetworkMatch(room);
+    }catch(err){
+      if(pending.signal.aborted)return;
+      this.pendingRoom=null;this.front.net={code:'',typed:'',status:err instanceof Error?err.message:'Could not open a room.',busy:false};this.front.pane='multiplayer';this.front.cursor=0;
+    }
+  }
+
+  private async knock(): Promise<void> {
+    const code=this.front.net.typed;
+    if(code.length!==4||this.front.net.busy)return;
+    const pending=new AbortController();this.pendingRoom=pending;
+    this.front.net.status='Joining '+code+'…';this.front.net.busy=true;
+    try{
+      const room=await joinRoom(code,e=>{
+        if(pending.signal.aborted)return;
+        if(e.kind==='lobby')this.front.net.status=(MAP_BY_ID.get(e.setup.mapId)?.name??e.setup.mapId)+(e.setup.mode==='coop'?' · Co-op vs AI':' · Versus')+' · You are ready. Waiting for the host to start.';
+      },pending.signal);
+      if(pending.signal.aborted){room.transport.close();return;}
+      this.pendingRoom=null;this.beginNetworkMatch(room);
+    }catch(err){if(pending.signal.aborted)return;this.pendingRoom=null;this.front.net.status=err instanceof Error?err.message:'Could not join.';this.front.net.busy=false;}
   }
 
   /**
@@ -1209,16 +2051,29 @@ export class Game {
    * because start() is what builds the world and every one of them changes what
    * it builds.
    */
-  private beginNetworkMatch(room: Room): void {
+  private async beginNetworkMatch(room: Room): Promise<void> {
+    this.room=room;
+    if (room.setup.resume) {
+      try {
+        const saved=await unpackSave(room.setup.resume);
+        if (this.room!==room) return;
+        this.pendingSave=saved;
+      }
+      catch { room.transport.close(); this.room=null; this.front.net.status="Could not load this multiplayer save. Please create a new room."; return; }
+    }
     this.room = room;
     this.transport = room.transport;
     this.setup = room.setup;
-    this.player = room.slot === 0 ? 1 : 2;
+    const hostPlayer = room.setup.resumeHostPlayer ?? 1;
+    this.player = room.slot === 0 ? hostPlayer : 3-hostPlayer;
     this.front.net.status = "";
-    this.start("none");
+    this.start(this.pendingSave?.difficulty ?? "none");
   }
 
   private closeRoom(): void {
+    this.pendingRoom?.abort();
+    this.pendingRoom=null;
+    this.startHostedGame=null;
     this.room?.transport.close();
     this.room = null;
     this.transport = null;
@@ -1252,6 +2107,7 @@ export class Game {
     const selUnits = this.selectedUnits();
     const selBuildings = this.selectedBuildings();
     this.renderer.draw(alpha, this.selected, this.ghost(), this.drag, this.canvas.height);
+    this.drawCommandMarkers(ctx);
     // Rally point for a selected building.
     for (const b of selBuildings) {
       if (!b.rally) continue;
@@ -1317,6 +2173,31 @@ export class Game {
    * allowed to be bigger than the game. It fades in and out at the edges so it
    * arrives and leaves rather than blinking.
    */
+  private drawCommandMarkers(ctx: CanvasRenderingContext2D): void {
+    const now = performance.now();
+    this.commandMarkers = this.commandMarkers.filter((m) => now - m.at < 650);
+    for (const m of this.commandMarkers) {
+      const age = now - m.at;
+      const t = age / 650;
+      const p = this.cam.toScreen(m.x, m.y);
+      const radius = 7 + t * 13;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.strokeStyle = m.kind === "attack" ? "#ff5b5b" : m.kind === "gather" ? "#e7c75a" : m.kind === "repair" ? "#75e6b1" : "#74b9ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x - radius * 0.55, p.y);
+      ctx.lineTo(p.x + radius * 0.55, p.y);
+      ctx.moveTo(p.x, p.y - radius * 0.55);
+      ctx.lineTo(p.x, p.y + radius * 0.55);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   private drawCrowning(ctx: CanvasRenderingContext2D): void {
     const c = this.crowningAt;
     if (!c) return;
@@ -1325,15 +2206,14 @@ export class Game {
       this.crowningAt = null;
       return;
     }
-    const frames = [crowning0, crowning1, crowning2, crowning3];
-    const i = Math.min(frames.length - 1, Math.floor((t / CROWNING_MS) * frames.length));
-    const img = spriteImage(frames[i]!);
-    if (!img) return;
-    const p = this.cam.toScreen(c.x, c.y);
+    if (!settings.animations) return;
+    const king = this.world.units().find((u) => u.owner === this.player && u.def === "king");
+    if (!king) return;
+    const p = this.cam.toScreen(king.pos.x, king.pos.y);
     const s = this.cam.zoom;
-    const h = s * 4.2;
-    const w = (img.naturalWidth / img.naturalHeight) * h;
-    const fade = Math.min(1, t / 220) * Math.min(1, (CROWNING_MS - t) / 420);
+    const h = s * 1.65;
+    const progress = Math.max(0, Math.min(1, t / CROWNING_MS));
+    const fade = Math.sin(progress * Math.PI) ** 2;
     ctx.save();
     ctx.globalAlpha = fade;
     // A wash of gold under it, so it lifts off whatever ground it happens on.
@@ -1342,7 +2222,22 @@ export class Game {
     glow.addColorStop(1, "rgba(255,228,150,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(p.x - h, p.y - h, h * 2, h * 2);
-    ctx.drawImage(img, p.x - w / 2, p.y - h * 0.86, w, h);
+    // Celebrate the actual unit instead of overlaying a giant second person.
+    ctx.strokeStyle = "#f6d98b";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + s * 0.5, s * (0.4 + progress * 0.65), s * (0.16 + progress * 0.2), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 10; i++) {
+      const angle = i * Math.PI * 0.2 + progress * 0.6;
+      const radius = s * (0.25 + progress * 0.45);
+      const x = p.x + Math.cos(angle) * radius;
+      const y = p.y + s * 0.3 - progress * h + Math.sin(angle) * s * 0.15;
+      ctx.fillStyle = "#fff0bc";
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1, s * 0.025), 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -1402,8 +2297,12 @@ export class Game {
     if (selUnits.length > 0) {
       const u = selUnits[0]!;
       const def = UNITS[u.def]!;
-      const name = selUnits.length > 1 ? `${selUnits.length} selected` : unitName(u.def, p.faction).toUpperCase();
-      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others` : `${def.royal ? "Hero" : "Unit"} · ${describeTask(u)}`;
+      const personal = p.faction === "human" && (u.def === "worker" || def.royal);
+      const name = selUnits.length > 1 ? `${selUnits.length} selected` : personal
+        ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${personName(u)}`.toUpperCase()
+        : unitName(u.def, p.faction).toUpperCase();
+      const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others`
+        : `${unitName(u.def, p.faction)} · ${u.hp < u.maxHp * 0.35 ? "Badly wounded · " : ""}${describeTask(u)}`;
       // The roster is capped: past a couple of dozen faces the panel is a wall
       // of thumbnails and the count in the heading is the useful number.
       const members =
@@ -1412,7 +2311,8 @@ export class Game {
               portrait: portraitArt(m.def),
               hp: m.hp,
               maxHp: m.maxHp,
-              name: unitName(m.def, p.faction),
+              name: p.faction === "human" && (m.def === "worker" || UNITS[m.def]!.royal)
+                ? `${personName(m)} · ${unitName(m.def, p.faction)}` : unitName(m.def, p.faction),
             }))
           : [];
       selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members };
@@ -1420,18 +2320,24 @@ export class Game {
       const d = BUILDINGS[b.def]!;
       selection = {
         name: buildingName(b.def, p.faction).toUpperCase(),
-        sub: b.complete ? "Structure" : "Under construction",
+        sub: !b.complete ? "Under construction" : b.def === "wall" || b.def === "gate" ? `${WALL_TIERS[this.world.wallLevel(b.owner) - 1]} · Level ${this.world.wallLevel(b.owner)}` : b.def === "tower" ? `Level ${b.level} · ${towerArchers(b.level)} archers + ${b.garrison?.length ?? 0}/${towerGarrisonCap(b.level)} yours` : LEVELLED[b.def] ? `${levelDef(b.def, b.level).name} · Level ${b.level}` : "Structure",
         hp: b.hp,
         maxHp: b.maxHp,
-        portrait: null,
+        portrait: commandArt({ type: "upgrade" } as never, { ...b, level: b.level - 1, upgrade: null } as never, p.faction),
         members: [],
       };
       if (!b.complete) {
         production = { name: buildingName(b.def, p.faction), progress: b.progress / d.buildTime, eta: eta((d.buildTime - b.progress) / TICKS_PER_SECOND) };
+      } else if (b.research) {
+        const r = b.research;
+        production = { name: `${UPGRADES[r.id]!.name} ${r.toLevel}`, progress: 1 - r.remaining / Math.max(1, r.total), eta: eta(r.remaining / TICKS_PER_SECOND) };
       } else if (b.queue.length > 0) {
         const q = b.queue[0]!;
         const u = UNITS[q.unit]!;
-        production = { name: unitName(q.unit, p.faction), progress: 1 - q.remaining / Math.max(1, q.total), eta: eta(q.remaining / TICKS_PER_SECOND) };
+        const more = b.queue.length > 1 ? ` (+${b.queue.length - 1} in line)` : "";
+        production = q.paid === false
+          ? { name: unitName(q.unit, p.faction) + more, progress: 0, eta: "waiting for " + (this.world.lacking(this.player, u.cost).replace(/^Not enough( — need)?\s*/i, "") || "resources") }
+          : { name: unitName(q.unit, p.faction) + more, progress: 1 - q.remaining / Math.max(1, q.total), eta: eta(q.remaining / TICKS_PER_SECOND) };
       }
     }
 
@@ -1439,11 +2345,19 @@ export class Game {
     const msg = this.message && performance.now() < this.message.until ? this.message.text : null;
     const mode = this.buildMode ? `Placing ${buildingName(this.buildMode, p.faction)} — click to place, right-click to cancel` : null;
     const site = this.world.buildings().find((x) => x.owner === this.player && !x.complete);
-    const banner = mode ?? msg ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
+    const alert = this.message && performance.now() < this.message.until ? { text: this.message.text, level: this.message.level } : null;
+    const banner = mode ?? (site ? `${buildingName(site.def, p.faction)} under construction — ${Math.round((site.progress / BUILDINGS[site.def]!.buildTime) * 100)}%` : null);
 
-    const relic = this.world.relics.find((r) => r.owner === this.player && !r.taken);
+    const relic = this.world.relicFor(this.player);
     let objective: { title: string; line: string } | null = null;
-    if (relic && this.world.winner === null) {
+    if (this.war) {
+      const w = this.war;
+      const secs = (this.world.tick - w.startTick) / TICKS_PER_SECOND;
+      const raidsLeft = (w.b.raids ?? []).length - w.sent.size;
+      const parts = w.b.goals.map((g) => { const st = goalState(this.world, this.player, g, secs, raidsLeft); return `${st.done ? "✓" : "○"} ${st.text}`; });
+      objective = { title: `BATTLE ${w.b.id} — ${w.b.title.toUpperCase()}`, line: parts.join("   ") };
+    }
+    if (!this.war && relic && this.world.winner === null) {
       const man = selUnits[0] ?? this.world.units().find((u) => u.owner === this.player) ?? null;
       const weapon = WEAPON_OF[p.faction].name;
       if (man) {
@@ -1451,7 +2365,7 @@ export class Game {
         const dy = relic.y + 0.5 - man.pos.y / SUB;
         objective = {
           title: `FIND YOUR ${weapon.toUpperCase()}`,
-          line: `No king, no hall — until he takes it up. It lies ${Math.round(Math.hypot(dx, dy))} paces to the ${compass(dx, dy)}.`,
+          line: `No king, no hall — until one of your people takes up a sword. ${relic.owner === 0 ? "The nearest" : "It"} lies ${Math.round(Math.hypot(dx, dy))} paces to the ${compass(dx, dy)}.`,
         };
       }
     }
@@ -1463,6 +2377,11 @@ export class Game {
     // advancing looks exactly like a game that has crashed unless it says
     // otherwise, so it says otherwise.
     let netBanner: string | null = null;
+    if (this.realm) {
+      const st = this.realm.state(performance.now());
+      if (st.kind === "joining") netBanner = "Re-syncing with the realm…";
+      else if (st.kind === "stalled" && st.ms > 1500) netBanner = `Waiting for the realm — ${(st.ms / 1000).toFixed(0)}s`;
+    }
     if (this.transport) {
       const st = this.net.state(performance.now());
       if (st.kind === "stalled" && st.ms > 350) netBanner = `Waiting for the other player — ${(st.ms / 1000).toFixed(1)}s`;
@@ -1488,8 +2407,9 @@ export class Game {
       production,
       tabs: sets.tabs,
       activeTab: this.tab,
-      commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action) })) as ShellCommand[],
+      commands: (sets.byTab[this.tab] ?? []).map((c) => ({ ...c, art: commandArt(c.action, b, p.faction) })) as ShellCommand[],
       banner: netBanner ?? (objective || !banner ? null : banner),
+      alert,
       objective,
       proclaim: bn ? { title: bn.title, line: bn.line } : null,
       mapName: this.map.name,

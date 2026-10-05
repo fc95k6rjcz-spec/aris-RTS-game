@@ -83,4 +83,8 @@ export interface Player {
   research: Record<string, number>;
   /** Colour used purely by the renderer. */
   color: string;
+  /** How fast this clan is eating through its stores: 1, rising each minute it has no farm. */
+  hunger?: number;
+  /** Food eaten but not yet taken off the whole-number store. */
+  appetite?: number;
 }

@@ -2,8 +2,9 @@ import { BUILDINGS, BUILD_ADVANCED, BUILD_BASIC, BUILD_MENU, buildingName } from
 import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
 import { LEVELLED, levelDef } from "../data/levels";
+import { DRAGONBANE_COST, WALL_ARCHER_TIER, WALL_TIERS, wallTierCost } from "../sim/world";
 import type { Building, Unit } from "../sim/entities";
-import type { World } from "../sim/world";
+import { ROYAL_LICENCE, type World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
 import { buildingIcon } from "../render/sprites";
 import { WEAPON_OF } from "../sim/relic";
@@ -102,14 +103,18 @@ export interface HudButton {
     | { type: "train"; def: string }
     | { type: "cancelBuild" }
     | { type: "stop" }
+    | { type: "battleRally" }
     | { type: "cancelTrain"; index: number }
     | { type: "upgrade" }
+    | { type: "upgradeWalls" }
     | { type: "cancelUpgrade" }
     | { type: "page"; page: MenuPage }
     | { type: "research"; id: string }
     | { type: "cancelResearch" }
     | { type: "attack" }
-    | { type: "harvest" };
+    | { type: "harvest" }
+    | { type: "ungarrison" }
+    | { type: "dragonbane" };
 }
 
 /** Which page of the build menu a worker's command card is showing. */
@@ -152,7 +157,8 @@ export function layoutButtons(world: World, player: PlayerId, selUnits: Unit[], 
     const list = page === "advanced" ? BUILD_ADVANCED : BUILD_BASIC;
     list.forEach((id, i) => {
       const d = BUILDINGS[id]!;
-      const missing = d.requires.find((r) => !world.hasBuilding(player, r));
+      const royal = builders.some(u => !!UNITS[u.def]!.royal);
+        const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
       const afford = world.canAfford(player, d.cost);
       const nm = buildingName(id, world.players.get(player)!.faction);
       const tip = `${nm} — ${cost(d.cost)} · ${d.description}${missing ? ` (requires ${buildingName(missing, world.players.get(player)!.faction)})` : ""}`;
@@ -318,11 +324,12 @@ export function drawHud(
       ctx.fillStyle = "#dfe6ea";
       ctx.fillText("Queue:", px, y0 + 84);
       b.queue.forEach((j, i) => {
-        const qx = px + 56 + i * 64;
-        ctx.fillStyle = "#1e242b";
-        ctx.fillRect(qx, y0 + 80, 58, 24);
+        const step = b.queue.length > 5 ? 34 : 64, cw = step - 6;
+        const qx = px + 56 + i * step;
+        ctx.fillStyle = j.paid === false ? "#2b2320" : "#1e242b";
+        ctx.fillRect(qx, y0 + 80, cw, 24);
         ctx.fillStyle = "#5ab0ff";
-        ctx.fillRect(qx, y0 + 80, 58 * (i === 0 ? 1 - j.remaining / j.total : 0), 24);
+        ctx.fillRect(qx, y0 + 80, cw * (i === 0 && j.paid !== false ? 1 - j.remaining / j.total : 0), 24);
         ctx.fillStyle = "#fff";
         ctx.font = "11px system-ui, sans-serif";
         ctx.fillText(unitName(j.unit, faction), qx + 4, y0 + 86);
@@ -422,7 +429,7 @@ export function drawHud(
 
   // Match over.
   if (world.winner !== null) {
-    const won = world.winner === player;
+    const won = world.allied(world.winner, player);
     ctx.font = "bold 34px Georgia, serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -543,6 +550,8 @@ function drawObjective(ctx: CanvasRenderingContext2D, world: World, player: Play
 export interface CommandEntry {
   label: string;
   cost: string | null;
+  /** What the player is short of, e.g. "Need 120 gold · 40 wood", or undefined when affordable. */
+  need?: string;
   hotkey: string;
   enabled: boolean;
   description: string;
@@ -569,9 +578,26 @@ function costLine(c: { gold: number; lumber: number; oil?: number; food?: number
  * thirteen-button wall is gone and every tile can afford to carry its cost and
  * its key without shrinking to an illegible square.
  */
+/** "Need 120 gold · 40 wood" for whatever the player is short of, or undefined. */
+export function shortfall(world: World, player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): string | undefined {
+  const p = world.players.get(player);
+  if (!p) return undefined;
+  const parts: string[] = [];
+  if (p.gold < cost.gold) parts.push(`${cost.gold - Math.floor(p.gold)} gold`);
+  if (p.lumber < cost.lumber) parts.push(`${cost.lumber - Math.floor(p.lumber)} wood`);
+  if (p.oil < (cost.oil ?? 0)) parts.push(`${(cost.oil ?? 0) - Math.floor(p.oil)} oil`);
+  if (p.food < (cost.food ?? 0)) parts.push(`${(cost.food ?? 0) - Math.floor(p.food)} food`);
+  return parts.length ? `Need ${parts.join(" · ")}` : undefined;
+}
+
 export function commandSets(world: World, player: PlayerId, selUnits: Unit[], selBuildings: Building[]): CommandSets {
   const faction = world.players.get(player)!.faction;
   const orders: CommandEntry[] = [];
+  const king = selUnits.find(u => u.def === "king" && u.owner === player);
+  if (king) {
+    const left = Math.max(0, Math.ceil(((king.rallyReadyAt ?? 0) - world.tick) / 20));
+    orders.push({ label: left ? 'Rally (' + left + 's)' : "Rally the Men", cost: null, hotkey: "R", enabled: !left, description: "Nearby allied troops grow 20% larger, recover 25% of maximum health, and gain 50% damage and 3 armour for 12 seconds. Range: 6 tiles. Cooldown: 60 seconds. Does not stack.", action: { type: "battleRally" } });
+  }
   const builders = selUnits.filter((u) => UNITS[u.def]!.canBuild);
 
   if (selUnits.length > 0) {
@@ -586,19 +612,23 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
 
   if (builders.length > 0) {
     const list = (ids: readonly string[]): CommandEntry[] =>
-      ids.map((id) => {
+      ids.filter((id) => !world.allowed || world.allowed.includes(id)).map((id) => {
         const d = BUILDINGS[id]!;
-        const missing = d.requires.find((r) => !world.hasBuilding(player, r));
-        const afford = world.canAfford(player, d.cost);
+        const royal = builders.some(u => !!UNITS[u.def]!.royal);
+        const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
+        const price = world.buildCost(player, id);
+        const afford = world.canAfford(player, price);
         const nm = buildingName(id, faction);
+        const need = missing ? undefined : shortfall(world, player, price);
         const why = missing
           ? `Requires ${buildingName(missing, faction)}.`
-          : !afford
-            ? "Not enough resources yet."
+          : need
+            ? `${need} more to build this.`
             : "";
         return {
           label: nm,
-          cost: costLine(d.cost),
+          cost: price.gold === 0 && price.lumber === 0 && d.cost.gold > 0 ? "FREE" : costLine(price),
+          need,
           hotkey: d.hotkey,
           enabled: !missing && afford,
           description: `${d.description}${why ? " " + why : ""}`,
@@ -622,27 +652,72 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
     if (!b.complete) {
       out.push({ label: "Cancel", cost: null, hotkey: "Esc", enabled: true, description: "Cancel construction. Three quarters of the cost comes back.", action: { type: "cancelBuild" } });
     } else {
+      if (LEVELLED[b.def]) {
+        const table=LEVELLED[b.def]!;const next=table[b.level];
+        if(b.upgrade) out.push({label:"Cancel Upgrade",cost:null,hotkey:"U",enabled:true,description:"Cancel the current building upgrade.",action:{type:"cancelUpgrade"}});
+        else if(next) {
+          // Sell the next tier: its name on the tile, its picture behind it, and
+          // exactly what it brings in the description.
+          const cur=table[b.level-1]!;const gains:string[]=[];
+          if(next.hp>cur.hp)gains.push(`+${next.hp-cur.hp} health`);
+          if(next.supply>cur.supply)gains.push(`+${next.supply-cur.supply} supply`);
+          if(b.def==="tower")gains.push("+1 archer on the platform","longer range");
+          if((next.heal??0)>(cur.heal??0))gains.push("stronger healing");
+          if((next.radius??0)>(cur.radius??0)&&b.def!=="tower")gains.push("wider reach");
+          if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
+          if((next.oilPerSecond??0)>(cur.oilPerSecond??0))gains.push("more oil");
+          if((next.trainSpeed??0)>(cur.trainSpeed??0))gains.push("faster training");
+          const blocked=world.upgradeBlocked(player,b);
+          out.push({label:"Upgrade to "+next.name,cost:costLine(next.cost),need:blocked?undefined:shortfall(world,player,next.cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,next.cost)&&!b.research,description:`${blocked?blocked+". ":""}Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
+        }
+        else out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:"This building is fully upgraded.",action:{type:"upgrade"}});
+      } else if (b.def === "wall" || b.def === "gate") {
+        if (b.def === "wall" && (b.garrison?.length ?? 0) > 0) out.push({ label: `Release Archers (${b.garrison!.length})`, cost: null, hotkey: "R", enabled: true, description: "Bring your archers down off the wall.", action: { type: "ungarrison" } });
+        // One upgrade raises every wall and gate you own, and each tier doubles them.
+        const lv = world.wallLevel(player), next = lv + 1;
+        if (next > WALL_TIERS.length) out.push({label:"Maximum Level",cost:null,hotkey:"U",enabled:false,description:`${WALL_TIERS[lv-1]}: your walls are as strong as walls get.`,action:{type:"upgradeWalls"}});
+        else {
+          const cost = wallTierCost(next), blocked = world.wallUpgradeBlocked(player);
+          out.push({label:"Upgrade to "+WALL_TIERS[next-1],cost:costLine(cost),need:blocked?undefined:shortfall(world,player,cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,cost),description:`${blocked?blocked+". ":""}Raise every wall and gate you own from ${WALL_TIERS[lv-1]} to ${WALL_TIERS[next-1]} (level ${next}): twice as strong, and new walls are built that strong too.${next===WALL_ARCHER_TIER?" Adds a wall walk: right-click a wall with archers to put them on it.":""}`,action:{type:"upgradeWalls"}});
+        }
+      } else out.push({label:"No Upgrades",cost:null,hotkey:"",enabled:false,description:"This structure has no upgrade tiers.",action:{type:"upgrade"}});
+      if (b.def === "tower") {
+        out.push(b.dragonbane
+          ? { label: "Dragonbane ✓", cost: null, hotkey: "", enabled: false, description: "A great harpoon ballista stands on this tower. Dragons will not raid anything it covers, and one that strays into reach is driven off.", action: { type: "dragonbane" } }
+          : { label: "Dragonbane", cost: costLine(DRAGONBANE_COST), need: shortfall(world, player, DRAGONBANE_COST), hotkey: "D", enabled: world.canAfford(player, DRAGONBANE_COST), description: "Mount a great harpoon ballista on top. Dragons hate it: they will not raid a town it covers, and one that comes within reach is driven off.", action: { type: "dragonbane" } });
+        const n = b.garrison?.length ?? 0;
+        out.push({ label: n ? `Release Archers (${n})` : "Garrison", cost: null, hotkey: "R", enabled: n > 0,
+          description: n ? "Bring your archers down from the tower." : "Select archers and right-click this tower to send them up. Each one adds another bow, shooting harder and further than he could from the ground.",
+          action: { type: "ungarrison" } });
+      }
       for (const uid of d.trains) {
         const u = UNITS[uid]!;
         out.push({
           label: unitName(uid, faction),
           cost: costLine(u.cost),
+          need: shortfall(world, player, u.cost),
           hotkey: u.hotkey,
           enabled: world.canAfford(player, u.cost),
-          description: u.description,
+          description: u.description + (shortfall(world, player, u.cost) ? ` ${shortfall(world, player, u.cost)} more.` : ""),
           action: { type: "train", def: uid },
         });
+      }
+      if (b.research) {
+        const up = UPGRADES[b.research.id]!;
+        out.push({ label: "Cancel Research", cost: null, hotkey: "Esc", enabled: true, description: `Researching ${up.name} ${b.research.toLevel} — cancel for a 75% refund.`, action: { type: "cancelResearch" } });
       }
       for (const up of upgradesFor(b.def)) {
         const have = world.players.get(player)!.research[up.id] ?? 0;
         const next = up.levels[have];
         if (!next) continue;
+        const elsewhere = b.research?.id !== up.id && world.researching(player, up.id);
         out.push({
           label: `${up.name} ${have + 1}`,
           cost: costLine(next.cost),
+          need: shortfall(world, player, next.cost),
           hotkey: up.hotkey,
-          enabled: world.canAfford(player, next.cost) && b.research === null,
-          description: up.description,
+          enabled: world.canAfford(player, next.cost) && b.research === null && !b.upgrade && !elsewhere,
+          description: elsewhere ? `Already being researched at another ${d.name}.` : up.description,
           action: { type: "research", id: up.id },
         });
       }

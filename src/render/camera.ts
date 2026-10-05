@@ -4,7 +4,7 @@ import { SUB } from "../sim/types";
 export class Camera {
   x = 0;
   y = 0;
-  zoom = 32;
+  zoom = 40;
   viewW = 0;
   viewH = 0;
 

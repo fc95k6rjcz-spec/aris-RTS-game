@@ -24,16 +24,21 @@ export interface BuildingDef {
   supply: number;
   /** Must touch water on at least one edge (docks). Trained units spawn on water. */
   coastal: boolean;
+  /** Must stand on oil ground (at least a third of its footprint). */
+  oilGround?: boolean;
   description: string;
 }
 
-export const BUILDINGS: Record<string, BuildingDef> = {
+const BASE_BUILDINGS: Record<string, BuildingDef> = {
+  wall: { id: "wall", name: "Wall", hotkey: "W", size: 1, cost: { gold: 10, lumber: 15 }, hp: 650, buildTime: 20 * 6, trains: [], requires: ["townhall"], dropOff: [], supply: 0, coastal: false, description: "Cheap stone wall. Drag to lay a line. Put a Gate in it so your own people can get through. Kings build 50% faster and repair twice as quickly." },
+  gate: { id: "gate", name: "Gate", hotkey: "E", size: 1, cost: { gold: 40, lumber: 40 }, hp: 900, buildTime: 20 * 8, trains: [], requires: ["townhall"], dropOff: [], supply: 0, coastal: false, description: "Build on one of your wall sections. Your own units walk straight through it; to everyone else it is a wall." },
+  shelter: { id: "shelter", name: "Rain Shelter", hotkey: "S", size: 2, cost: { gold: 100, lumber: 158 }, hp: 260, buildTime: 20 * 15, trains: [], requires: [], dropOff: [], supply: 0, coastal: false, description: "Timber shelter. Idle allies within 3 tiles recover 1 health per second while it rains." },
   townhall: {
     id: "townhall",
     name: "Town Hall",
     hotkey: "H",
     size: 4,
-    cost: { gold: 400, lumber: 250 },
+    cost: { gold: 900, lumber: 563 },
     hp: 1200,
     buildTime: 20 * 60,
     trains: ["worker", "prince"],
@@ -49,7 +54,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Farm",
     hotkey: "Z",
     size: 4,
-    cost: { gold: 120, lumber: 90 },
+    cost: { gold: 270, lumber: 203 },
     hp: 500,
     buildTime: 20 * 32,
     trains: [],
@@ -64,7 +69,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Gold Depot",
     hotkey: "G",
     size: 4,
-    cost: { gold: 300, lumber: 260 },
+    cost: { gold: 675, lumber: 585 },
     hp: 900,
     buildTime: 20 * 55,
     trains: [],
@@ -79,7 +84,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Lumber Mill",
     hotkey: "L",
     size: 3,
-    cost: { gold: 120, lumber: 0 },
+    cost: { gold: 270, lumber: 90 },
     hp: 600,
     buildTime: 20 * 35,
     trains: [],
@@ -93,8 +98,8 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     id: "barracks",
     name: "Barracks",
     hotkey: "B",
-    size: 3,
-    cost: { gold: 200, lumber: 120 },
+    size: 4,
+    cost: { gold: 450, lumber: 270 },
     hp: 800,
     buildTime: 20 * 45,
     trains: ["footman", "archer", "ballista"],
@@ -109,7 +114,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Shipyard",
     hotkey: "S",
     size: 3,
-    cost: { gold: 250, lumber: 200 },
+    cost: { gold: 563, lumber: 450 },
     hp: 900,
     buildTime: 20 * 50,
     trains: ["longboat", "transport", "tanker", "icebreaker", "submarine", "battleship"],
@@ -125,37 +130,38 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Church",
     hotkey: "C",
     size: 3,
-    cost: { gold: 260, lumber: 160 },
+    cost: { gold: 585, lumber: 360 },
     hp: 700,
     buildTime: 20 * 50,
-    trains: [],
+    trains: ["priest"],
     requires: ["townhall"],
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Heals nearby friendly units. Higher tiers heal faster and reach further.",
+    description: "Heals nearby friendly units and trains Priests. Higher tiers heal faster and reach further.",
   },
   oilrig: {
     id: "oilrig",
     name: "Oil Rig",
     hotkey: "O",
     size: 3,
-    cost: { gold: 240, lumber: 220 },
+    cost: { gold: 540, lumber: 495 },
     hp: 700,
     buildTime: 20 * 55,
     trains: [],
-    requires: ["shipyard"],
+    requires: ["lumbermill"],
     dropOff: [],
     supply: 0,
-    coastal: true,
-    description: "Built on the shoreline. Pumps crude oil every second.",
+    coastal: false,
+    oilGround: true,
+    description: "A deep well. Build it on dark oil ground (tar seeps on the map). Pumps crude oil every second.",
   },
   refinery: {
     id: "refinery",
     name: "Oil Refinery",
     hotkey: "R",
     size: 3,
-    cost: { gold: 280, lumber: 240 },
+    cost: { gold: 630, lumber: 540 },
     hp: 800,
     buildTime: 20 * 58,
     trains: [],
@@ -170,7 +176,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Stables",
     hotkey: "E",
     size: 3,
-    cost: { gold: 240, lumber: 180 },
+    cost: { gold: 540, lumber: 405 },
     hp: 750,
     buildTime: 20 * 48,
     trains: ["knight"],
@@ -185,7 +191,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Mage Tower",
     hotkey: "M",
     size: 3,
-    cost: { gold: 320, lumber: 200 },
+    cost: { gold: 720, lumber: 450 },
     hp: 650,
     buildTime: 20 * 60,
     trains: ["mage"],
@@ -193,14 +199,29 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Trains Mages and reveals the ground around it. Tiers raise spell power.",
+    description: "Trains Mages. Higher tiers improve training speed and spell power.",
+  },
+  gryphonaviary: {
+    id: "gryphonaviary",
+    name: "Gryphon Aviary",
+    hotkey: "Y",
+    size: 3,
+    cost: { gold: 810, lumber: 585 },
+    hp: 850,
+    buildTime: 20 * 62,
+    trains: ["gryphon"],
+    requires: ["stables", "magetower"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Breeds and equips Gryphon Riders. Requires both cavalry craft and arcane training.",
   },
   foundry: {
     id: "foundry",
     name: "Foundry",
     hotkey: "F",
     size: 3,
-    cost: { gold: 300, lumber: 200 },
+    cost: { gold: 675, lumber: 450 },
     hp: 900,
     buildTime: 20 * 55,
     trains: ["cannon"],
@@ -215,7 +236,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     name: "Aeroplane Factory",
     hotkey: "P",
     size: 4,
-    cost: { gold: 420, lumber: 320 },
+    cost: { gold: 945, lumber: 720 },
     hp: 1000,
     buildTime: 20 * 70,
     trains: ["scout", "bomber"],
@@ -225,12 +246,27 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     coastal: false,
     description: "Builds aircraft, which fly over water, forest and rock.",
   },
+  torch: {
+    id: "torch",
+    name: "Torch",
+    hotkey: "Q",
+    size: 1,
+    cost: { gold: 100, lumber: 90 },
+    hp: 120,
+    buildTime: 20 * 10,
+    trains: [],
+    requires: ["townhall"],
+    dropOff: [],
+    supply: 0,
+    coastal: false,
+    description: "Lights roads and bases at night. Upgrade it from a small torch into an enormous beacon with much greater light and vision.",
+  },
   tower: {
     id: "tower",
     name: "Watch Tower",
     hotkey: "T",
-    size: 2,
-    cost: { gold: 140, lumber: 90 },
+    size: 3,
+    cost: { gold: 315, lumber: 203 },
     hp: 500,
     buildTime: 20 * 30,
     trains: [],
@@ -238,7 +274,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     dropOff: [],
     supply: 0,
     coastal: false,
-    description: "Watches the ground around it. Higher tiers see further.",
+    description: "Shoots nearby enemies automatically. Select this tower and right-click an enemy to focus fire. Sees over trees at 20–38 tiles; attack range grows from 8 to about 19 tiles with upgrades.",
   },
   // ───────────────────────────── the Blackrock ─────────────────────────────
   //
@@ -281,6 +317,20 @@ export const BUILDINGS: Record<string, BuildingDef> = {
   },
 };
 
+/**
+ * Every building costs twice the gold and wood it used to. Building was cheap
+ * enough that a base went up in a couple of minutes and nothing about where or
+ * what to build was a real decision; at double the price, each one is.
+ */
+export const BUILDING_COST_MULTIPLIER = 2;
+export const BUILDINGS: Record<string, BuildingDef> = Object.fromEntries(
+  Object.entries(BASE_BUILDINGS).map(([id, d]) => {
+    // Walls and gates stay cheap: defence should be something you can afford to lay down.
+    const k = id === "wall" || id === "gate" ? 1 : BUILDING_COST_MULTIPLIER;
+    return [id, { ...d, cost: { ...d.cost, gold: d.cost.gold * k, lumber: d.cost.lumber * k } }];
+  }),
+);
+
 /** Display name for a building in a given faction's language. */
 export function buildingName(def: string, faction: string): string {
   const d = BUILDINGS[def];
@@ -307,6 +357,6 @@ export function buildingName(def: string, faction: string): string {
  * things you build in any match; everything with a prerequisite behind it is a
  * tab away.
  */
-export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower"];
-export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "foundry", "oilrig", "refinery", "airfactory"];
+export const BUILD_BASIC: string[] = ["townhall", "farm", "lumbermill", "golddepot", "barracks", "tower", "torch", "wall", "gate", "shelter"];
+export const BUILD_ADVANCED: string[] = ["church", "stables", "shipyard", "magetower", "gryphonaviary", "foundry", "oilrig", "refinery", "airfactory"];
 export const BUILD_MENU: string[] = [...BUILD_BASIC, ...BUILD_ADVANCED];

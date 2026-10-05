@@ -109,6 +109,32 @@ export class GameMap {
    * road is a thing that was built, so it stays whether anyone walks it or not.
    */
   readonly road: Uint8Array;
+  /**
+   * Oil ground: 1 where crude seeps up through the soil. An oil rig is a deep
+   * well, so it goes on land -- but only where there is oil under it. Tar-dark
+   * patches, a few per map, one within reach of every seat.
+   */
+  readonly oil: Uint8Array;
+  /**
+   * Gates: the owner of a gate on this tile (0 = none). A gate is a wall to
+   * everyone but its own side, so walkability depends on who is asking --
+   * `passer` is set to that player while a unit plans or takes its step, and
+   * `allies` answers whether a gate's owner lets them through. The region map
+   * (passer -2) treats gates as open, so a route through your own gate is
+   * never ruled out before the search even starts.
+   */
+  gateOwner: Int16Array;
+  passer = -1;
+  /** Team of each player id (index), mirrored from the World for gate checks. */
+  teams: number[] = [];
+  allies(a: number, b: number): boolean {
+    return a === b || (this.teams[a] !== undefined && this.teams[a] === this.teams[b]);
+  }
+  /** Mark a gate's tiles (owner 0 clears them). */
+  setGate(tx: number, ty: number, size: number, owner: number): void {
+    for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) this.gateOwner[this.idx(x, y)] = owner;
+    this.version++;
+  }
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -148,6 +174,8 @@ export class GameMap {
     this.wear = new Uint8Array(width * height);
     this.mud = new Uint8Array(width * height);
     this.road = new Uint8Array(width * height);
+    this.oil = new Uint8Array(width * height);
+    this.gateOwner = new Int16Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 
@@ -210,6 +238,9 @@ export class GameMap {
   private regionCache = new Map<string, { version: number; label: Int32Array }>();
 
   private regions(domain: Domain): Int32Array {
+    const was = this.passer;
+    this.passer = -2;
+    try {
     const hit = this.regionCache.get(domain);
     if (hit && hit.version === this.version) return hit.label;
     const label = new Int32Array(this.width * this.height).fill(-1);
@@ -248,6 +279,24 @@ export class GameMap {
     }
     this.regionCache.set(domain, { version: this.version, label });
     return label;
+    } finally { this.passer = was; }
+  }
+
+  private sizeCache: { version: number; label: Int32Array; sizes: Int32Array } | null = null;
+  /** How many tiles can be walked to from here without chopping or digging. */
+  regionSize(x: number, y: number, domain: Domain = "land"): number {
+    if (!this.inBounds(x, y)) return 0;
+    const label = this.regions(domain);
+    const id = label[this.idx(x, y)]!;
+    if (id < 0) return 0;
+    if (!this.sizeCache || this.sizeCache.label !== label) {
+      let max = -1;
+      for (let i = 0; i < label.length; i++) if (label[i]! > max) max = label[i]!;
+      const sizes = new Int32Array(max + 1);
+      for (let i = 0; i < label.length; i++) if (label[i]! >= 0) sizes[label[i]!]!++;
+      this.sizeCache = { version: this.version, label, sizes };
+    }
+    return this.sizeCache.sizes[id]!;
   }
 
   /** Whether two walkable tiles have any route between them at all. */
@@ -295,7 +344,7 @@ export class GameMap {
       // waits on was the one man who could not walk out of it. The King could.
       // The speed penalty in World.followPath already covers both domains.
       if (t === Tile.Gold || t === Tile.Rock) return false;
-      return this.occupant[this.idx(x, y)] === 0;
+      return this.occupant[this.idx(x, y)] === 0 || this.gateOpen(this.idx(x, y));
     }
     if (domain === "sea") return t === Tile.Water && this.occupant[this.idx(x, y)] === 0;
     if (domain === "icebreaker") {
@@ -316,7 +365,14 @@ export class GameMap {
     // A man can push through a wood; it just takes him three times as long. See
     // the speed penalty in World.followPath.
     if (t === Tile.Water || t === Tile.Gold || t === Tile.Rock) return false;
-    return this.occupant[this.idx(x, y)] === 0;
+    return this.occupant[this.idx(x, y)] === 0 || this.gateOpen(this.idx(x, y));
+  }
+
+  /** Whether the gate on this tile (if any) opens for whoever is currently asking. */
+  gateOpen(i: number): boolean {
+    const g = this.gateOwner?.[i] ?? 0;
+    if (!g) return false;
+    return this.passer === -2 || (this.passer >= 0 && this.allies(g, this.passer));
   }
 
   /** True if this single tile has open water or ice against it. */
@@ -372,6 +428,13 @@ export class GameMap {
    * A hundred seeds of one layout is a hundred maps that all feel the same, so
    * the interesting variation lives here rather than in the noise.
    */
+  /** How many of a footprint's tiles sit on oil ground. */
+  oilUnder(tx: number, ty: number, size: number): number {
+    let n = 0;
+    for (let y = ty; y < ty + size; y++) for (let x = tx; x < tx + size; x++) if (this.inBounds(x, y) && this.oil?.[this.idx(x, y)]) n++;
+    return n;
+  }
+
   static generate(width: number, height: number, seed: number, kind: MapKind = "lakeland", stockade = false): GameMap {
     const m = new GameMap(width, height);
     const rng = new Rng(seed);
@@ -516,6 +579,7 @@ export class GameMap {
           }
     };
     const mine = (tx: number, ty: number) => {
+      clear(tx + 1, ty + 1, 3);
       for (let y = 0; y < 3; y++)
         for (let x = 0; x < 3; x++) {
           m.set(tx + x, ty + y, Tile.Gold);
@@ -524,7 +588,7 @@ export class GameMap {
     };
     // Seats sit a fixed fraction in from the corners, so they stay a sensible
     // distance apart whatever the board size.
-    const inset = Math.max(10, Math.round(width * 0.09));
+    const inset = Math.max(10, Math.round(width * (0.09 + ((seed >>> 4) % 10) / 100)));
     m.starts = [
       { x: inset, y: inset },
       { x: width - inset - 1, y: height - inset - 1 },
@@ -557,7 +621,11 @@ export class GameMap {
           const py = by + y;
           // Never flood the seat itself or the ground its first buildings need.
           if (Math.abs(px - seat.x) < 6 && Math.abs(py - seat.y) < 6) continue;
-          water(px, py);
+          let nearGold = false;
+          for (let gy = py - 2; gy <= py + 2; gy++)
+            for (let gx = px - 2; gx <= px + 2; gx++)
+              if (m.inBounds(gx, gy) && m.get(gx, gy) === Tile.Gold) nearGold = true;
+          if (!nearGold) water(px, py);
         }
     }
 
@@ -667,7 +735,98 @@ export class GameMap {
       m.secret = { x: sx, y: sy, found: false };
       break;
     }
+    // More gold out in the world. The home mine runs dry, so there has to be
+    // somewhere to go next: one expansion mine a fair walk from every seat,
+    // and rich seams scattered through the wild country, where holding one is
+    // worth a fight.
+    {
+      const placed: Array<{ x: number; y: number }> = [];
+      const fits = (tx: number, ty: number): boolean => {
+        for (let y = -1; y <= 3; y++)
+          for (let x = -1; x <= 3; x++) {
+            if (!m.inBounds(tx + x, ty + y)) return false;
+            const t = m.get(tx + x, ty + y);
+            if (t !== Tile.Grass && t !== Tile.Dirt && t !== Tile.Tree) return false;
+            if (m.occupant[m.idx(tx + x, ty + y)] !== 0) return false;
+          }
+        return !placed.some((p) => Math.hypot(p.x - tx, p.y - ty) < 12);
+      };
+      const lay = (tx: number, ty: number, each: number) => {
+        for (let y = -1; y <= 3; y++) for (let x = -1; x <= 3; x++) { m.set(tx + x, ty + y, Tile.Grass); m.amount[m.idx(tx + x, ty + y)] = 0; }
+        for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) { m.set(tx + x, ty + y, Tile.Gold); m.amount[m.idx(tx + x, ty + y)] = each; }
+        placed.push({ x: tx, y: ty });
+      };
+      for (const seat of m.starts) {
+        for (let k = 0; k < 300; k++) {
+          const a = rng.next() * Math.PI * 2, d = 17 + rng.int(8);
+          const tx = Math.round(seat.x + Math.cos(a) * d), ty = Math.round(seat.y + Math.sin(a) * d);
+          if (m.starts.some((o) => o !== seat && Math.hypot(o.x - tx, o.y - ty) < d + 6)) continue;
+          if (fits(tx, ty)) { lay(tx, ty, 2200); break; }
+        }
+      }
+      const wildMines = Math.max(3, Math.round((width * height) / 1900));
+      for (let k = 0, tries = 0; k < wildMines && tries < 3000; tries++) {
+        const tx = 3 + rng.int(width - 7), ty = 3 + rng.int(height - 7);
+        if (m.starts.some((o) => Math.hypot(o.x - tx, o.y - ty) < 20)) continue;
+        if (fits(tx, ty)) { lay(tx, ty, 3000); k++; }
+      }
+    }
+    // Oil seeps. One a fair walk out from every seat -- far enough that it is a
+    // second base to hold, near enough to be yours -- and more out in the wild
+    // country, where the fighting over them happens.
+    {
+      const seep = (cx: number, cy: number): boolean => {
+        let n = 0;
+        for (let y = -3; y <= 3; y++)
+          for (let x = -3; x <= 3; x++) {
+            const px = cx + x, py = cy + y;
+            if (!m.inBounds(px, py)) continue;
+            const t = m.get(px, py);
+            if (t !== Tile.Grass && t !== Tile.Dirt) continue;
+            if (m.occupant[m.idx(px, py)] !== 0) continue;
+            const r = 2.2 + Math.sin(Math.atan2(y, x) * 3 + cx) * 0.7;
+            if (Math.hypot(x, y) > r) continue;
+            m.oil[m.idx(px, py)] = 1;
+            n++;
+          }
+        return n >= 9;
+      };
+      const clear = (cx: number, cy: number): boolean => {
+        let open = 0;
+        for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
+          const t = m.inBounds(cx + x, cy + y) ? m.get(cx + x, cy + y) : Tile.Water;
+          if ((t === Tile.Grass || t === Tile.Dirt) && m.occupant[m.idx(cx + x, cy + y)] === 0) open++;
+        }
+        return open >= 18;
+      };
+      for (const seat of m.starts) {
+        for (let attempt = 0; attempt < 300; attempt++) {
+          const a = rng.next() * Math.PI * 2, d = 13 + rng.int(8);
+          const cx = Math.round(seat.x + Math.cos(a) * d), cy = Math.round(seat.y + Math.sin(a) * d);
+          if (!m.inBounds(cx, cy) || !clear(cx, cy)) continue;
+          if (m.starts.some((o) => o !== seat && Math.hypot(o.x - cx, o.y - cy) < d + 4)) continue;
+          if (seep(cx, cy)) break;
+        }
+      }
+      const wild = Math.max(2, Math.round((width * height) / 2600));
+      for (let k = 0, attempt = 0; k < wild && attempt < 600; attempt++) {
+        const cx = 4 + rng.int(width - 8), cy = 4 + rng.int(height - 8);
+        if (m.starts.some((o) => Math.hypot(o.x - cx, o.y - cy) < 18) || !clear(cx, cy)) continue;
+        if (seep(cx, cy)) k++;
+      }
+    }
+    const flipX=(seed & 1)!==0,flipY=(seed & 2)!==0;
+    if(flipX||flipY){
+      for(const grid of [m.tiles,m.amount,m.occupant,m.felled,m.wear,m.mud,m.oil,m.hidden] as Array<Uint8Array|Int32Array>){
+        const source=grid.slice();
+        for(let y=0;y<height;y++)for(let x=0;x<width;x++)grid[(flipY?height-1-y:y)*width+(flipX?width-1-x:x)]=source[y*width+x]!;
+      }
+      for(const p of m.starts){if(flipX)p.x=width-1-p.x;if(flipY)p.y=height-1-p.y;}
+      if(m.secret){if(flipX)m.secret.x=width-2-m.secret.x;if(flipY)m.secret.y=height-2-m.secret.y;}
+      m.touched.clear();m.touchedOverflow=true;
+    }
     m.version++;
     return m;
   }
 }
+

@@ -32,6 +32,8 @@ export interface ShellCommand {
   label: string;
   /** "1200 · 800", or null for orders, which cost nothing. */
   cost: string | null;
+  /** Shortfall text when the player cannot afford this, shown in red on the tile. */
+  need?: string;
   hotkey: string;
   enabled: boolean;
   description: string;
@@ -74,6 +76,8 @@ export interface ShellState {
   commands: ShellCommand[];
   /** The line across the top of the map: what is happening right now. */
   banner: string | null;
+  /** A short-lived warning ("Not enough — need 120 more gold"), shown big and red regardless of objectives. */
+  alert?: { text: string; level: "info" | "error" } | null;
   /** The big centred proclamation, if one is up. */
   proclaim: { title: string; line: string } | null;
   /** The standing objective, while there is one. */
@@ -101,6 +105,7 @@ export interface Shell {
   onTab(cb: (id: string) => void): void;
   onPause(cb: () => void): void;
   onSettings(cb: () => void): void;
+  onSave(cb: () => void): void;
   destroy(): void;
 }
 
@@ -197,6 +202,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
    out and sat in the sky as an empty box. The settings panel learned this the
    same way. */
 .rv-banner[hidden] { display: none; }
+.rv-alert {
+  position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px; max-width: 80%; text-align: center;
+  background: rgba(14,22,14,0.92); border: 1px solid #6fae6f; color: #d8f5d0;
+  font: 600 15px/1.3 Georgia, serif; letter-spacing: 0.02em; pointer-events: none;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.6); z-index: 5;
+}
+.rv-alert.err { background: rgba(60,10,10,0.94); border-color: #e04c4c; color: #ffd9d2; font-size: 16px; }
+.rv-alert[hidden] { display: none; }
 
 /* The shell carries its own pause and settings buttons, so the free-floating
    ones from before would be a second pair in the same corner. */
@@ -225,25 +239,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
   display: grid;
   grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(190px, 240px);
   gap: 1px; background: rgba(216,179,90,0.22);
-  height: clamp(214px, 24vh, 232px);
+  /* Slim: the map is the game. The minimap keeps its old size by standing
+     up out of the bar over the map's corner (see .rv-mini). */
+  height: clamp(124px, 15vh, 144px);
   border-top: 1px solid rgba(216,179,90,0.34);
+  position: relative; z-index: 3;
 }
 .rv-pane { background: linear-gradient(180deg, var(--panel-a) 0%, var(--panel-b) 100%); min-width: 0; min-height: 0; }
 
 /* selection */
-.rv-sel { padding: 10px 14px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 10px; }
+.rv-sel { padding: 8px 12px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 6px; }
 .rv-sel .who { display: flex; gap: 12px; }
 .rv-port {
-  width: 56px; height: 56px; flex: none; border: 1px solid rgba(216,179,90,0.35);
+  width: 44px; height: 44px; flex: none; border: 1px solid rgba(216,179,90,0.35);
   background: #14161b;
   background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
   background-size: cover; background-position: center top;
 }
 /* The roster, when more than one thing is selected. */
 .rv-roster { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; min-height: 0; overflow: hidden; }
-.rv-face { width: 42px; }
+.rv-face { width: 30px; }
 .rv-face .pic {
-  width: 42px; height: 42px; border: 1px solid rgba(216,179,90,0.35);
+  width: 30px; height: 30px; border: 1px solid rgba(216,179,90,0.35);
   background: #14161b center top / cover no-repeat;
   background-image: repeating-linear-gradient(135deg, rgba(216,179,90,0.16) 0 3px, rgba(0,0,0,0) 3px 7px);
 }
@@ -251,9 +268,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-face .hp i { display: block; height: 100%; background: #6fae4e; }
 .rv-face .hp i.hurt { background: #d8b35a; }
 .rv-face .hp i.bad { background: #c4553f; }
-.rv-sel .nm { font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: 0.06em; color: var(--parchment); }
+.rv-sel .nm { font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: var(--parchment); }
 .rv-sel .sb { margin-top: 3px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
-.rv-hp { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.rv-hp { margin-top: 4px; display: flex; align-items: center; gap: 8px; }
 .rv-hp .track { width: 108px; height: 6px; background: rgba(255,255,255,0.1); }
 .rv-hp .fill { height: 100%; background: #6fae4e; }
 .rv-hp .val { font-size: 11px; color: #c9c2b0; font-variant-numeric: tabular-nums; }
@@ -266,10 +283,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-empty { font-family: var(--serif); font-style: italic; font-size: 14px; color: #8b8676; }
 
 /* commands */
-.rv-cmd { padding: 9px 14px 10px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 8px; }
+.rv-cmd { padding: 6px 12px 6px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 5px; }
 .rv-tabs { display: flex; align-items: center; gap: 6px; }
 .rv-tab {
-  padding: 6px 14px; cursor: pointer; font-family: var(--mono);
+  padding: 3px 12px; cursor: pointer; font-family: var(--mono);
   font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
   background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--muted);
 }
@@ -277,8 +294,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-tab.on { background: rgba(216,179,90,0.16); border-color: var(--gold); color: var(--parchment); }
 .rv-hints { margin-left: auto; display: flex; gap: 18px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--fainter); }
 .rv-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  grid-auto-rows: minmax(0, 1fr); gap: 6px; min-height: 0; overflow: hidden;
+  /* Fixed-size tiles: three orders no longer stretch into three giant posters. */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  grid-auto-rows: minmax(0, 1fr); gap: 5px; min-height: 0; overflow: hidden;
 }
 .rv-tile {
   position: relative; overflow: hidden;
@@ -297,24 +315,40 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); 
 .rv-tile.art::after { bottom: 0; height: 42%; background: linear-gradient(0deg, rgba(8,8,10,0.9) 0%, rgba(8,8,10,0.4) 60%, rgba(8,8,10,0) 100%); }
 .rv-tile.art .lb, .rv-tile.art .ft { position: relative; z-index: 1; }
 .rv-tile.art .lb { text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
-.rv-tile.art.off { filter: grayscale(0.75) brightness(0.55); }
+.rv-tile.unit-art { background-size: cover; background-repeat: no-repeat; background-position: center 32%; }
+.rv-tile.art.off { filter: grayscale(0.45) brightness(0.85); }
 .rv-tile .lb { font-size: 11px; line-height: 1.25; letter-spacing: 0.04em; }
 .rv-tile .ft { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .rv-tile .ct { font-size: 9px; font-variant-numeric: tabular-nums; color: #b6ae9c; }
 .rv-tile .ky { font-size: 9px; font-weight: 600; color: var(--gold); }
 .rv-tile:hover { border-color: var(--gold); }
 .rv-tile.off {
-  background: rgba(255,255,255,0.025); border-color: rgba(255,255,255,0.08);
+  background-color: rgba(255,255,255,0.025); border-color: rgba(255,255,255,0.08);
   color: #8b8676; cursor: not-allowed;
 }
 .rv-tile.off .ct, .rv-tile.off .ky { color: var(--fainter); }
+.rv-tile.short { border-color: rgba(224,76,76,0.75); box-shadow: inset 0 0 0 1px rgba(224,76,76,0.35); }
+.rv-tile.short .ct, .rv-tile.off.short .ct { color: #ff7a6b; font-weight: 700; font-size: 9px; text-shadow: 0 1px 2px #000; }
+.rv-tile.short::after { background: linear-gradient(0deg, rgba(70,8,8,0.92) 0%, rgba(40,8,8,0.5) 60%, rgba(8,8,10,0) 100%) !important; }
+.rv-tile.upgrade { border:1px solid #d6b159; background:radial-gradient(ellipse at 50% 52%,#66502a 0%,#292219 46%,#121216 80%); box-shadow:inset 0 0 0 3px #141314,inset 0 0 0 4px #79643b; }
+.rv-tile.upgrade { grid-column: span 2; animation: rvUpGlow 2.4s ease-in-out infinite; }
+@keyframes rvUpGlow { 0%,100% { box-shadow: inset 0 0 0 1px #79643b, 0 0 0 rgba(255,210,110,0); } 50% { box-shadow: inset 0 0 0 1px #e1be67, 0 0 14px rgba(255,210,110,0.45); } }
+.rv-tile.upgrade.off { animation: none; }
+.rv-tile.upgrade .lb { color:#ffe3a0; font-weight:bold; }
+.rv-tile.upgrade .ct { color:#e1d0ac; }
+.rv-tile.upgrade:hover { box-shadow:inset 0 0 0 2px #e1be67,0 0 12px #c9943233; }
+.rv-tile.upgrade.off { filter:saturate(.4); opacity:.7; }
+.rv-tile.upgrade.art { background-size:auto 108%; background-repeat:no-repeat; background-position:center; background-color:#17171b; }
+.rv-tile.upgrade.art::before { content:''; top:0; left:0; width:100%; height:35%; }
 .rv-desc {
-  min-height: 2.1em; padding-left: 10px; border-left: 1px solid var(--rule);
-  font-family: var(--serif); font-style: italic; font-size: 14px; color: #b6ae9c;
+  min-height: 1.3em; padding-left: 10px; border-left: 1px solid var(--rule);
+  font-family: var(--serif); font-style: italic; font-size: 12px; color: #b6ae9c;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* minimap */
-.rv-mini { padding: 10px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 8px; }
+.rv-mini { padding: 10px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 8px;
+  margin-top: -92px; border-top: 1px solid rgba(216,179,90,0.34); border-left: 1px solid rgba(216,179,90,0.34); }
 .rv-mini .hd { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; }
 .rv-mini .hd .nm { color: var(--fainter); }
 .rv-mini .hd .kb { color: var(--muted); }
@@ -388,13 +422,15 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const clock = el("div", "rv-clock");
   const skyEl = el("span", "sky", "Clear");
   const dayEl = el("span", "day", "Day 1");
-  const timeEl = el("span", "time", "0:00");
-  clock.append(skyEl, dayEl, timeEl);
+  clock.append(skyEl, dayEl);
   const pauseBtn = el("button", "rv-icon", "II");
   pauseBtn.title = "Pause (Space)";
   const gearBtn = el("button", "rv-icon", "⚙");
   gearBtn.title = "Settings";
-  top.append(clock, pauseBtn, gearBtn);
+  const saveBtn = el('button', 'rv-icon', 'Save');
+  saveBtn.style.width='auto'; saveBtn.style.padding='0 10px';
+  saveBtn.title='Save game in this browser'; saveBtn.setAttribute('aria-label','Save game');
+  top.append(clock, saveBtn, pauseBtn, gearBtn);
 
   // ── viewport ──
   const view = el("div", "rv-view");
@@ -405,6 +441,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const bannerText = el("span");
   banner.append(bannerDot, bannerText);
   banner.hidden = true;
+  const alertBox = el("div", "rv-alert");
+  alertBox.hidden = true;
   const objective = el("div", "rv-obj");
   const objT = el("div", "t");
   const objL = el("div", "l");
@@ -415,7 +453,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const procL = el("div", "l");
   proclaim.append(procT, procL);
   proclaim.hidden = true;
-  view.append(vig, banner, objective, proclaim);
+  view.append(vig, banner, objective, proclaim, alertBox);
 
   // ── bottom ──
   const bottom = el("div", "rv-bottom");
@@ -441,7 +479,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const cmd = el("div", "rv-pane rv-cmd");
   const tabRow = el("div", "rv-tabs");
   const hints = el("div", "rv-hints");
-  hints.append(el("span", undefined, "Right-click to order"), el("span", undefined, "A + click to attack-move"));
+  hints.append(el("span", undefined, "Click a person · right-click to order"), el("span", undefined, "Home to find your people"));
   const grid = el("div", "rv-grid");
   const desc = el("div", "rv-desc", IDLE_HINT);
   cmd.append(tabRow, grid, desc);
@@ -465,11 +503,15 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   gearBtn.addEventListener("click", () => gearCb());
   let pauseCb: () => void = () => {};
   let gearCb: () => void = () => {};
+  let saveCb: () => void = () => {};
+  saveBtn.addEventListener('click',()=>saveCb());
 
   // Rebuilding the grid every frame would throw away hover and focus sixty
   // times a second, so tiles are reused and only their contents change.
   const tiles: Array<{ node: HTMLButtonElement; lb: HTMLElement; ct: HTMLElement; ky: HTMLElement; cmd: ShellCommand | null }> = [];
   let hovered: string | null = null;
+  /** A shortfall warning raised by clicking a tile the player cannot afford. */
+  let flash: { text: string; until: number } | null = null;
 
   const ensureTiles = (n: number) => {
     while (tiles.length < n) {
@@ -493,6 +535,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         // A dimmed tile is hoverable, so its description can say what it wants,
         // but it does nothing when pressed.
         if (entry.cmd?.enabled) onCmd(entry.cmd.action);
+        else if (entry.cmd?.need) flash = { text: `Can't afford ${entry.cmd.label} — ${entry.cmd.need.replace(/^Need /, "need ")} more`, until: performance.now() + 3500 };
       });
       tiles.push(entry);
       grid.appendChild(node);
@@ -551,7 +594,6 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       dayEl.textContent = `Day ${s.day}`;
       skyEl.textContent = s.weather;
       skyEl.classList.toggle("wet", s.weather === "Rain" || s.weather === "Storm");
-      timeEl.textContent = s.clock;
       pauseBtn.textContent = s.paused ? "▶" : "II";
 
       if (s.selection) {
@@ -619,13 +661,18 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         const t = tiles[i]!;
         t.cmd = c;
         if (t.lb.textContent !== c.label) t.lb.textContent = c.label;
-        const cost = c.cost ?? "";
+        // Short of resources: say exactly what is missing, in red, on the tile
+        // itself -- a greyed tile alone read the same as "not unlocked yet".
+        const cost = c.need ? c.need.replace(" gold", "g").replace(" wood", "w").replace(" oil", " oil").replace(" food", "f") : c.cost ?? "";
         if (t.ct.textContent !== cost) t.ct.textContent = cost;
+        t.node.classList.toggle("short", !!c.need);
         if (t.ky.textContent !== c.hotkey) t.ky.textContent = c.hotkey;
         t.node.classList.toggle("off", !c.enabled);
+        t.node.classList.toggle("upgrade", c.action.type==='upgrade'||c.action.type==='cancelUpgrade');
         const art = c.art ? `url(${c.art})` : "";
         if (t.node.style.backgroundImage !== art) t.node.style.backgroundImage = art;
         t.node.classList.toggle("art", !!c.art);
+        t.node.classList.toggle("unit-art", !!c.art && c.action.type === "train");
       });
       if (!hovered) desc.textContent = IDLE_HINT;
 
@@ -633,6 +680,13 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       // small blank box in the middle of the sky.
       banner.hidden = !s.banner;
       if (s.banner) bannerText.textContent = s.banner;
+      const al = flash && performance.now() < flash.until ? { text: flash.text, level: "error" as const } : s.alert ?? null;
+      if (flash && performance.now() >= flash.until) flash = null;
+      alertBox.hidden = !al;
+      if (al) {
+        if (alertBox.textContent !== al.text) alertBox.textContent = al.text;
+        alertBox.classList.toggle("err", al.level === "error");
+      }
       objective.hidden = !s.objective?.title;
       if (s.objective) {
         objT.textContent = s.objective.title;
@@ -657,6 +711,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
     onPause(cb) {
       pauseCb = cb;
     },
+    onSave(cb) { saveCb=cb; },
     onSettings(cb) {
       gearCb = cb;
     },

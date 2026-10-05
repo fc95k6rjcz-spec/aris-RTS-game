@@ -21,6 +21,10 @@ export interface UpgradeLevel {
   armour?: number;
   /** Added to attack range, in tiles. */
   range?: number;
+  /** Added to each support heal. */
+  heal?: number;
+  /** Added to support healing range, in tiles. */
+  healRange?: number;
   /**
    * Marks an upgrade that changes the ground rather than a unit.
    *
@@ -55,7 +59,7 @@ export const UPGRADES: Record<string, UpgradeDef> = {
     units: [],
     hotkey: "5",
     description: "Lay stone over the tracks your people have already beaten. Every worn path carries twice the advantage.",
-    levels: [{ cost: { gold: 300, lumber: 250 }, time: 20 * 60, ground: true }],
+    levels: [{ cost: { gold: 675, lumber: 563 }, time: 20 * 60, ground: true }],
   },
   barding: {
     id: "barding",
@@ -67,9 +71,9 @@ export const UPGRADES: Record<string, UpgradeDef> = {
     hotkey: "1",
     description: "Armoured harness for cavalry. More damage and thicker plate.",
     levels: [
-      { cost: { gold: 200, lumber: 150 }, time: 20 * 40, damage: 4, armour: 1 },
-      { cost: { gold: 340, lumber: 260 }, time: 20 * 55, damage: 5, armour: 1 },
-      { cost: { gold: 520, lumber: 400 }, time: 20 * 75, damage: 6, armour: 2 },
+      { cost: { gold: 450, lumber: 338 }, time: 20 * 40, damage: 4, armour: 1 },
+      { cost: { gold: 765, lumber: 585 }, time: 20 * 55, damage: 5, armour: 1 },
+      { cost: { gold: 1170, lumber: 900 }, time: 20 * 75, damage: 6, armour: 2 },
     ],
   },
   blades: {
@@ -80,9 +84,9 @@ export const UPGRADES: Record<string, UpgradeDef> = {
     hotkey: "2",
     description: "Better steel for the infantry. More damage per swing.",
     levels: [
-      { cost: { gold: 150, lumber: 90 }, time: 20 * 35, damage: 3 },
-      { cost: { gold: 260, lumber: 160 }, time: 20 * 50, damage: 4 },
-      { cost: { gold: 400, lumber: 250 }, time: 20 * 68, damage: 5 },
+      { cost: { gold: 338, lumber: 203 }, time: 20 * 35, damage: 3 },
+      { cost: { gold: 585, lumber: 360 }, time: 20 * 50, damage: 4 },
+      { cost: { gold: 900, lumber: 563 }, time: 20 * 68, damage: 5 },
     ],
   },
   fletching: {
@@ -93,9 +97,87 @@ export const UPGRADES: Record<string, UpgradeDef> = {
     hotkey: "3",
     description: "Truer arrows. More damage and a longer reach.",
     levels: [
-      { cost: { gold: 140, lumber: 110 }, time: 20 * 35, damage: 2, range: 0.5 },
-      { cost: { gold: 240, lumber: 190 }, time: 20 * 50, damage: 3, range: 0.5 },
-      { cost: { gold: 370, lumber: 290 }, time: 20 * 68, damage: 3, range: 1 },
+      { cost: { gold: 315, lumber: 248 }, time: 20 * 35, damage: 2, range: 0.5 },
+      { cost: { gold: 540, lumber: 428 }, time: 20 * 50, damage: 3, range: 0.5 },
+      { cost: { gold: 833, lumber: 653 }, time: 20 * 68, damage: 3, range: 1 },
+    ],
+  },
+  sacredRites: {
+    id: "sacredRites",
+    name: "Sacred Rites",
+    host: "church",
+    units: ["priest"],
+    hotkey: "1",
+    description: "Deeper training lets Priests restore more health from farther behind the line.",
+    levels: [
+      { cost: { gold: 405, lumber: 180 }, time: 20 * 38, heal: 3, healRange: 0.5 },
+      { cost: { gold: 675, lumber: 315 }, time: 20 * 55, heal: 4, healRange: 0.5 },
+      { cost: { gold: 1035, lumber: 495 }, time: 20 * 72, heal: 5, healRange: 1.0 },
+    ],
+  },
+  arcaneFocus: {
+    id: "arcaneFocus",
+    name: "Arcane Focus",
+    host: "magetower",
+    units: ["mage"],
+    hotkey: "1",
+    description: "Focus crystals strengthen Mage bolts and extend their reach.",
+    levels: [
+      { cost: { gold: 495, lumber: 225 }, time: 20 * 45, damage: 3, range: 0.25 },
+      { cost: { gold: 855, lumber: 405 }, time: 20 * 62, damage: 4, range: 0.35 },
+      { cost: { gold: 1305, lumber: 630 }, time: 20 * 82, damage: 5, range: 0.4 },
+    ],
+  },
+  siegecraft: {
+    id: "siegecraft",
+    name: "Siegecraft",
+    host: "foundry",
+    units: ["ballista", "cannon"],
+    hotkey: "1",
+    description: "Better torsion, castings and armour make Human siege weapons hit harder and survive counter-fire.",
+    levels: [
+      { cost: { gold: 585, lumber: 405 }, time: 20 * 50, damage: 6, armour: 1 },
+      { cost: { gold: 990, lumber: 675 }, time: 20 * 70, damage: 8, armour: 1 },
+      { cost: { gold: 1530, lumber: 1013 }, time: 20 * 92, damage: 10, armour: 2 },
+    ],
+  },
+  navalGunnery: {
+    id: "navalGunnery",
+    name: "Naval Gunnery",
+    host: "shipyard",
+    units: ["battleship", "submarine", "icebreaker"],
+    hotkey: "1",
+    description: "Improved sights, shells and torpedoes increase the fleet's striking power.",
+    levels: [
+      { cost: { gold: 675, lumber: 405, oil: 120 }, time: 20 * 55, damage: 5, range: 0.25 },
+      { cost: { gold: 1125, lumber: 675, oil: 210 }, time: 20 * 75, damage: 7, range: 0.25 },
+      { cost: { gold: 1710, lumber: 1035, oil: 330 }, time: 20 * 98, damage: 9, range: 0.5 },
+    ],
+  },
+  aeronautics: {
+    id: "aeronautics",
+    name: "Aeronautics",
+    host: "airfactory",
+    units: ["scout", "bomber"],
+    hotkey: "1",
+    description: "Improved engines, airframes and weapons strengthen the mechanical air arm.",
+    levels: [
+      { cost: { gold: 540, lumber: 360, oil: 90 }, time: 20 * 48, damage: 3, armour: 1 },
+      { cost: { gold: 923, lumber: 608, oil: 150 }, time: 20 * 66, damage: 4, armour: 1 },
+      { cost: { gold: 1395, lumber: 923, oil: 240 }, time: 20 * 86, damage: 5, armour: 2 },
+    ],
+  },
+  gryphonBarding: {
+    id: "gryphonBarding",
+    name: "Sky Barding",
+    host: "gryphonaviary",
+    units: ["gryphon"],
+    hotkey: "1",
+    description: "Light plate and reinforced tack let Gryphon Riders dive harder without losing speed.",
+    levels: [
+      { cost: { gold: 585, lumber: 338 }, time: 20 * 50, damage: 4, armour: 1 },
+      { cost: { gold: 968, lumber: 563 }, time: 20 * 68, damage: 5, armour: 1 },
+      { cost: { gold: 1463, lumber: 855 }, time: 20 * 90, damage: 6, armour: 2 },
     ],
   },
 };
@@ -106,8 +188,11 @@ export function upgradesFor(buildingDef: string): UpgradeDef[] {
 }
 
 /** Total bonus a unit gets from a player's researched levels. */
-export function researchBonus(unitDef: string, levels: Record<string, number>): { damage: number; armour: number; range: number } {
-  const out = { damage: 0, armour: 0, range: 0 };
+export function researchBonus(
+  unitDef: string,
+  levels: Record<string, number>,
+): { damage: number; armour: number; range: number; heal: number; healRange: number } {
+  const out = { damage: 0, armour: 0, range: 0, heal: 0, healRange: 0 };
   for (const up of Object.values(UPGRADES)) {
     if (!up.units.includes(unitDef)) continue;
     const have = levels[up.id] ?? 0;
@@ -116,6 +201,8 @@ export function researchBonus(unitDef: string, levels: Record<string, number>): 
       out.damage += lv.damage ?? 0;
       out.armour += lv.armour ?? 0;
       out.range += lv.range ?? 0;
+      out.heal += lv.heal ?? 0;
+      out.healRange += lv.healRange ?? 0;
     }
   }
   return out;

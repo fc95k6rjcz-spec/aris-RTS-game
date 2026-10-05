@@ -68,20 +68,32 @@ function hash(a: number, b: number): number {
  * gameplay attached and just makes the map hard to read.
  */
 function skyOf(seed: number, spell: number): Sky {
-  if (spell <= 1) return "clear";
-  const prev = spell === 2 ? "clear" : skyOf(seed, spell - 1);
-  const r = hash(seed, spell);
-  switch (prev) {
-    case "clear":
-      return r < 0.42 ? "clear" : "overcast";
-    case "overcast":
-      return r < 0.22 ? "clear" : r < 0.52 ? "overcast" : "rain";
-    case "rain":
-      return r < 0.30 ? "overcast" : r < 0.82 ? "rain" : "storm";
-    case "storm":
-      return r < 0.55 ? "rain" : "storm";
+  // Rain is an event now, not a mood: once or twice a game-week (seven
+  // four-minute days, 24 spells), a front rolls in -- overcast, two spells of
+  // rain, perhaps a storm at its heart, overcast again. The rest of the week is
+  // clear with the odd grey sky. It used to drift into rain every few minutes,
+  // which was far too often to be anything but a nuisance.
+  if (spell <= 2) return "clear";
+  const week = Math.floor(spell / SPELLS_PER_WEEK);
+  const at = spell % SPELLS_PER_WEEK;
+  const fronts = hash(seed, week * 7 + 1) < 0.5 ? 1 : 2;
+  for (let f = 0; f < fronts; f++) {
+    // Each front gets its own half (or whole) of the week, so two never overlap.
+    const span = Math.floor(SPELLS_PER_WEEK / fronts);
+    const lo = f * span + (week === 0 && f === 0 ? 3 : 0);
+    const start = lo + Math.floor(hash(seed, week * 7 + 2 + f) * Math.max(1, span - (lo - f * span) - FRONT_LENGTH));
+    const k = at - start;
+    if (k < 0 || k >= FRONT_LENGTH) continue;
+    const storm = hash(seed, week * 7 + 4 + f) < 0.35;
+    return k === 0 || k === FRONT_LENGTH - 1 ? "overcast" : storm && k === 2 ? "storm" : "rain";
   }
+  return hash(seed, spell * 13 + 5) < 0.12 ? "overcast" : "clear";
 }
+
+/** Spells in a game-week: seven four-minute days of seventy-second spells. */
+const SPELLS_PER_WEEK = Math.round((7 * 20 * 240) / SPELL);
+/** A front: overcast, rain, rain (or storm), rain, overcast. */
+const FRONT_LENGTH = 5;
 
 /** How hard it is coming down, 0 to 1. Drives mud, sound and the picture alike. */
 export function rainfall(sky: Sky): number {

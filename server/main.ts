@@ -174,6 +174,7 @@ function save(): void {
   mkdirSync(SAVE_DIR, { recursive: true });
   const blob = {
     version: 1,
+    patrolsEnabled: world.patrolsEnabled,
     size: world.map.width,
     seed: world.seed,
     tick: world.tick,
@@ -228,6 +229,7 @@ function load(): boolean {
       maxId = Math.max(maxId, e.id);
       if (e.kind === "building") world.map.occupy(e.tx, e.ty, e.size, e.id);
     }
+    world.patrolsEnabled = blob.patrolsEnabled ?? false;
     world.restoreClock(blob.tick, maxId + 1);
     return true;
   } catch (err) {
@@ -453,3 +455,4 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.exit(0);
   });
 }
+

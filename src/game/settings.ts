@@ -23,6 +23,7 @@ export interface Settings {
   /** The ambient score. Off leaves the effects alone. */
   music: boolean;
   muted: boolean;
+  voices: boolean;
   /** Ticks are asked for this many times faster than real time. */
   gameSpeed: number;
   /** Bob, lean and other idle motion. Off is a static, cheaper picture. */
@@ -32,6 +33,8 @@ export interface Settings {
   damageNumbers: boolean;
   /** Push the camera when the pointer touches the screen edge. */
   edgeScroll: boolean;
+  /** Left-click terrain to order selected units. */
+  clickToMove: boolean;
   /** Multiplier on keyboard and edge scrolling. */
   scrollSpeed: number;
   /** Applies to the next game started, not the one in progress. */
@@ -71,11 +74,13 @@ export const DEFAULTS: Settings = {
   musicVolume: 0.45,
   music: true,
   muted: false,
+  voices: true,
   gameSpeed: 1,
   animations: true,
   healthBars: "damaged",
   damageNumbers: true,
   edgeScroll: true,
+  clickToMove: true,
   scrollSpeed: 1,
   difficulty: "normal",
   mapId: "random",
@@ -83,11 +88,8 @@ export const DEFAULTS: Settings = {
   stockade: true,
   crowning: true,
   wildlife: true,
-  // Twice as long for everything: building, training, gathering, research.
-  // At 1 the whole arc of a match went past before you had decided what you
-  // wanted from it. Movement is halved separately, in the simulation, because
-  // that is about distance being worth something rather than about pacing.
-  pace: 2,
+  // Brisk construction and training for new players. Saved pace remains respected.
+  pace: 1,
 };
 
 const KEY = "openrts.settings.v1";
@@ -132,11 +134,13 @@ export function loadSettings(): void {
     settings.musicVolume = clamp(o.musicVolume, 0, 1, DEFAULTS.musicVolume);
     settings.music = o.music !== false;
     settings.muted = o.muted === true;
+    settings.voices = o.voices !== false;
     settings.gameSpeed = clamp(o.gameSpeed, 0.5, 3, DEFAULTS.gameSpeed);
     settings.animations = o.animations !== false;
     settings.healthBars = o.healthBars === "always" || o.healthBars === "never" ? o.healthBars : DEFAULTS.healthBars;
     settings.damageNumbers = o.damageNumbers !== false;
     settings.edgeScroll = o.edgeScroll !== false;
+    settings.clickToMove = o.clickToMove !== false;
     settings.scrollSpeed = clamp(o.scrollSpeed, 0.4, 2.5, DEFAULTS.scrollSpeed);
     const d = o.difficulty;
     settings.difficulty = d === "easy" || d === "hard" || d === "none" || d === "peaceful" ? d : DEFAULTS.difficulty;

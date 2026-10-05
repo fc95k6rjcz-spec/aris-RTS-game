@@ -13,9 +13,12 @@
  */
 
 import { BUILDINGS } from "../data/buildings";
+import { LEVELLED } from "../data/levels";
+import { upgradesFor } from "../data/upgrades";
 import { UNITS } from "../data/units";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
+import { wallTierCost, WILD } from "../sim/world";
 import { SUB, Tile, type PlayerId } from "../sim/types";
 import type { World } from "../sim/world";
 import { findPath } from "../sim/pathfinding";
@@ -39,13 +42,28 @@ const SETTINGS: Record<
   // Peaceful builds and defends its ground but never launches an attack, so the
   // numbers below only govern how briskly it develops.
   peaceful: { think: 30, armySize: 99, workers: 12, patience: 1e9 },
-  easy: { think: 40, armySize: 5, workers: 6, patience: 90 },
-  normal: { think: 20, armySize: 8, workers: 10, patience: 55 },
-  hard: { think: 12, armySize: 12, workers: 14, patience: 30 },
+  easy: { think: 40, armySize: 5, workers: 8, patience: 90 },
+  normal: { think: 20, armySize: 8, workers: 14, patience: 55 },
+  hard: { think: 12, armySize: 12, workers: 18, patience: 30 },
 };
 
 /** The order it builds in. Repeats the last entries once the list is exhausted. */
-const BUILD_ORDER = ["farm", "barracks", "lumbermill", "farm", "barracks", "tower", "farm", "stables", "farm", "church"];
+const BUILD_ORDER = [
+  "farm",
+  "barracks",
+  "lumbermill",
+  "farm",
+  "barracks",
+  "tower",
+  "farm",
+  "stables",
+  "church",
+  "farm",
+  "foundry",
+  "magetower",
+  "farm",
+  "gryphonaviary",
+];
 
 export class SkirmishAI {
   private wave = 0;
@@ -60,6 +78,11 @@ export class SkirmishAI {
     private readonly player: PlayerId,
     private readonly difficulty: Exclude<Difficulty, "none"> = "normal",
   ) {}
+
+  saveState() { return { wave:this.wave, gateOpen:this.gateOpen, gateChecked:this.gateChecked, massingSince:this.massingSince }; }
+  restoreState(state: ReturnType<SkirmishAI['saveState']>): void {
+    this.wave=state.wave; this.gateOpen=state.gateOpen; this.gateChecked=state.gateChecked; this.massingSince=state.massingSince;
+  }
 
   private get cfg() {
     return SETTINGS[this.difficulty];
@@ -85,6 +108,9 @@ export class SkirmishAI {
   private soldiers(): Unit[] {
     return this.myUnits().filter((u) => UNITS[u.def]!.damage > 0 && !UNITS[u.def]!.canGather);
   }
+  private supporters(): Unit[] {
+    return this.myUnits().filter((u) => (UNITS[u.def]!.heal ?? 0) > 0);
+  }
   private has(def: string): boolean {
     return this.mine().some((b) => b.def === def && b.complete);
   }
@@ -99,6 +125,8 @@ export class SkirmishAI {
     this.keepWorkersBusy(out);
     this.trainUnits(out);
     this.buildSomething(out, tick);
+    this.researchHumanTech(out);
+    this.upgradeBuildings(out);
     // Defence first: a warband massing for an attack that ignores an enemy
     // already inside its own base is the single most obviously stupid thing an
     // RTS opponent can do.
@@ -111,7 +139,38 @@ export class SkirmishAI {
 
   // ───────────────────────────── economy ─────────────────────────────
 
+  /**
+   * Keep the split between gold and wood where the purse needs it. Idle workers
+   * were the only ones ever reassigned, so a crew that started on gold stayed
+   * on gold forever: the AI sat on thousands of gold and could not afford a
+   * barracks for want of wood. Every few seconds a worker or two moves across.
+   */
+  private rebalance(out: Command[]): void {
+    if (this.world.tick % 100 !== 0) return;
+    const hall = this.mine().find((b) => b.def === "townhall");
+    if (!hall) return;
+    const p = this.world.players.get(this.player)!;
+    const ws = this.workers().filter((u) => u.task.kind === "gather");
+    if (ws.length < 3) return;
+    const onWood = ws.filter((u) => u.task.kind === "gather" && u.task.resource === "lumber");
+    const onGold = ws.filter((u) => u.task.kind === "gather" && u.task.resource === "gold");
+    // Wood is slow to cut, so it takes more hands than gold to keep up.
+    const woodShare = p.lumber < 600 || p.lumber < p.gold * 0.5 ? 0.65 : p.gold < p.lumber * 0.5 ? 0.3 : 0.5;
+    const want = Math.round(ws.length * woodShare);
+    const c = centerOf(hall);
+    if (onWood.length < want && onGold.length > 1) {
+      const node = this.nearestResource(c.x, c.y, Tile.Tree);
+      const mover = onGold.find((u) => !u.carrying);
+      if (node && mover) out.push({ type: "gather", player: this.player, units: [mover.id], tx: node[0], ty: node[1] });
+    } else if (onWood.length > want + 1 && onWood.length > 1) {
+      const node = this.nearestResource(c.x, c.y, Tile.Gold);
+      const mover = onWood.find((u) => !u.carrying);
+      if (node && mover) out.push({ type: "gather", player: this.player, units: [mover.id], tx: node[0], ty: node[1] });
+    }
+  }
+
   private keepWorkersBusy(out: Command[]): void {
+    this.rebalance(out);
     const idle = this.workers().filter((u) => u.task.kind === "idle");
     if (idle.length === 0) return;
     const hall = this.mine().find((b) => b.def === "townhall");
@@ -119,7 +178,7 @@ export class SkirmishAI {
     const c = centerOf(hall);
     // Split roughly two thirds onto gold, since gold gates almost everything.
     const p = this.world.players.get(this.player)!;
-    const wantLumber = p.lumber < p.gold * 0.6;
+    const wantLumber = p.lumber < p.gold * 0.8 || p.lumber < 600;
     for (const u of idle) {
       // Try the resource we want, then the other one, then anything at all.
       // Falling through matters: a worker that finds no tree within range used
@@ -205,7 +264,7 @@ export class SkirmishAI {
     if (!hall) return;
     const enemy = this.world
       .buildings()
-      .filter((b) => b.owner !== this.player)
+      .filter((b) => !this.world.allied(b.owner, this.player))
       .sort((a, b) => a.id - b.id)[0];
     if (!enemy) return;
     const scout = this.workers()[0];
@@ -280,13 +339,66 @@ export class SkirmishAI {
     // Then soldiers from every idle barracks.
     for (const b of this.mine()) {
       if (!b.complete || b.queue.length > 0) continue;
-      const trains = BUILDINGS[b.def]!.trains.filter((u) => UNITS[u]!.damage > 0 && !UNITS[u]!.canGather);
+      const trains = BUILDINGS[b.def]!.trains.filter((u) => !UNITS[u]!.canGather && !UNITS[u]!.royal && (UNITS[u]!.damage > 0 || (UNITS[u]!.heal ?? 0) > 0));
       if (trains.length === 0) continue;
       const unit = trains[this.wave % trains.length]!;
       if (headroom < UNITS[unit]!.supply) continue;
       if (!this.world.canAfford(this.player, UNITS[unit]!.cost)) continue;
       out.push({ type: "train", player: this.player, building: b.id, unit });
     }
+  }
+
+  /**
+   * Spend surplus resources on faction research once the relevant workshop exists.
+   * One command per think pass keeps the AI from emptying its purse in one frame.
+   */
+  private researchHumanTech(out: Command[]): void {
+    const p = this.world.players.get(this.player);
+    if (!p) return;
+    for (const b of this.mine().sort((a, z) => a.id - z.id)) {
+      if (!b.complete || b.research || b.upgrade || b.queue.length > 0) continue;
+      for (const up of upgradesFor(b.def)) {
+        const have = p.research[up.id] ?? 0;
+        if (have >= up.levels.length || this.world.researching(this.player, up.id)) continue;
+        const lv = up.levels[have]!;
+        if (!this.world.canAfford(this.player, lv.cost)) continue;
+        // Keep enough cash for at least one ordinary combat unit/building after
+        // research so the AI does not tech itself into paralysis.
+        const reserveGold = 180;
+        const reserveLumber = 120;
+        if ((p.gold ?? 0) - (lv.cost.gold ?? 0) < reserveGold) continue;
+        if ((p.lumber ?? 0) - (lv.cost.lumber ?? 0) < reserveLumber) continue;
+        out.push({ type: "research", player: this.player, building: b.id, upgrade: up.id });
+        return;
+      }
+    }
+  }
+
+  /**
+   * Climb the building ladder the same way a player does: the Town Hall first
+   * (it caps every other building's level), then farms for supply, then the
+   * rest. One upgrade per think pass, and only from money left over after the
+   * same reserve research keeps, so upgrading never starves the army.
+   */
+  private upgradeBuildings(out: Command[]): void {
+    if (out.some((c) => c.type === "research")) return;
+    const p = this.world.players.get(this.player);
+    if (!p) return;
+    const affordable = (cost: { gold: number; lumber: number; oil?: number }): boolean =>
+      this.world.canAfford(this.player, cost) && p.gold - cost.gold >= 180 && p.lumber - cost.lumber >= 120;
+    const order = (def: string): number => (def === "townhall" ? 0 : def === "farm" ? 1 : 2);
+    const candidates = this.mine()
+      .filter((b) => b.complete && !b.upgrade && !b.research && b.queue.length === 0 && LEVELLED[b.def] && b.level < LEVELLED[b.def]!.length)
+      .sort((a, z) => order(a.def) - order(z.def) || a.level - z.level || a.id - z.id);
+    for (const b of candidates) {
+      if (this.world.upgradeBlocked(this.player, b)) continue;
+      if (!affordable(LEVELLED[b.def]![b.level]!.cost)) continue;
+      out.push({ type: "upgrade", player: this.player, building: b.id });
+      return;
+    }
+    if (this.mine().some((b) => b.def === "wall" || b.def === "gate") && !this.world.wallUpgradeBlocked(this.player)
+      && affordable(wallTierCost(this.world.wallLevel(this.player) + 1)))
+      out.push({ type: "upgradeWalls", player: this.player });
   }
 
   private buildSomething(out: Command[], tick: number): void {
@@ -312,7 +424,11 @@ export class SkirmishAI {
 
     // Supply block trumps the build order — an army that cannot be fed is no army.
     let want: string | null = null;
-    if (supply.max - supply.used <= 2) want = "farm";
+    // ...but not before the first barracks: with building costs doubled, a
+    // farm every time supply got tight ate all the wood and the AI never
+    // raised a single soldier.
+    const hasBarracks = this.mine().some((b) => b.def === "barracks");
+    if (supply.max - supply.used <= 2 && hasBarracks) want = "farm";
     else {
       const built = this.mine();
       for (const def of BUILD_ORDER) {
@@ -395,7 +511,7 @@ export class SkirmishAI {
     let threat: Unit | null = null;
     let bestD = Infinity;
     for (const e of this.world.units()) {
-      if (e.owner === this.player || UNITS[e.def]!.damage <= 0) continue;
+      if (this.world.allied(e.owner, this.player) || UNITS[e.def]!.damage <= 0 || e.def === "dragon") continue;
       for (const b of mine) {
         const c = centerOf(b);
         const d = (e.pos.x - c.x) ** 2 + (e.pos.y - c.y) ** 2;
@@ -409,6 +525,9 @@ export class SkirmishAI {
     const idle = this.soldiers().filter((u) => u.task.kind === "idle");
     if (idle.length === 0) return true; // under attack, nothing spare — still our problem
     out.push({ type: "attack", player: this.player, units: idle.map((u) => u.id), target: threat.id });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length)
+      out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: threat.pos.x, y: threat.pos.y });
     return true;
   }
 
@@ -429,7 +548,7 @@ export class SkirmishAI {
       this.massingSince = tick;
       return;
     }
-    const enemyBuildings = this.world.buildings().filter((b) => b.owner !== this.player).length;
+    const enemyBuildings = this.world.buildings().filter((b) => !this.world.allied(b.owner, this.player)).length;
     const waited = tick - this.massingSince;
     const ready =
       army.length >= this.cfg.armySize ||
@@ -442,10 +561,15 @@ export class SkirmishAI {
     // Send everything at the enemy's nearest building; workers stay home.
     const enemy = this.world
       .buildings()
-      .filter((b) => b.owner !== this.player)
+      .filter((b) => !this.world.allied(b.owner, this.player))
       .sort((a, b) => a.id - b.id)[0];
-    if (!enemy) return;
-    const c = centerOf(enemy);
+    // Nothing left standing: hunt down whoever survives rather than idle at home.
+    const straggler = enemy ? undefined : this.world
+      .units()
+      .filter((u) => u.owner !== this.player && u.owner !== WILD && !this.world.allied(u.owner, this.player))
+      .sort((a, b) => a.id - b.id)[0];
+    if (!enemy && !straggler) return;
+    const c = enemy ? centerOf(enemy) : straggler!.pos;
     // If the warband cannot walk there, it has to cut its way out first. On a
     // walled start the opponent is fenced into its own timber exactly as the
     // player is, and an army that could not reach anything simply milled about
@@ -462,5 +586,7 @@ export class SkirmishAI {
     this.wave++;
     this.massingSince = tick;
     out.push({ type: "attackMove", player: this.player, units: idle.map((u) => u.id), x: c.x, y: c.y });
+    const medics = this.supporters().filter((u) => u.task.kind === "idle");
+    if (medics.length) out.push({ type: "move", player: this.player, units: medics.map((u) => u.id), x: c.x, y: c.y });
   }
 }

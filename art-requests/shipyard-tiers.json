@@ -1,0 +1,8 @@
+{
+ "prompt": "Sprite sheet for a fantasy RTS game, painted in the same style, lighting and camera angle as the attached town hall sheet (3/4 top-down view, warm torchlit windows, blue and gold banners, stone and timber). 10 versions of a SHIPYARD, one per upgrade level, in a neat 5 columns by 2 rows grid, evenly spaced, same scale, left to right then top row to bottom row, growing from humble to grand. Each shipyard is a waterfront building with a wooden jetty and slipway on its lower edge where a hull is being built. 1 Fishing Dock: a tiny plank jetty, a net shed and a rowing boat. 2 Boatyard: a timber boathouse with a small slipway and a half-built longboat. 3 Reinforced Yard: bigger boathouse on a stone quay, a crane and timber stacks. 4 Warship Yard: a covered slipway with a warship hull in scaffolding. 5 Naval Yard: stone quay, two slipways, a crane, rope and sails. 6 Great Docks: a large timber-framed dock hall with blue slate roofs and a galleon hull. 7 Shipwright Works: stone workshops, a big crane, a dry dock. 8 Master Shipyard: twin covered slipways, a watch turret, banners. 9 Admiralty Yard: grand stone admiralty building with a clock tower beside the docks. 10 Grand Armoury Docks: a fortified naval arsenal with towers, gold trim and a flagship on the slip. Transparent background, no water, no ground plane, no shadows outside the building, no text or labels, crisp edges.",
+ "size": "1536x1024",
+ "quality": "high",
+ "refs": [
+  "art-src/sheet-halls.png"
+ ]
+}

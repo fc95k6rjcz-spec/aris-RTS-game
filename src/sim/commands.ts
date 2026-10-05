@@ -5,7 +5,11 @@ import type { EntityId, PlayerId } from "./types";
  * They are serialisable so they can later be sent over the wire for lockstep play.
  */
 export type Command =
-  | { type: "move"; player: PlayerId; units: EntityId[]; x: number; y: number }
+  | { type: "alliance"; player: PlayerId; target: PlayerId; allied: boolean }
+  | { type: "towerAttack"; player: PlayerId; building: EntityId; target: EntityId }
+  | { type: "buildWallLine"; player: PlayerId; units: EntityId[]; tiles: Array<{x:number;y:number}> }
+  | { type: "battleRally"; player: PlayerId; units: EntityId[] }
+  | { type: "move"; player: PlayerId; units: EntityId[]; x: number; y: number; queue?: boolean }
   | { type: "gather"; player: PlayerId; units: EntityId[]; tx: number; ty: number }
   | { type: "build"; player: PlayerId; units: EntityId[]; building: string; tx: number; ty: number }
   | { type: "repair"; player: PlayerId; units: EntityId[]; target: EntityId }
@@ -13,9 +17,22 @@ export type Command =
   | { type: "cancelTrain"; player: PlayerId; building: EntityId; index: number }
   | { type: "cancelBuild"; player: PlayerId; building: EntityId }
   | { type: "upgrade"; player: PlayerId; building: EntityId }
+  | { type: "upgradeWalls"; player: PlayerId }
   | { type: "cancelUpgrade"; player: PlayerId; building: EntityId }
   | { type: "stop"; player: PlayerId; units: EntityId[] }
-  | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId }
+  | { type: "attack"; player: PlayerId; units: EntityId[]; target: EntityId; /** Strike even your own or an ally's (Ctrl + right-click). */ force?: boolean }
   | { type: "attackMove"; player: PlayerId; units: EntityId[]; x: number; y: number }
+  | { type: "setRally"; player: PlayerId; building: EntityId; x: number; y: number }
   | { type: "research"; player: PlayerId; building: EntityId; upgrade: string }
-  | { type: "cancelResearch"; player: PlayerId; building: EntityId };
+  | { type: "cancelResearch"; player: PlayerId; building: EntityId }
+  /** Send archers up a watch tower. */
+  | { type: "garrison"; player: PlayerId; units: EntityId[]; building: EntityId }
+  /** Bring every garrisoned archer down from a tower. */
+  | { type: "ungarrison"; player: PlayerId; building: EntityId }
+  /** Shared realm: a traveller arrives. Gives them back their old seat, or a new one. */
+  | { type: "joinRealm"; player: PlayerId; peer: string }
+  /** Shared realm: abandon your kingdom and start again as a new camp. */
+  | { type: "restartSeat"; player: PlayerId }
+  /** Mount a Dragonbane harpoon on a watch tower. */
+  | { type: "dragonbane"; player: PlayerId; building: EntityId };
+

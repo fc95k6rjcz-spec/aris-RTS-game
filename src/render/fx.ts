@@ -22,6 +22,8 @@ const STROKE = 11;
 const NUMBER = 26;
 /** Ticks a body takes to fall, fade and sink. */
 const FALL = 16;
+/** Buildings collapse quickly but leave readable rubble for several seconds. */
+const BUILDING_RUIN = 140;
 /** Ticks the dust ring under a finished building lasts. */
 const DUST = 22;
 
@@ -70,20 +72,39 @@ interface Puff {
  * Holds every in-flight effect. One instance per renderer; `apply` is fed the
  * sim's list once per tick and `prune` drops what has expired.
  */
+/** Ticks the level-up reveal lasts: glow, rays and a little swell. */
+const LEVEL_UP = 60;
+
 export class Fx {
   private lunges = new Map<EntityId, Lunge>();
   private flashes = new Map<EntityId, number>();
   private strokes = new Map<EntityId, number>();
+  /** Buildings that have just gone up a tier, and when: drives the reveal glow. */
+  private levelUps = new Map<EntityId, number>();
   private slashes: Slash[] = [];
   private puffs: Puff[] = [];
-  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; t0: number; drift: number }> = [];
+  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; heal: boolean; t0: number; drift: number }> = [];
   corpses: Corpse[] = [];
 
   /** Absorb one tick's worth of events. `tick` is the sim tick they happened on. */
   apply(events: readonly FxEvent[], tick: number): void {
     for (const e of events) {
       switch (e.kind) {
-        case "attack": {
+        case "attack":
+          // Dragonfire: a roaring cone from the jaws (well above the ground,
+          // where the dragon is drawn) down onto the target.
+          if (e.def === "dragon") {
+            const side = e.tx >= e.x ? 1 : -1, mx = e.x + side * 64 * 1.1, my = e.y - 64 * 2.9;
+            for (let k = 0; k < 12; k++) {
+              const f = k / 11;
+              this.puffs.push({ x: mx + (e.tx - mx) * f, y: my + (e.ty - my) * f, t0: tick + k * 0.6, life: 16 + k, color: k < 3 ? "#fff1a8" : k < 7 ? "#ffb13b" : "#ff5a1f", n: 5 + k, size: 0.05 + f * 0.06, spread: 0.2 + f * 0.7 });
+            }
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 6, life: 30, color: "#3a2a22", n: 10, size: 0.08, spread: 0.9 });
+            // The ground keeps burning after the breath has passed.
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 8, life: 80, color: "#ff7a1a", n: 9, size: 0.05, spread: 0.55 });
+            this.puffs.push({ x: e.tx, y: e.ty, t0: tick + 20, life: 70, color: "#ffc04a", n: 5, size: 0.04, spread: 0.4 });
+          }
+           {
           const dx = e.tx - e.x;
           const dy = e.ty - e.y;
           const len = Math.hypot(dx, dy) || 1;
@@ -98,8 +119,9 @@ export class Fx {
           this.numbers.push({
             x: e.x,
             y: e.y,
-            text: String(e.amount),
+            text: e.crit ? `CRIT ${e.amount}` : String(e.amount),
             crit: e.crit,
+            heal: false,
             // Deterministic sideways drift, so simultaneous hits on one target
             // do not stack into an unreadable pile.
             drift: ((this.numbers.length * 37) % 21) - 10,
@@ -118,6 +140,18 @@ export class Fx {
             spread: 0.34,
           });
           break;
+        case "heal":
+          this.numbers.push({
+            x: e.x,
+            y: e.y,
+            text: `+${e.amount}`,
+            crit: false,
+            heal: true,
+            drift: ((this.numbers.length * 37) % 21) - 10,
+            t0: tick,
+          });
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 12, color: "#8ff0ad", n: 7, size: 0.04, spread: 0.42 });
+          break;
         case "death":
           this.corpses.push({ ...e, t0: tick });
           break;
@@ -135,6 +169,11 @@ export class Fx {
             size: 0.045,
             spread: 0.4,
           });
+          break;
+        case "levelUp":
+          this.levelUps.set(e.id, tick);
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 40, color: "#ffd86b", n: 26, size: 0.07, spread: 1.4 });
+          this.puffs.push({ x: e.x, y: e.y, t0: tick, life: 28, color: "#fff4c8", n: 14, size: 0.045, spread: 0.9 });
           break;
         case "chop":
           this.strokes.set(e.id, tick);
@@ -291,7 +330,7 @@ export class Fx {
       ctx.lineWidth = Math.max(2, size * 0.28);
       ctx.strokeStyle = "rgba(0,0,0,0.75)";
       ctx.strokeText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
-      ctx.fillStyle = n.crit ? "#ffd75e" : "#fff1f1";
+      ctx.fillStyle = n.heal ? "#8ff0ad" : n.crit ? "#ffd75e" : "#fff1f1";
       ctx.fillText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
     }
     ctx.globalAlpha = 1;
@@ -299,16 +338,26 @@ export class Fx {
 
   /** How far through its fall a corpse is, 0..1, or null once it is gone. */
   fallProgress(c: Corpse, tick: number): number | null {
-    const k = (tick - c.t0) / FALL;
+    const life = c.building ? BUILDING_RUIN : FALL;
+    const k = (tick - c.t0) / life;
     return k < 0 || k > 1 ? null : k;
   }
 
   /** Drop anything that has finished. Cheap, and keeps the lists from growing. */
+  /** 0..1 through a building's level-up reveal, or null when there is none. */
+  levelUpProgress(id: EntityId, tick: number): number | null {
+    const t0 = this.levelUps.get(id);
+    if (t0 === undefined) return null;
+    const f = (tick - t0) / LEVEL_UP;
+    return f >= 0 && f <= 1 ? f : null;
+  }
+
   prune(tick: number): void {
+    for (const [id, t0] of this.levelUps) if (tick - t0 > LEVEL_UP) this.levelUps.delete(id);
     this.slashes = this.slashes.filter((s) => tick - s.t0 <= SLASH);
     this.puffs = this.puffs.filter((p) => tick - p.t0 <= p.life);
     this.numbers = this.numbers.filter((n) => tick - n.t0 <= NUMBER);
-    this.corpses = this.corpses.filter((c) => tick - c.t0 <= FALL);
+    this.corpses = this.corpses.filter((c) => tick - c.t0 <= (c.building ? BUILDING_RUIN : FALL));
     for (const [id, t0] of this.flashes) if (tick - t0 > FLASH) this.flashes.delete(id);
     for (const [id, l] of this.lunges) if (tick - l.t0 > LUNGE) this.lunges.delete(id);
     for (const [id, t0] of this.strokes) if (tick - t0 > STROKE) this.strokes.delete(id);
@@ -326,3 +375,4 @@ export class Fx {
     this.pending.length = 0;
   }
 }
+

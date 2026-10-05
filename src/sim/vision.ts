@@ -85,7 +85,7 @@ export class Vision {
    * Recompute the visible set from a list of watchers, each a world position
    * and a sight radius in tiles.
    */
-  update(watchers: Iterable<{ x: number; y: number; r: number }>): void {
+  update(watchers: Iterable<{ x: number; y: number; r: number; elevated?: boolean }>, blocks: (x: number, y: number) => boolean = () => false): void {
     this.visible.fill(0);
     for (const w of watchers) {
       const cx = Math.floor(w.x / SUB);
@@ -95,6 +95,7 @@ export class Vision {
         const x = cx + d[i]!;
         const y = cy + d[i + 1]!;
         if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+        if (!w.elevated && !clearSight(cx, cy, x, y, blocks)) continue;
         const k = y * this.width + x;
         this.visible[k] = 1;
         this.explored[k] = 1;
@@ -108,3 +109,15 @@ export class Vision {
     this.visible.fill(1);
   }
 }
+
+/** The blocking tile is visible, but ground behind it is not. No diagonal pinholes. */
+export function clearSight(x0: number,y0: number,x1: number,y1: number,blocks:(x:number,y:number)=>boolean):boolean {
+  let x=x0,y=y0;const dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=Math.sign(x1-x0),sy=Math.sign(y1-y0);let err=dx-dy;
+  while(x!==x1 || y!==y1){
+    const twice=2*err;let nx=x,ny=y;
+    if(twice>-dy){err-=dy;nx+=sx;}if(twice<dx){err+=dx;ny+=sy;}
+    if(nx!==x&&ny!==y&&blocks(nx,y)&&blocks(x,ny)) return false;
+    x=nx;y=ny;if(x===x1&&y===y1)return true;if(blocks(x,y))return false;
+  }return true;
+}
+

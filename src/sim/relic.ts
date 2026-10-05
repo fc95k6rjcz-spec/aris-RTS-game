@@ -35,7 +35,7 @@ export const WEAPON_OF: Record<Faction, { name: string; taken: string }> = {
 
 /** One weapon, waiting in the ground for the man it belongs to. */
 export interface Relic {
-  /** Whose destiny this is. Another player's peasant walks straight past it. */
+  /** Whose destiny this is. Another player's peasant walks straight past it. 0 = a sword in the realm that any kingless clan may claim. */
   owner: PlayerId;
   faction: Faction;
   /** Tile coordinates. */

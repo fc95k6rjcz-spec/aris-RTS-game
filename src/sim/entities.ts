@@ -6,15 +6,8 @@ export type UnitTask =
   | { kind: "build"; building: EntityId }
   | { kind: "gather"; tx: number; ty: number; resource: "gold" | "lumber"; phase: "toNode" | "harvest" | "toDrop" | "deposit"; timer: number }
   | { kind: "repair"; building: EntityId }
-  /**
-   * Ordered onto a specific target; chases it until it dies.
-   *
-   * `guard` marks a chase the unit started by itself, having spotted something
-   * from where it was standing rather than being told to. Those are leashed to
-   * `post` so that a picket does not follow one scout across the map; an
-   * ordered attack has no leash, because the player meant it.
-   */
-  | { kind: "attack"; target: EntityId; guard?: boolean }
+  /** Ordered onto a specific target; chases it until it dies. */
+  | { kind: "attack"; target: EntityId; force?: boolean }
   /** Move to a point, engaging anything hostile met on the way. */
   | { kind: "attackMove"; target: Vec };
 
@@ -24,11 +17,20 @@ export interface Unit {
   owner: PlayerId;
   def: string;
   pos: Vec; // sub-tile units, centre of unit
+  /** Fixed-point movement carried between ticks, in 1/1024 sub-units. */
+  moveRemainder?: Vec;
   hp: number;
   maxHp: number;
   task: UnitTask;
-  /** Remaining waypoints in tile coords. */
+  /** Remaining A* waypoints in tile coords for the active order. */
   path: Array<[number, number]>;
+  /**
+   * Player-queued move destinations, in world sub-units.
+   *
+   * Kept in simulation state rather than the UI so Shift-waypoints are
+   * deterministic and survive lockstep exactly like the active task.
+   */
+  moveQueue: Vec[];
   /** Ticks left before the unit will re-path after being blocked. */
   repathIn: number;
   carrying: { resource: "gold" | "lumber"; amount: number } | null;
@@ -37,19 +39,41 @@ export interface Unit {
   cooldown: number;
   /** What it is currently shooting at, for auto-acquired targets. */
   engaging: EntityId | null;
-  /** Consecutive ticks spent with nothing to do. Reset by any order. */
-  idleFor: number;
   /**
-   * The ground this unit came to rest on, and the anchor its self-started
-   * chases are leashed to. Null whenever it is busy with something else.
+   * Consecutive ticks spent with nothing to do. Reset by any order.
+   *
+   * Only the night reads it: a man has to have been standing about for a while
+   * before he lies down, or the garrison drops where it stands the instant the
+   * sun goes.
    */
-  post: Vec | null;
+  idleFor: number;
   /**
    * Lying down for the night. Purely how the unit is drawn: a sleeper fights,
    * sees and takes damage exactly as a man on his feet does, and is on his feet
    * the moment anything hostile comes near. See `World.stepRest`.
    */
   asleep: boolean;
+  /** Position to return to after automatic defence. */
+  guardOrigin?: Vec;
+  ralliedUntil?: number;
+  rallyReadyAt?: number;
+  patrolHome?: Vec;
+  patrolBand?: number;
+  /** Unaligned travellers who join a king that reaches their band. */
+  recruitBand?: number;
+  buildQueue?: EntityId[];
+  /** A work pause followed by a short walk to the next part of the structure. */
+  constructionWork?: { building: EntityId; ticks: number; travel: number; target?: [number, number] };
+  /** Walking to a watch tower to climb up and shoot from it. */
+  enterTower?: EntityId;
+  /** One of the Orc Horde: what it was sent to do, to whom, and where it came from. */
+  horde?: { role: "scout" | "raid"; target: PlayerId; home: Vec; spotted?: boolean; /** Tick a raid gives up and heads home. */ until?: number };
+  /** A dragon's errand: sleeping on its roost, burning a town, or flying home. */
+  dragon?: { phase: "roost" | "raid" | "leave"; target: PlayerId; over: Vec; until: number; arrived?: boolean };
+  /** The last resource this worker was working, so he can go back to it after a job. */
+  lastGather?: { tx: number; ty: number; resource: "gold" | "lumber" };
+  /** Running from something terrible, and what to go back to afterwards. */
+  fear?: { until: number; resume: UnitTask | null };
 }
 
 /** An arrow, spear or shell in flight. Cosmetic: damage is applied on launch. */
@@ -66,6 +90,8 @@ export interface TrainJob {
   unit: string;
   remaining: number;
   total: number;
+  /** False while the order waits for the gold and lumber to pay for it. */
+  paid?: boolean;
 }
 
 export interface UpgradeJob {
@@ -92,10 +118,18 @@ export interface Building {
   level: number;
   upgrade: UpgradeJob | null;
   rally: Vec | null;
+  /** Explicit focus target; towers resume automatic fire when it disappears. */
+  attackTarget?: EntityId;
   /** Upgrade being researched here, if any. Blocks training while it runs. */
   research: { id: string; toLevel: number; remaining: number; total: number } | null;
   /** Workers currently applying construction this tick (for the renderer / progress rate). */
   builders: number;
+  /** Archers who have climbed a watch tower. Stored off the map while inside. */
+  garrison?: Array<{ def: string; hp: number; maxHp: number }>;
+  /** What was actually paid to place it (a replacement Town Hall is free), refunded on cancel. */
+  paid?: { gold: number; lumber: number; oil?: number; food?: number };
+  /** Watch towers: a great harpoon ballista mounted on top. Dragons will not come near one. */
+  dragonbane?: boolean;
 }
 
 export type Entity = Unit | Building;

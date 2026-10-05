@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+const out = await build({entryPoints:['src/sim/world.ts'],bundle:true,write:false,platform:'node',format:'esm'});
+const {World,Faction,WILD} = await import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));
+function fresh() {
+  const w = new World(64,64,7927,'lakeland',1,false);
+  for (const id of [1,2,WILD]) w.addPlayer(id,Faction.Human,'#963');
+  for(let y=0;y<64;y++) for(let x=0;x<64;x++) w.map.set(x,y,0);
+  w.spawnWanderers();
+  return w;
+}
+const w=fresh(), members=w.units().filter(u=>u.recruitBand!==undefined);
+assert.equal(members.length,w.map.starts.length*3);
+assert.equal(w.checksum(),fresh().checksum(),'seeded bands must agree');
+const first=members[0], band=members.filter(u=>u.recruitBand===first.recruitBand);
+const worker=w.spawnUnit(1,'worker',{...first.pos});
+w.stepWanderers(); assert.equal(first.owner,WILD,'workers cannot recruit');
+assert.equal(w.hostile(worker,first),false);
+assert.equal(w.hostile(first,worker),false);
+const king=w.spawnUnit(1,'king',{...first.pos});
+w.stepWanderers();
+assert(band.every(u=>u.owner===1 && u.recruitBand===undefined));
+assert(w.events.some(e=>e.player===1 && /swear allegiance/.test(e.text)));
+const count=w.units().filter(u=>u.owner===1).length;
+w.stepWanderers(); assert.equal(w.units().filter(u=>u.owner===1).length,count,'cannot claim twice');
+const other=fresh(), target=other.units()[0];
+other.spawnUnit(1,'king',{x:target.pos.x+2*64,y:target.pos.y});
+const x=Math.floor(target.pos.x/64)+1;
+for(let y=0;y<64;y++) other.map.set(x,y,2);
+other.stepWanderers(); assert.equal(target.owner,WILD,'cannot recruit across an impassable barrier');
+console.log('PASS deterministic bands, king-only recruitment, neutrality, single claim and blocked access');

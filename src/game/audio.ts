@@ -19,11 +19,16 @@
  * the context is created lazily and resumed on the first click or key.
  */
 
-import { musicGain, sfxGain } from "./settings";
+import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
 export type SoundName =
+  | "dragon"
+  | "orcScouts"
+  | "noStore"
+  | "swordLegend"
+  | "warning"
   | "sword"
   | "bow"
   | "boom"
@@ -34,6 +39,11 @@ export type SoundName =
   | "chop"
   | "build"
   | "workstart"
+  | "crown"
+  | "magic"
+  | "heal"
+  | "timber"
+  | "command"
   /** A wolf, at length. */
   | "howl"
   /** A bear, briefly, and close enough to be a problem. */
@@ -49,6 +59,16 @@ export type SoundName =
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
+  warning: 15000,
+  dragon: 15000,
+  orcScouts: 15000,
+  noStore: 4000,
+  swordLegend: 20000,
+  command: 160,
+  crown: 3000,
+  magic: 140,
+  heal: 220,
+  timber: 150,
   sword: 55,
   bow: 70,
   boom: 180,
@@ -85,6 +105,47 @@ const CALL_OF: Record<string, SoundName> = {
 const MAX_PER_TICK = 5;
 
 /**
+ * The front-screen theme: "Beyond New Horizons" by Gioele Fazzeri, from Pixabay
+ * (Pixabay Content License -- free for use in games, no attribution required).
+ * Served from public/, so it is a separate cached file on the web build rather
+ * than base64 inside the page.
+ */
+/** Recorded voice lines, decoded once and replayed from memory. */
+const SAMPLES = {
+  realmUnderAttack: "/sfx/realm-under-attack.mp3",
+  select1: "/sfx/select-1.mp3",
+  dragonApproaches: "/sfx/dragon-approaches.mp3",
+  kingSelect: "/sfx/king-select.mp3",
+  footmanSelect: "/sfx/footman-select.mp3",
+  workerBuild: "/sfx/worker-build.mp3",
+  orcScoutsLine: "/sfx/orc-scouts.mp3",
+  needTownHall: "/sfx/need-town-hall.mp3",
+  swordLegendLine: "/sfx/sword-legend.mp3",
+} as const;
+
+/**
+ * Unit replies. Each kind lists its recorded variations; they take turns so the
+ * same line is not heard twice running. Add a file above and its name here.
+ */
+const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
+  select: ["select1"],
+  king: ["kingSelect"],
+  footman: ["footmanSelect"],
+  build: ["workerBuild"],
+};
+export type VoiceKind = "select" | "king" | "footman" | "build";
+/** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
+const VOICE_GAP_MS = 2500;
+type SampleName = keyof typeof SAMPLES;
+
+// Justin's opening soundscape for the front screen (the old theme file never shipped).
+const MENU_TRACK_URL = "/music/menu-opening.mp3";
+const MENU_FADE_IN_S = 3;
+const MENU_FADE_OUT_S = 2.5;
+/** Share of the music volume the recording plays at; it is mastered hot. */
+const MENU_TRACK_LEVEL = 0.8;
+
+/**
  * The scale the score draws on: D Phrygian, which is a natural minor with a
  * flattened second. That one interval -- D against Eb -- is most of why this
  * sounds wrong in the way it is meant to; the rest is tempo and a lot of space.
@@ -97,10 +158,19 @@ export class Audio {
   private noise: AudioBuffer | null = null;
   private last: Partial<Record<SoundName, number>> = {};
   private startedThisTick = 0;
+  private effectVolume = 1;
   /** Set once the browser has let us start; until then nothing plays. */
-  private ready = false;
+  ready = false;
   /** Everything the score owns, so it can be torn down in one go. */
   private music: { gain: GainNode; wet: GainNode; nodes: AudioScheduledSourceNode[]; timer: number; lcg: number } | null = null;
+  /** Where the player is: the front screen gets the theme, a match gets the drone. */
+  private scene: "menu" | "game" = "menu";
+  /** The recorded menu theme, routed through Web Audio so the sliders apply. */
+  private menuTrack: { el: HTMLAudioElement; gain: GainNode; stopTimer: number; playing: boolean } | null = null;
+  /** Decoded voice recordings; a missing one falls back to the synthesised sound. */
+  private samples: Partial<Record<SampleName, AudioBuffer>> = {};
+  /** Set if the theme file is missing or will not decode; the menu is then silent. */
+  private menuTrackBroken = false;
 
   /**
    * Wire the first user gesture to starting audio. Safe to call more than once;
@@ -126,16 +196,64 @@ export class Audio {
         this.master.gain.value = 1;
         this.master.connect(this.ctx.destination);
         this.noise = this.makeNoise(this.ctx);
+        void this.loadSamples(this.ctx);
       }
       if (this.ctx.state === "suspended") await this.ctx.resume();
       this.ready = this.ctx.state === "running";
       // The gesture that let us start audio at all is also the cue for the
-      // score: it is the first moment in the page's life when it can be heard.
-      if (this.ready) this.startMusic();
+      // music: it is the first moment in the page's life when it can be heard.
+      if (this.ready) this.applyScene();
     } catch {
       // No audio available. Everything else carries on.
       this.ready = false;
     }
+  }
+
+  private async loadSamples(ctx: AudioContext): Promise<void> {
+    for (const [name, url] of Object.entries(SAMPLES) as [SampleName, string][]) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        this.samples[name] = await ctx.decodeAudioData(await res.arrayBuffer());
+      } catch {
+        // Missing or undecodable: the synthesised version plays instead.
+      }
+    }
+  }
+
+  /** Play a recording once. Returns false if it is not loaded. */
+  private sample(name: SampleName): boolean {
+    const buf = this.samples[name];
+    if (!buf || !this.ctx || !this.master) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.value = this.effectVolume;
+    src.connect(g).connect(this.master);
+    src.start();
+    this.speakingUntil = performance.now() + buf.duration * 1000;
+    return true;
+  }
+
+  private speakingUntil = 0;
+  private lastVoice = -1e9;
+  private voiceTurn: Partial<Record<VoiceKind, number>> = {};
+
+  /**
+   * A unit answering the player. Never talks over another recorded line, and
+   * honours the "Character voices" switch as well as the volume sliders.
+   */
+  say(kind: VoiceKind): void {
+    if (!this.ready || !settings.voices) return;
+    const vol = sfxGain();
+    const now = performance.now();
+    if (vol <= 0.002 || now < this.speakingUntil || now - this.lastVoice < VOICE_GAP_MS) return;
+    const lines = VOICE_LINES[kind].filter((n) => this.samples[n]);
+    if (!lines.length) return;
+    const turn = (this.voiceTurn[kind] ?? -1) + 1;
+    this.voiceTurn[kind] = turn;
+    this.effectVolume = vol;
+    if (this.sample(lines[turn % lines.length]!)) this.lastVoice = now;
   }
 
   /** Two seconds of white noise, reused by every percussive sound. */
@@ -169,7 +287,7 @@ export class Audio {
     f.Q.value = q;
     if (sweepTo !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), t + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(gain * this.effectVolume, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     src.connect(f).connect(g).connect(dest ?? this.master!);
     src.start(t);
@@ -185,7 +303,7 @@ export class Audio {
     if (to !== from) o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain * this.effectVolume), t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     o.connect(g).connect(dest ?? this.master!);
     o.start(t);
@@ -206,9 +324,61 @@ export class Audio {
     if (now - (this.last[name] ?? -1e9) < CROWD_MS[name]) return;
     this.last[name] = now;
     this.startedThisTick++;
-    this.master.gain.value = vol;
+    // Give each effect its own level; a distant hit must not turn down a
+    // royal chord or another sound that is already playing.
+    this.effectVolume = vol;
 
     switch (name) {
+      case "dragon":
+        // Justin's voice: "A dragon approaches". The attack alarm if it is missing.
+        if (this.sample("dragonApproaches")) break;
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case "swordLegend":
+        // Justin's voice: "There is a great legend of a sword in this area".
+        this.sample("swordLegendLine");
+        break;
+      case "noStore":
+        // Justin's voice: "We need to build a town hall".
+        if (performance.now() < this.speakingUntil) break;
+        this.sample("needTownHall");
+        break;
+      case "orcScouts":
+        // Justin's voice: "I spotted some orcs watching our town".
+        if (this.sample("orcScoutsLine")) break;
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case 'warning':
+        // Justin's own voice: "The Realm is under attack". Beeps if it is missing.
+        // Never talk over a line already playing (the dragon, usually).
+        if (performance.now() < this.speakingUntil) break;
+        if (this.sample("realmUnderAttack")) break;
+        [0,.22,.44].forEach(delay => this.tone('triangle',440,330,.2,.16,delay));
+        break;
+      case "command":
+        this.tone("triangle", 392, 440, 0.09, 0.08);
+        this.tone("sine", 587.33, 587.33, 0.1, 0.04, 0.04);
+        break;
+      case "crown":
+        // Steel drawn from stone, followed by a warm rising royal chord.
+        this.burst(0.65, 0.18, "bandpass", 1200, 2, 3400);
+        [196, 293.66, 392, 493.88, 587.33].forEach((f, i) => {
+          this.tone("triangle", f, f, 1.2, 0.09, 0.15 + i * 0.17);
+          this.tone("sine", f * 2, f * 2, 0.9, 0.035, 0.2 + i * 0.17);
+        });
+        break;
+      case "magic":
+        this.burst(0.25, 0.15, "bandpass", 650, 1.2, 2600);
+        this.tone("sine", 330, 990, 0.22, 0.13);
+        this.tone("triangle", 660, 220, 0.32, 0.07, 0.05);
+        break;
+      case "heal":
+        [523.25, 659.25, 783.99].forEach((f, i) => this.tone("sine", f, f, 0.42, 0.07, i * 0.09));
+        break;
+      case "timber":
+        this.burst(0.12, 0.22, "bandpass", 280, 2, 150);
+        this.tone("triangle", 140, 85, 0.13, 0.12);
+        break;
       case "sword":
         // Edge on edge: a bright noise scrape with a metallic ring behind it.
         this.burst(0.1, 0.5, "bandpass", 2600, 1.4, 1400);
@@ -455,6 +625,8 @@ export class Audio {
    * stops being unsettling about four bars in.
    */
   startMusic(): void {
+    // The front screen has its own theme; the drone is for matches only.
+    if (this.scene === "menu") return;
     if (!this.ready || !this.ctx || !this.master || this.music) return;
     const ctx = this.ctx;
     const gain = ctx.createGain();
@@ -537,8 +709,95 @@ export class Audio {
     }
   }
 
-  /** Follow the volume sliders while the score is playing. */
+  // ─────────────────────────── the menu theme ───────────────────────────
+
+  /**
+   * Tell audio whether the front screen or a match is showing. The menu theme
+   * fades in on the front screen and fades out when a match starts, and the
+   * in-match drone takes over. Cheap to call repeatedly with the same value.
+   */
+  setScene(scene: "menu" | "game"): void {
+    if (scene === this.scene) return;
+    this.scene = scene;
+    if (this.ready) this.applyScene();
+  }
+
+  private applyScene(): void {
+    if (this.scene === "menu") {
+      this.stopMusic();
+      this.startMenuTrack();
+    } else {
+      this.stopMenuTrack();
+      this.startMusic();
+    }
+  }
+
+  /** A recording is mastered far louder than the synthesised drone. */
+  private menuLevel(): number {
+    return musicGain() * MENU_TRACK_LEVEL;
+  }
+
+  private startMenuTrack(): void {
+    if (!this.ctx || !this.master || this.menuTrackBroken) return;
+    const ctx = this.ctx;
+    if (!this.menuTrack) {
+      try {
+        const el = document.createElement("audio");
+        el.src = MENU_TRACK_URL;
+        el.loop = true;
+        el.preload = "auto";
+        el.addEventListener("error", () => {
+          // No file yet, or one the browser cannot decode: stay quiet.
+          this.menuTrackBroken = true;
+        });
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        ctx.createMediaElementSource(el).connect(gain).connect(this.master);
+        this.menuTrack = { el, gain, stopTimer: 0, playing: false };
+      } catch {
+        this.menuTrackBroken = true;
+        return;
+      }
+    }
+    const m = this.menuTrack;
+    // Coming back while a fade-out is still running: pick it up from where it is
+    // rather than cutting to silence and starting over.
+    clearTimeout(m.stopTimer);
+    const t = ctx.currentTime;
+    m.gain.gain.cancelScheduledValues(t);
+    m.gain.gain.setValueAtTime(m.gain.gain.value, t);
+    m.gain.gain.linearRampToValueAtTime(this.menuLevel(), t + MENU_FADE_IN_S);
+    m.playing = true;
+    void m.el.play().catch(() => {
+      m.playing = false;
+    });
+  }
+
+  private stopMenuTrack(): void {
+    const m = this.menuTrack;
+    if (!m || !this.ctx || !m.playing) return;
+    const t = this.ctx.currentTime;
+    m.gain.gain.cancelScheduledValues(t);
+    m.gain.gain.setValueAtTime(m.gain.gain.value, t);
+    m.gain.gain.linearRampToValueAtTime(0, t + MENU_FADE_OUT_S);
+    clearTimeout(m.stopTimer);
+    m.stopTimer = window.setTimeout(() => {
+      m.el.pause();
+      // Back to the start, so the next visit to the menu opens on the intro.
+      m.el.currentTime = 0;
+      m.playing = false;
+    }, MENU_FADE_OUT_S * 1000 + 100);
+  }
+
+  /** Follow the volume sliders while the score or the menu theme is playing. */
   syncMusic(): void {
+    if (this.menuTrack?.playing && this.ctx && this.scene === "menu") {
+      const g = this.menuTrack.gain.gain;
+      const t = this.ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(this.menuLevel(), t + 0.4);
+    }
     if (!this.music || !this.ctx) return;
     const t = this.ctx.currentTime;
     this.music.gain.gain.cancelScheduledValues(t);
@@ -753,6 +1012,9 @@ export class Audio {
   get musicPlayingForTest(): boolean {
     return this.music !== null;
   }
+  get menuTrackPlayingForTest(): boolean {
+    return this.menuTrack?.playing ?? false;
+  }
 
   /**
    * Turn one tick's sim events into sound.
@@ -777,7 +1039,15 @@ export class Audio {
       switch (e.kind) {
         case "attack":
           this.play(
-            e.def === "dragon" ? "breath" : e.def === "cannon" ? "boom" : e.ranged ? "bow" : "sword",
+            e.def === "dragon"
+              ? "breath"
+              : e.def === "cannon" || e.def === "bomber"
+                ? "boom"
+                : e.def === "mage"
+                  ? "magic"
+                  : e.ranged
+                    ? "bow"
+                    : "sword",
             vol,
           );
           break;
@@ -794,7 +1064,15 @@ export class Audio {
           this.play("workstart", vol);
           break;
         case "deposit":
-          this.play("coin", vol * (e.resource === "gold" ? 1 : 0.7));
+          this.play(e.resource === "gold" ? "coin" : "timber", vol);
+          break;
+        case "heal":
+          this.play("heal", vol * 0.7);
+          break;
+        case "battleRally":
+        case "crowned":
+        case "levelUp":
+          this.play("crown", vol);
           break;
         case "chop":
           this.play("chop", vol * 0.8);
@@ -810,3 +1088,4 @@ export class Audio {
     }
   }
 }
+

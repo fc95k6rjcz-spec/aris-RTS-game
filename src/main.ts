@@ -1,3 +1,4 @@
+import { setRealmWireForTest } from "./net/realm";
 import { Game } from "./game/game";
 import { registerSheets } from "./render/sheets";
 import { drawStyleSheet } from "./render/sheet";
@@ -41,4 +42,5 @@ if (location.search.includes("sheet")) {
   Tile: { Grass: Tile.Grass, Dirt: Tile.Dirt, Water: Tile.Water, Tree: Tile.Tree, Gold: Tile.Gold, Rock: Tile.Rock, Ice: Tile.Ice },
   UNITS,
   BUILDINGS,
+  setRealmWireForTest,
 };

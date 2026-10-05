@@ -88,13 +88,19 @@ function paintGround(c: CanvasRenderingContext2D, map: GameMap, x: number, y: nu
  * whose neighbour differs, after the base ground is down.
  */
 function blendEdges(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number): void {
-  const here = map.get(x, y);
+  // Trees and mines sit on grass, not a separate ground material.
+  // Comparing their raw tile IDs creates solid green strips around forests.
+  const material = (tx: number, ty: number): Tile => {
+    const tile = map.get(tx, ty);
+    return map.isHidden(tx, ty) || tile === Tile.Tree || tile === Tile.Gold ? Tile.Grass : tile;
+  };
+  const here = material(x, y);
   if (here === Tile.Water) return;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
     const nx = x + dx;
     const ny = y + dy;
     if (!map.inBounds(nx, ny)) continue;
-    const there = map.get(nx, ny);
+    const there = material(nx, ny);
     if (there === here || there === Tile.Water) continue;
     const pal = there === Tile.Dirt ? DIRT : there === Tile.Rock ? ROCKC : GRASS;
     // Sprinkle the neighbour's material into a strip along the shared edge, with
@@ -172,10 +178,10 @@ function matchKey(map: GameMap, x: number, y: number, same: (t: Tile) => boolean
  * laid through, and that copy's job is to sit over a seam with its own edges
  * nowhere near one.
  */
-let softMask: HTMLCanvasElement | null = null;
+let softTileCache: HTMLCanvasElement | null = null;
 
 function softTileMask(): HTMLCanvasElement {
-  if (softMask) return softMask;
+  if (softTileCache) return softTileCache;
   const m = document.createElement("canvas");
   m.width = T;
   m.height = T;
@@ -192,7 +198,7 @@ function softTileMask(): HTMLCanvasElement {
     mc.fillStyle = g;
     mc.fillRect(0, 0, T, T);
   }
-  softMask = m;
+  softTileCache = m;
   return m;
 }
 
@@ -770,6 +776,56 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
   c.restore();
 }
 
+
+// ───────────────────────────── soft material layers ─────────────────────────────
+
+/**
+ * A soft-edged mask of every tile that passes `test`, in device pixels.
+ *
+ * Painting ground materials a tile at a time is what made the map look like a
+ * grid: every dirt patch, rock shelf and pond was a hard square. Instead the
+ * material is drawn as one tile-per-pixel mask, stretched with smoothing and
+ * blurred, so patches come out as rounded blobs that run together.
+ */
+function softMask(map: GameMap, tx: number, ty: number, px: number, w: number, h: number,
+  x0: number, y0: number, x1: number, y1: number, test: (t: Tile, x: number, y: number) => boolean, blurTiles: number, boost = 0): HTMLCanvasElement {
+  // Two tiles of margin beyond the bake, so chunks agree along their seams.
+  const mx0 = Math.max(0, x0 - 2), my0 = Math.max(0, y0 - 2);
+  const mx1 = Math.min(map.width - 1, x1 + 2), my1 = Math.min(map.height - 1, y1 + 2);
+  const mw = mx1 - mx0 + 1, mh = my1 - my0 + 1;
+  const small = document.createElement("canvas");
+  small.width = mw; small.height = mh;
+  const sc = small.getContext("2d")!;
+  const img = sc.createImageData(mw, mh);
+  for (let y = my0; y <= my1; y++)
+    for (let x = mx0; x <= mx1; x++)
+      if (test(map.get(x, y), x, y)) img.data[((y - my0) * mw + (x - mx0)) * 4 + 3] = 255;
+  sc.putImageData(img, 0, 0);
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const o = out.getContext("2d")!;
+  o.imageSmoothingEnabled = true;
+  o.imageSmoothingQuality = "high";
+  o.filter = `blur(${Math.max(0.5, blurTiles * px)}px)`;
+  o.drawImage(small, (mx0 - tx) * px, (my0 - ty) * px, mw * px, mh * px);
+  o.filter = "none";
+  // Stack the blurred mask on itself to steepen its edge: rounded, but a
+  // shoreline rather than a haze.
+  for (let i = 0; i < boost; i++) o.drawImage(out, 0, 0);
+  return out;
+}
+
+/** Fill a device-pixel canvas the size of the bake with `paint`, then keep it only where `mask` is. */
+function maskedLayer(w: number, h: number, mask: HTMLCanvasElement, paint: (o: CanvasRenderingContext2D) => void): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const o = out.getContext("2d")!;
+  paint(o);
+  o.globalCompositeOperation = "destination-in";
+  o.drawImage(mask, 0, 0);
+  return out;
+}
+
 // ───────────────────────────── entry point ─────────────────────────────
 
 /**
@@ -1045,6 +1101,16 @@ export function bakeRegion(
     c.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
   }
 
+  // Two blending schemes met here and this branch's is the one that stands.
+  //
+  // `main` grew a layer-mask scheme in the meantime: one soft mask per material
+  // over the whole chunk, composited, which gives rounded patches instead of
+  // squares. It is a good answer for dirt and rock. It is not an answer for the
+  // sea, which is most of what the blending is for -- it has no depth grade, so
+  // open water is one flat tint from the beach to the horizon, and no beach
+  // band, so the land still ends on the tile staircase. What is below carries
+  // the graded sea floor, the sand, the feathered washes and the cross-faded
+  // grass, all of it looked at on screen rather than reasoned about.
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
       const t = map.get(x, y);

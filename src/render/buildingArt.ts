@@ -1,3 +1,4 @@
+import { buildingDrawScale } from "./proportions";
 /**
  * Procedural 3/4-view building art (Warcraft II style: top-down-ish with a visible
  * front wall). Each drawer paints into a square of side `w` pixels at (x, y).
@@ -10,6 +11,14 @@
  *   - player-colour trim (banner, flag, awning) so ownership reads at a glance
  */
 
+import campfire from "../assets/motion-v2/campfire.webp";
+import grandHall from '../assets/halls/hall-1.webp';
+import outpost from '../assets/towers/tower-1.webp';
+import {drawJoinedWall} from './walls';
+import {drawGate} from './gateArt';
+import shelterArt from "../assets/motion-v2/shelter-v2.webp";
+import { spriteImage } from "./sprites";
+import { redesignedArt } from "./redesign";
 import { BUILDING_STYLE } from "../data/styleChoice";
 import { STYLED_BUILDINGS, STYLES, STYLE_BY_ID } from "./buildingStyles";
 
@@ -23,11 +32,22 @@ export interface ArtCtx {
   color: string;
   /** 0..1 construction progress; 1 = complete. */
   progress: number;
+  /** Upgrade tier when this building has one. */
+  level?: number;
+  wallMask?: number;
+  /** Gates only: whether it is standing open for someone of its own side. */
+  open?: boolean;
+  openAmount?: number;
   /** Game tick, for subtle animation (smoke, water). */
   tick: number;
 }
 
 type Drawer = (a: ArtCtx) => void;
+function paintedCamp(a:ArtCtx,src:string,scale:number):boolean {
+ const img=spriteImage(src);if(!img)return false;
+ const w=a.w*scale,h=w*img.naturalHeight/img.naturalWidth;
+ a.ctx.drawImage(img,a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
+}
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -354,6 +374,172 @@ const shipyard: Drawer = (a) => {
   flag(a, 0.8, 0.12, 0.1, a.color);
 };
 
+/** Torch / Beacon: changes silhouette radically as it climbs through ten tiers. */
+const torch: Drawer = (a) => {
+  const level = Math.max(1, Math.min(10, a.level ?? 1));
+  const t = (level - 1) / 9;
+  const c = a.ctx;
+
+  if (level === 1 && paintedCamp(a,campfire,1.35)) return;
+  if (level === 1) {
+    const cx = a.x + a.w * .5, cy = a.y + a.w * .7;
+    c.save();
+    const halo = c.createRadialGradient(cx, cy, 0, cx, cy, a.w * .8);
+    halo.addColorStop(0, "rgba(255,164,48,.5)"); halo.addColorStop(1, "rgba(255,132,30,0)");
+    c.fillStyle = halo; c.fillRect(cx-a.w, cy-a.w, a.w*2, a.w*2);
+    for (let i=0;i<10;i++) {
+      const t=i*Math.PI/5; c.fillStyle=i%2 ? "#9b9586" : "#69685f";
+      c.beginPath(); c.ellipse(cx+Math.cos(t)*a.w*.31,cy+Math.sin(t)*a.w*.14,a.w*.085,a.w*.055,t*.2,0,Math.PI*2); c.fill();
+    }
+    c.strokeStyle="#54321b"; c.lineWidth=a.w*.10; c.lineCap="round";
+    for(const d of [-1,1]) { c.beginPath(); c.moveTo(cx-a.w*.24,cy-d*a.w*.07);c.lineTo(cx+a.w*.24,cy+d*a.w*.07);c.stroke(); }
+    for(let i=0;i<3;i++) {
+      const sway=Math.sin(a.tick*.24+i*2)*a.w*.035, fx=cx+(i-1)*a.w*.1;
+      c.fillStyle=["#ff7c18","#ffbd39","#fff0a0"][i]!;
+      c.beginPath();c.moveTo(fx-a.w*.12,cy);c.bezierCurveTo(fx-a.w*.18,cy-a.w*.19,fx+sway,cy-a.w*.46,fx+sway+a.w*.015,cy-a.w*.57+i*a.w*.07);c.bezierCurveTo(fx+a.w*.02,cy-a.w*.27,fx+a.w*.22,cy-a.w*.09,fx+a.w*.12,cy);c.fill();
+    }
+    c.restore(); return;
+  }
+  // Ground shadow stays compact; the height grows above the one-tile footprint.
+  c.save();
+  c.globalAlpha = 0.28;
+  c.fillStyle = "#000";
+  c.beginPath();
+  c.ellipse(a.x + a.w * 0.52, a.y + a.w * 0.82, a.w * (0.14 + t * 0.06), a.w * 0.07, 0, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+
+  const baseY = 0.82;
+  const topY = 0.56 - t * 0.34;
+  const postX = 0.5;
+  const postW = 0.08 + t * 0.08;
+
+  // Tier 1-2: timber post. Tier 3+ progressively turns to stone.
+  if (level <= 2) {
+    gradRect(a, postX - postW / 2, topY + 0.1, postW, baseY - topY - 0.1, "#7e5b35", "#49331f");
+    // Iron binding straps.
+    for (const fy of [baseY - 0.18, baseY - 0.34])
+      rect(a, postX - postW * 0.65, fy, postW * 1.3, 0.028, "#5e6468");
+  } else {
+    // Stone plinth becomes wider and more monumental with level.
+    const bw = 0.22 + t * 0.28;
+    const bh = 0.18 + t * 0.25;
+    stoneWall(a, postX - bw / 2, baseY - bh, bw, bh, level >= 8 ? "#777f89" : "#8d887e");
+    if (level >= 4) {
+      stoneWall(a, postX - postW / 2, topY + 0.12, postW, baseY - bh - (topY + 0.12), "#969087");
+    }
+    if (level >= 7) {
+      // Human blue/gold heraldic trim.
+      rect(a, postX - bw * 0.42, baseY - bh * 0.72, bw * 0.13, bh * 0.46, a.color);
+      rect(a, postX + bw * 0.29, baseY - bh * 0.72, bw * 0.13, bh * 0.46, a.color);
+      line(a, postX - bw * 0.42, baseY - bh * 0.72, postX - bw * 0.29, baseY - bh * 0.26, "#d7b64d", 0.9);
+      line(a, postX + bw * 0.29, baseY - bh * 0.26, postX + bw * 0.42, baseY - bh * 0.72, "#d7b64d", 0.9);
+    }
+  }
+
+  // Bowl grows from a tiny torch cup into a crown-like beacon brazier.
+  const bowlW = 0.16 + t * 0.28;
+  const bowlY = topY + 0.09;
+  c.fillStyle = level >= 8 ? "#d0aa42" : "#3f4449";
+  c.beginPath();
+  c.moveTo(a.x + (postX - bowlW / 2) * a.w, a.y + bowlY * a.w);
+  c.lineTo(a.x + (postX + bowlW / 2) * a.w, a.y + bowlY * a.w);
+  c.lineTo(a.x + (postX + bowlW * 0.34) * a.w, a.y + (bowlY + 0.09) * a.w);
+  c.lineTo(a.x + (postX - bowlW * 0.34) * a.w, a.y + (bowlY + 0.09) * a.w);
+  c.closePath();
+  c.fill();
+  c.strokeStyle = "#1f2327";
+  c.lineWidth = Math.max(1, a.w * 0.018);
+  c.stroke();
+
+  // Tall crown prongs arrive at the upper tiers.
+  if (level >= 8) {
+    c.strokeStyle = "#d7b64d";
+    c.lineWidth = Math.max(1.2, a.w * 0.02);
+    for (const ox of [-0.42, -0.14, 0.14, 0.42]) {
+      c.beginPath();
+      c.moveTo(a.x + (postX + ox * bowlW) * a.w, a.y + (bowlY + 0.015) * a.w);
+      c.lineTo(a.x + (postX + ox * bowlW * 0.92) * a.w, a.y + (bowlY - 0.075 - t * 0.03) * a.w);
+      c.stroke();
+    }
+  }
+
+  // Animated flame. Levels 8-10 become increasingly arcane-blue at the core.
+  const flicker = Math.sin(a.tick * 0.55 + level * 1.7) * 0.018;
+  const flameH = 0.18 + t * 0.26 + flicker;
+  const fx = a.x + postX * a.w;
+  const fy = a.y + (bowlY - 0.01) * a.w;
+  const grad = c.createLinearGradient(fx, fy, fx, fy - flameH * a.w);
+  if (level >= 10) {
+    grad.addColorStop(0, "rgba(255,210,80,0.95)");
+    grad.addColorStop(0.38, "rgba(110,190,255,0.95)");
+    grad.addColorStop(1, "rgba(120,90,255,0)");
+  } else {
+    grad.addColorStop(0, "rgba(255,220,110,0.98)");
+    grad.addColorStop(0.45, "rgba(255,125,24,0.9)");
+    grad.addColorStop(1, "rgba(255,70,10,0)");
+  }
+  c.fillStyle = grad;
+  c.beginPath();
+  c.moveTo(fx - bowlW * a.w * 0.3, fy);
+  c.quadraticCurveTo(fx - bowlW * a.w * 0.34, fy - flameH * a.w * 0.55, fx + flicker * a.w * 1.4, fy - flameH * a.w);
+  c.quadraticCurveTo(fx + bowlW * a.w * 0.34, fy - flameH * a.w * 0.5, fx + bowlW * a.w * 0.3, fy);
+  c.closePath();
+  c.fill();
+
+  // Stronger tiers radiate a visible halo even before the night-light pass.
+  c.save();
+  c.globalCompositeOperation = "lighter";
+  c.globalAlpha = 0.08 + t * 0.18;
+  const halo = c.createRadialGradient(fx, fy - flameH * a.w * 0.35, 0, fx, fy, a.w * (0.18 + t * 0.16));
+  halo.addColorStop(0, level >= 10 ? "rgba(150,205,255,1)" : "rgba(255,180,70,1)");
+  halo.addColorStop(1, "rgba(255,150,30,0)");
+  c.fillStyle = halo;
+  c.beginPath();
+  c.arc(fx, fy, a.w * (0.18 + t * 0.16), 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+};
+
+/** Gryphon Aviary: a fortified blue-roofed roost with open launch platforms. */
+const gryphonaviary: Drawer = (a) => {
+  shadow(a, 0.08, 0.16, 0.84, 0.78);
+  // Stone lower hall.
+  stoneWall(a, 0.12, 0.55, 0.76, 0.34, "#85817a");
+  door(a, 0.43, 0.71, 0.14, 0.18);
+  // Twin roost towers.
+  for (const x of [0.16, 0.66]) {
+    stoneWall(a, x, 0.28, 0.18, 0.34, "#9a9489");
+    roof(a, x - 0.035, 0.12, 0.25, 0.2, shade(a.color, -0.05));
+    flag(a, x + 0.09, 0.04, 0.11, a.color);
+    // Open perch.
+    rect(a, x + 0.025, 0.39, 0.13, 0.075, "#241d18");
+    line(a, x - 0.02, 0.49, x + 0.2, 0.49, "#c9a469", 1.4);
+  }
+  // Central launch deck with timber braces.
+  gradRect(a, 0.3, 0.46, 0.4, 0.11, "#87643b", "#5d4229");
+  for (let i = 0; i < 5; i++) line(a, 0.31 + i * 0.095, 0.47, 0.31 + i * 0.095, 0.56, "rgba(30,20,12,0.45)", 0.6);
+  line(a, 0.32, 0.57, 0.26, 0.78, "#5a3d24", 1.5);
+  line(a, 0.68, 0.57, 0.74, 0.78, "#5a3d24", 1.5);
+  // Gold wing emblem over the doorway.
+  a.ctx.strokeStyle = "#d7b64d";
+  a.ctx.lineWidth = Math.max(1.2, a.w * 0.018);
+  a.ctx.beginPath();
+  a.ctx.moveTo(a.x + 0.5 * a.w, a.y + 0.65 * a.w);
+  a.ctx.quadraticCurveTo(a.x + 0.39 * a.w, a.y + 0.6 * a.w, a.x + 0.35 * a.w, a.y + 0.66 * a.w);
+  a.ctx.moveTo(a.x + 0.5 * a.w, a.y + 0.65 * a.w);
+  a.ctx.quadraticCurveTo(a.x + 0.61 * a.w, a.y + 0.6 * a.w, a.x + 0.65 * a.w, a.y + 0.66 * a.w);
+  a.ctx.stroke();
+  // Perch silhouettes.
+  for (const x of [0.24, 0.76]) {
+    a.ctx.fillStyle = "#4a3422";
+    a.ctx.beginPath();
+    a.ctx.arc(a.x + x * a.w, a.y + 0.25 * a.w, 0.032 * a.w, 0, Math.PI * 2);
+    a.ctx.fill();
+    line(a, x - 0.04, 0.29, x + 0.04, 0.29, "#4a3422", 1.2);
+  }
+};
+
 /** Legacy single-style drawers, kept for reference. */
 // ───────────────────────────── the Blackrock ─────────────────────────────
 
@@ -531,7 +717,27 @@ const styled =
   (def: string): Drawer =>
   (a) =>
     STYLED_BUILDINGS[def]!(a, STYLE_BY_ID[BUILDING_STYLE[def] ?? "A"] ?? STYLES[0]!);
-const HUMAN_ART: Record<string, Drawer> = Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)]));
+const HUMAN_ART: Record<string, Drawer> = {
+  ...Object.fromEntries(Object.keys(CLASSIC_ART).map((d) => [d, styled(d)])),
+  gryphonaviary,
+  townhall: a => {if(!paintedCamp(a,grandHall,buildingDrawScale('townhall')))townhall(a);},
+  tower: a => {paintedCamp(a,outpost,1.05);},
+  wall: (a) => {
+    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
+    shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
+    for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
+  },
+  gate: drawGate,
+  shelter: (a) => {
+    if(paintedCamp(a,shelterArt,1.4))return;
+    shadow(a,.05,.15,.9,.8); gradRect(a,.12,.67,.76,.24,"#735432","#443220");
+    for(const x of [.14,.78]) gradRect(a,x,.28,.06,.57,"#b08a50","#654321");
+    roof(a,.04,.15,.92,.46,"#9b7d4b");
+    for(let i=0;i<8;i++) line(a,.13+i*.1,.34,.13+i*.1,.54,"#d3b77a",.6);
+    gradRect(a,.22,.72,.5,.06,"#b08d57","#67482c"); flag(a,.8,.1,.13,a.color);
+  },
+  torch,
+};
 
 /** Art sets per faction. A faction with no set of its own falls back to the Human one. */
 export const FACTION_ART: Record<string, Record<string, Drawer>> = {
@@ -549,38 +755,103 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
  * default. A faction's table should only need to hold what is different.
  */
 export function artFor(faction: string, def: string): Drawer | undefined {
-  return FACTION_ART[faction]?.[def] ?? HUMAN_ART[def];
+  const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
+  if(redesigned)return a=>{paintedCamp(a,redesigned,buildingDrawScale(def));};
+  return (FACTION_ART[faction] ?? HUMAN_ART)[def];
 }
 
 /**
  * Under construction: foundation → frame → the finished body rises out of the
  * scaffolding (clipped from the bottom by progress), with a progress bar above.
  */
-export function drawConstruction(a: ArtCtx): void {
+export function drawConstruction(a: ArtCtx, finished?: () => void): void {
   const c = a.ctx;
-  const p = a.progress;
-  // Foundation: cleared earth + stakes.
-  gradRect(a, 0.02, 0.06, 0.96, 0.92, "#6a5236", "#4d3a25");
+  const p = Math.max(0, Math.min(1, a.progress));
+
+  // Stage 1 — cleared ground, footings and delivered material.
+  c.fillStyle = "rgba(84,63,38,.68)";
+  c.beginPath(); c.ellipse(a.x+a.w*.5,a.y+a.w*.8,a.w*.47,a.w*.17,0,0,Math.PI*2); c.fill();
+  for(let i=0;i<7;i++) rect(a,.08+i*.12,.87,.1,.055,i%2 ? "#9c927d" : "#797565");
   for (let i = 0; i < 4; i++) {
     rect(a, 0.04 + i * 0.3, 0.06, 0.03, 0.06, "#c9a469");
     rect(a, 0.04 + i * 0.3, 0.92, 0.03, 0.06, "#c9a469");
   }
-  // Finished body clipped to the built fraction, rising from the ground.
-  if (p > 0.15) {
-    const built = (p - 0.15) / 0.85;
+  // Stone pallets and timber stacks disappear as the structure consumes them.
+  if (p < 0.78) {
+    const fade = 1 - p / 0.78;
     c.save();
-    c.beginPath();
-    c.rect(a.x - 0.15 * a.w, a.y + (1 - built) * a.w - 0.02 * a.w, a.w * 1.3, built * a.w + 0.2 * a.w);
-    c.clip();
-    artFor(a.faction, a.def)?.({ ...a, progress: 1 });
+    c.globalAlpha = 0.35 + fade * 0.65;
+    for (let i = 0; i < 4; i++) rect(a, 0.08 + i * 0.075, 0.82 - (i % 2) * 0.035, 0.06, 0.04, "#898176");
+    for (let i = 0; i < 3; i++) line(a, 0.7, 0.84 + i * 0.035, 0.92, 0.8 + i * 0.035, "#6b4a2b", 1.5);
     c.restore();
   }
-  // Scaffold: poles and cross braces over everything not yet built.
-  const pole = "#c9a469";
-  for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
-  for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
-  line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
-  line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
-  line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
-  line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+
+  // Stage 2/3/4 — the real finished design rises through the frame rather than
+  // being swapped in at the end, so every building visibly becomes itself.
+  if (p > 0.05) {
+    const built = Math.min(1, (p - 0.05) / 0.9);
+    c.save();
+    c.beginPath();
+    c.rect(a.x - 0.16 * a.w, a.y + (1 - built) * a.w - 0.04 * a.w, a.w * 1.32, built * a.w + 0.22 * a.w);
+    c.clip();
+    if (finished) finished();
+    else artFor(a.faction, a.def)?.({ ...a, progress: 1 });
+    c.restore();
+  }
+
+  // Timber structural frame becomes dominant in the middle of the build.
+  if (p > 0.08 && p < 0.9) {
+    const frameAlpha = p < 0.5 ? 0.95 : Math.max(0.2, 1 - (p - 0.5) / 0.5);
+    c.save();
+    c.globalAlpha = frameAlpha;
+    const beam = "#8b663d";
+    for (const fx of [0.12, 0.34, 0.56, 0.78, 0.94]) line(a, fx, 0.2, fx, 0.94, beam, 1.8);
+    line(a, 0.1, 0.52, 0.95, 0.52, beam, 1.5);
+    line(a, 0.1, 0.78, 0.95, 0.78, beam, 1.5);
+    line(a, 0.12, 0.22, 0.56, 0.52, beam, 1.1);
+    line(a, 0.56, 0.22, 0.94, 0.52, beam, 1.1);
+    c.restore();
+  }
+
+  // External scaffolding stays longest and comes down in the final 15%.
+  if (p < 0.95) {
+    const pole = "#c9a469";
+    const scaffoldAlpha = p < 0.75 ? 1 : Math.max(0.15, (0.95 - p) / 0.2);
+    c.save();
+    c.globalAlpha = scaffoldAlpha;
+    for (const fx of [0.05, 0.5, 0.95]) line(a, fx, 0.04, fx, 0.98, pole, 1.4);
+    for (const fy of [0.08, 0.5, 0.94]) line(a, 0.05, fy, 0.95, fy, pole, 1);
+    line(a, 0.05, 0.08, 0.5, 0.5, pole, 0.8);
+    line(a, 0.5, 0.08, 0.95, 0.5, pole, 0.8);
+    line(a, 0.05, 0.5, 0.5, 0.94, pole, 0.8);
+    line(a, 0.5, 0.5, 0.95, 0.94, pole, 0.8);
+
+    // Moving hoist: every construction site has one visible piece of machinery
+    // in motion, so an unfinished building never reads like a static overlay.
+    const sway = Math.sin(a.tick * 0.12) * 0.035;
+    const lift = 0.22 + (Math.sin(a.tick * 0.09 + 1.7) + 1) * 0.12;
+    line(a, 0.84, 0.08, 0.62 + sway, 0.22, "#6b4a2b", 1.5);
+    line(a, 0.62 + sway, 0.22, 0.62 + sway, lift, "#ddd0b2", 0.75);
+    rect(a, 0.595 + sway, lift, 0.05, 0.035, "#75624b");
+
+    // Tiny hammer sparks during the middle stages.
+    if (p > 0.18 && p < 0.88) {
+      c.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        const k = ((a.tick * 0.08 + i * 0.31) % 1 + 1) % 1;
+        c.globalAlpha = scaffoldAlpha * (1 - k);
+        c.fillStyle = "#ffd36b";
+        c.beginPath();
+        c.arc(
+          a.x + (0.48 + Math.sin(i * 2.1) * 0.05) * a.w,
+          a.y + (0.69 - k * 0.13) * a.w,
+          Math.max(1, a.w * 0.008),
+          0,
+          Math.PI * 2,
+        );
+        c.fill();
+      }
+    }
+    c.restore();
+  }
 }

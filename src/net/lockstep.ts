@@ -144,6 +144,7 @@ export class Lockstep {
 
   constructor(private readonly transport: Transport) {
     transport.onOrders((o) => {
+      if (o.turn < this.turn || o.slot < 0 || o.slot >= transport.slots) return;
       let bySlot = this.inbox.get(o.turn);
       if (!bySlot) {
         bySlot = new Map();

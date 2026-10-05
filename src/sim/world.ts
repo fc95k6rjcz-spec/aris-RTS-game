@@ -18,12 +18,12 @@ export const TICKS_PER_SECOND = 20;
 /**
  * What every player starts with: exactly one Town Hall, and nothing else.
  *
- * A Hall is 400 gold and 250 lumber. The purse holds that and a little over, so
+ * The purse covers the current Hall cost and one worker, so
  * the first decision of the match -- where the King puts his hall -- is the only
  * thing the money can buy, and everything after it has to be earned. A fat purse
  * made the opening a shopping trip; this makes it a decision.
  */
-export const START_PURSE = { gold: 450, lumber: 300, oil: 0, food: 400 };
+export const START_PURSE = { gold: BUILDINGS.townhall!.cost.gold + UNITS.worker!.cost.gold, lumber: BUILDINGS.townhall!.cost.lumber, oil: 0, food: 400 };
 /**
  * Everything moves at this fraction of its listed speed.
  *
@@ -31,16 +31,13 @@ export const START_PURSE = { gold: 450, lumber: 300, oil: 0, food: 400 };
  * because the data is the design ("a Knight is half again as quick as a
  * Footman") and this is the tuning ("the whole game is too fast").
  *
- * It was a half, and a half was too far. Halving movement and doubling every
- * duration are two different decisions that got made together, and only one of
- * them was right: a long game wants long BUILD times, which is what makes an
- * expansion a commitment -- it does not want a man taking a minute and a half
- * to walk somewhere you are watching him walk. The crowning opening is the
- * proof, because it is nothing but a walk, and at a half it was a chore. Build,
- * train and research times are untouched; only the feet are quicker. Changing the
- * design to express a tuning decision loses the reason for both.
+ * Build, train and research durations have their own pacing. This multiplier
+ * changes travel only, while preserving relative speeds between unit types.
  */
-const MOVE_SCALE = 0.72;
+// A normal walk: a peasant covers a tile in about a second and a half in the
+// realm, and his legs step at a natural rate (the walk cycle is one stride
+// per ~0.95 tiles, so much slower than this reads as slow motion).
+export const MOVE_SCALE = 0.45;
 
 /** Most mud can take off a unit's pace. Deliberately worse than the bonus a dry
  * track gives, so a rained-on road is a real setback and not a rounding error. */
@@ -70,7 +67,9 @@ const DECAY_SLICE = 256;
  */
 const MUD_SLICE = 64;
 
-const HARVEST_TICKS = 20 * 3; // 3 s per trip
+const HARVEST_TICKS = 20 * 3; // 3 s per trip at a gold mine
+/** Felling timber is slow work: ten seconds of chopping before the wood comes down. */
+const CHOP_TICKS = 20 * 10;
 const DEPOSIT_TICKS = 10;
 const CANCEL_REFUND = 0.75;
 /** Princes alive at once. */
@@ -98,60 +97,48 @@ const FOLLOWERS_LATER = 3;
 const FOLLOWER_GAP = 20 * 40;
 
 /** What a King may raise without the usual chain of buildings behind it. */
-const ROYAL_LICENCE = new Set(["tower"]);
+export const ROYAL_LICENCE = new Set(["tower", "wall"]);
 
 /** The owner every wild animal belongs to. Hostile to all, wins nothing. */
 export const WILD: PlayerId = 9;
-
-/**
- * The Blackrock. Holds the war camps, hostile to everyone, and wins nothing.
- *
- * A separate seat from WILD rather than a reuse of it, because the two want
- * opposite things from every system that touches them: wildlife wanders a patch
- * and never leaves it, orcs garrison a building and march on your town. Sharing
- * a player id would mean every one of those rules needing to ask which kind of
- * thing it was looking at.
- */
-export const MARAUDER: PlayerId = 8;
-
-/** How many warriors a camp keeps at home before it starts thinking about you. */
-const CAMP_GARRISON = 7;
-
-/** How far a camp's garrison will drift from its stronghold, in tiles. */
-const CAMP_RANGE = 8;
-
-/**
- * How many spare warriors a camp gathers before it sends them, and how long it
- * waits between raids.
- *
- * Five is enough to kill a careless worker line and not enough to take a
- * defended base, which is the intent: a raid is a bill for ignoring them, not
- * a loss condition. The first one cannot come before the eight-minute mark --
- * a warband arriving while a player still has four peasants is not a
- * difficulty setting, it is a coin toss.
- */
-const RAID_SIZE = 5;
-const RAID_FIRST = 20 * 60 * 8;
-const RAID_EVERY = 20 * 60 * 10;
-
-/**
- * How many warriors a camp will not send away under any circumstances.
- *
- * The first cut required a full garrison of seven before it would raid at all,
- * which sounds prudent and means a camp that has been bled by wildlife or by a
- * probing attack simply never raids again -- it sits one man under the bar
- * forever. A camp now sends whatever it has above this floor, up to a full
- * warband, so a healthy camp sends five and a mauled one sends three. Smaller
- * raids out of weakened camps is the behaviour you would want anyway: hurting
- * a camp should show up in what it can do to you.
- */
-const CAMP_KEEP = 3;
 
 /** How close something has to come before a bear takes an interest, in tiles. */
 const BEAST_AGGRO = 6;
 
 /** How far a beast will drift from where it was born, in tiles. */
 const BEAST_RANGE = 9;
+/** Seconds before the first dragon arrives, between arrivals, and between raids. */
+// A dragon is an event, not weather: one in the realm, and it raids about
+// once an hour -- the first raid a few minutes after it arrives.
+const DRAGON_FIRST = 12 * 60;
+const DRAGON_GAP = 60 * 60;
+const DRAGON_RAID = 60 * 60;
+const DRAGON_FIRST_RAID = 16 * 60;
+/** Seconds a dragon spends burning a town, the fraction of health its fire stops at, and how far its terror reaches (tiles). */
+const DRAGON_BURN = 35;
+const DRAGON_FLOOR = 0.25;
+const DRAGON_FEAR_RADIUS = 7;
+/** The Orc Horde's timetable, in seconds: scouts, then raids, then the warhost. */
+const HORDE_SCOUTS = 4 * 60;
+const HORDE_SCOUT_GAP = 150;
+const HORDE_RAIDS = 10 * 60;
+const HORDE_RAID_GAP = 200;
+const HORDE_HOST = 30 * 60;
+const HORDE_RAID_GAP_LATE = 140;
+
+/** "north-east" for a tile offset (y grows southward). */
+function compassFrom(dx: number, dy: number): string {
+  const a = Math.atan2(-dy, dx);
+  const names = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"];
+  return names[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]!;
+}
+
+/** A farm yields this much food, this often. */
+const FARM_FOOD = 10;
+const FARM_FOOD_EVERY = 20 * 6;
+
+/** How close a person may come before a skittish animal bolts, in tiles. */
+const SPOOK = 7;
 
 /**
  * How far a new building will look for a neighbour to connect to, in tiles.
@@ -163,7 +150,7 @@ const BEAST_RANGE = 9;
 const ROAD_REACH = 25;
 
 /**
- * The wear a laid road starts at.
+ * How worn a laid road counts as.
  *
  * Near the top of the scale, so a road is drawn as hard ground from the day it
  * is built rather than fading in over the next ten minutes of traffic -- it was
@@ -171,27 +158,6 @@ const ROAD_REACH = 25;
  * where the carts actually run.
  */
 const ROAD_WEAR = 215;
-
-/** A farm yields this much food, this often. */
-const FARM_FOOD = 10;
-const FARM_FOOD_EVERY = 20 * 6;
-
-/** How close a person may come before a skittish animal bolts, in tiles. */
-const SPOOK = 7;
-
-/**
- * How far a unit will chase something it spotted for itself, in tiles.
- *
- * Measured from the ground it was standing on when it started, not from where
- * it is now, so a running fight cannot walk a picket off the map one leash at a
- * time. Six tiles is a couple of seconds of pursuit: enough to punish a worker
- * who strayed, not enough to pull a garrison out of position because a scout
- * rode past.
- *
- * An ordered attack is not leashed at all. If the player says chase that, the
- * unit chases it.
- */
-const GUARD_LEASH = 6;
 
 /**
  * How long a man must stand about at night before he lies down, in ticks.
@@ -203,7 +169,7 @@ const GUARD_LEASH = 6;
 const DROWSY = 20 * 6;
 
 /**
- * How close a stranger may come before a sleeper is on his feet, in tiles.
+ * How close anything hostile has to come to wake a sleeping man, in tiles.
  *
  * Comfortably wider than any weapon's watch radius, which is the point: men
  * wake up BEFORE the fighting starts, so a night attack finds a camp rousing
@@ -216,40 +182,12 @@ const WAKE_NEAR = 11;
 const WAKE_CHECK = 10;
 
 /**
- * How often each animal considers making a noise, in ticks, and how likely it
- * is to when it does.
+ * How often each animal considers making a noise, in ticks.
  *
  * Staggered per animal by its id so a herd does not speak in chorus.
  */
 const CALL_EVERY = 20 * 4;
 
-/**
- * How long a match runs before the first dragon, and the gap between them.
- *
- * Ten minutes, then roughly every seven. Late enough that the opening -- which
- * is one man walking across a continent -- is never interrupted by something
- * nobody could survive, and often enough afterwards that "there will be
- * another one" is a thing a player plans around rather than a surprise that
- * happens once.
- */
-const DRAGON_FIRST = 20 * 60 * 10;
-const DRAGON_EVERY = 20 * 60 * 7;
-
-/** How long a dragon stays before it has had enough and goes. */
-const DRAGON_STAY = 20 * 90;
-
-/** How often it loses interest in what it is burning and looks for something else. */
-const DRAGON_FICKLE = 20 * 12;
-
-/**
- * How close anything hostile may get before a dragon takes some air, in tiles.
- *
- * Comfortably outside a swordsman's reach. Without this a dragon is killed by
- * eight footmen walking up and standing on it, which makes a nonsense of the
- * three-and-a-bit tiles of reach that are supposed to be its whole advantage --
- * and of the idea that you need bows to answer one.
- */
-const DRAGON_BACK_OFF = 2.8;
 /** Chance a blow lands as a critical hit. */
 const CRIT_CHANCE = 0.08;
 /** What a critical hit multiplies the rolled damage by. */
@@ -277,7 +215,8 @@ export interface WorldEvent {
  */
 export type FxEvent =
   | { kind: "attack"; x: number; y: number; tx: number; ty: number; def: string; ranged: boolean }
-  | { kind: "hit"; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
+  | { kind: "hit"; owner?: PlayerId; attackerOwner?: PlayerId; id: EntityId; x: number; y: number; building: boolean; amount: number; crit: boolean }
+  | { kind: "heal"; id: EntityId; x: number; y: number; amount: number }
   | { kind: "death"; x: number; y: number; def: string; owner: PlayerId; facing: number; building: boolean }
   | { kind: "built"; x: number; y: number; def: string }
   /** Ground broken: the moment a site is pegged out and the crew start. */
@@ -295,7 +234,12 @@ export type FxEvent =
    * point of routing it through here is that it cannot be.
    */
   | { kind: "call"; x: number; y: number; def: string }
-  | { kind: "crowned"; x: number; y: number; owner: PlayerId };
+  | { kind: "battleRally"; x: number; y: number; owner: PlayerId }
+  | { kind: "crowned"; x: number; y: number; owner: PlayerId }
+  /** A building finished an upgrade: the moment the new tier is revealed. */
+  | { kind: "levelUp"; id: EntityId; x: number; y: number; def: string; level: number; owner: PlayerId }
+  /** A threat seen coming: flashes on that player's map and minimap. */
+  | { kind: "alarm"; x: number; y: number; owner: PlayerId };
 
 /**
  * A fire somebody laid on the ground and left burning.
@@ -322,6 +266,61 @@ export interface Campfire {
  * The whole game state. `step()` advances exactly one tick given the commands
  * issued for that tick. Same seed + same command stream ⇒ same state everywhere.
  */
+/** Archers standing on a watch tower of the given level: three, and one more per upgrade. */
+export function towerArchers(level: number): number { return 2 + Math.max(1, level); }
+/** A Dragonbane harpoon for the top of a watch tower. */
+export const DRAGONBANE_COST = { gold: 600, lumber: 400 };
+/** How far a watch tower's archers can shoot, in tiles: height is worth a lot. */
+/** How far a tower shoots, in tiles. Every upgrade adds a clear step: 8, 9.25 (Braced), 10.5 ... 18 at the top. */
+/** The ten tiers of city wall. Every tier doubles the strength of every wall and gate you own. */
+export const WALL_TIERS = ["Dry-stone Wall", "Fieldstone Wall", "Mortared Wall", "Battlement Wall", "Rampart", "Curtain Wall", "Buttressed Wall", "Bastion Wall", "Great Wall", "Royal Wall"];
+/** What it costs to raise all your walls to `level`. */
+export function wallTierCost(level: number): { gold: number; lumber: number } {
+  const k = Math.pow(1.7, level - 2);
+  return { gold: Math.round(150 * k / 5) * 5, lumber: Math.round(200 * k / 5) * 5 };
+}
+/** Each minute without a farm, the clan eats this much faster... */
+const HUNGER_GROWTH = 1.15;
+/** ...up to this many times its fed rate. */
+const HUNGER_MAX = 10;
+export const STARVING_LINE = "Your people are starving — build farms!";
+/** From this wall tier on there is a wall walk, and archers can stand on it. */
+export const WALL_ARCHER_TIER = 5;
+/** Archers per wall section: one, two once the walls are Bastion-thick. */
+export function wallGarrisonCap(level: number): number { return level >= WALL_ARCHER_TIER ? (level >= 8 ? 2 : 1) : 0; }
+/** How many orders a building will hold in its training line. */
+export const MAX_TRAIN_QUEUE = 10;
+export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
+/** How many of your own archers a tower can take on top of its crew. */
+export function towerGarrisonCap(level: number): number { return 2 + Math.floor(Math.max(1, level) / 2); }
+/** Ticks between one tower archer's shots. */
+const TOWER_ARCHER_INTERVAL = 24;
+/** Base arrow damage from a tower archer (before armour); +2 per tower level. */
+const TOWER_ARROW_DAMAGE = 23;
+
+/** What a worker says when told to gather with no Town Hall (or mill/depot) to take it to. */
+export const NO_STORE_LINE = "We need to build a Town Hall — there is nowhere to store it.";
+/** What the miners say when a seam is nearly worked out. */
+export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from this mine.";
+/** Gold left in a seam when the miners start to worry. */
+const LOW_MINE_GOLD = 1500;
+
+/** Banner colours for travellers in a shared realm, in the order they arrive. */
+const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
+
+/** What must be standing before a Town Hall can reach each level. */
+const HALL_NEEDS: Record<number, string[]> = {
+  2: ["farm", "barracks"],
+  3: ["lumbermill", "tower"],
+  4: ["church", "stables"],
+  5: ["foundry", "magetower"],
+  6: ["shipyard", "golddepot"],
+  7: ["gryphonaviary"],
+  8: ["oilrig", "refinery"],
+  9: ["airfactory"],
+  10: [],
+};
+
 export class World {
   tick = 0;
   readonly map: GameMap;
@@ -338,6 +337,26 @@ export class World {
   projectiles: Projectile[] = [];
   /** Set once one side has lost every building. */
   winner: PlayerId | null = null;
+  readonly teams = new Map<PlayerId, number>();
+
+  allied(a: PlayerId, b: PlayerId): boolean {
+    return a === b || (this.teams.has(a) && this.teams.get(a) === this.teams.get(b));
+  }
+
+  /** Two human camps share the first clearing; the AI holds the opposite seat. */
+  prepareCoop(): void {
+    this.teams.set(1, 1); this.teams.set(2, 1); this.teams.set(3, 3);
+    const home = this.map.starts[0]!, enemy = this.map.starts[1]!;
+    for (let y=home.y-9; y<=home.y+9; y++) for (let x=home.x-9; x<=home.x+9; x++) {
+      if (!this.map.inBounds(x,y)) continue;
+      this.map.set(x,y,Tile.Grass);
+      const i=this.map.idx(x,y); this.map.amount[i]=0; this.map.hidden[i]=0;
+    }
+    for (let y=home.y-8; y<=home.y-6; y++) for (let x=home.x-1; x<=home.x+1; x++) {
+      this.map.set(x,y,Tile.Gold); this.map.amount[this.map.idx(x,y)]=4000;
+    }
+    this.map.starts=[{x:home.x-4,y:home.y},{x:home.x+4,y:home.y},{...enemy}];
+  }
   /**
    * What each player can see and remember. Part of the simulation, not the
    * renderer: it decides what may be targeted, so it has to be computed the same
@@ -451,6 +470,8 @@ export class World {
       h = Math.imul(h, 16777619) >>> 0;
     };
     mix(this.tick);
+    for (const [player, team] of this.teams) { mix(player); mix(team); }
+    mix(this.patrolsEnabled ? 1 : 0);
     for (const id of [...this.entities.keys()].sort((a, b) => a - b)) {
       const e = this.entities.get(id)!;
       mix(id);
@@ -458,15 +479,37 @@ export class World {
       if (e.kind === "unit") {
         mix(e.pos.x);
         mix(e.pos.y);
+        mix(e.moveRemainder?.x ?? 0);
+        mix(e.moveRemainder?.y ?? 0);
         mix(e.hp);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
+        mix(e.guardOrigin?.x ?? -1);
+        mix(e.guardOrigin?.y ?? -1);
+        mix(e.ralliedUntil ?? 0);
+        mix(e.rallyReadyAt ?? 0);
+        mix(e.patrolBand ?? 0);
+        mix(e.recruitBand ?? 0);
+        for(const id of e.buildQueue ?? [])mix(id);
+        mix(e.constructionWork?.building ?? 0);
+        mix(e.constructionWork?.ticks ?? 0);
+        mix(e.constructionWork?.travel ?? 0);
+        mix(e.constructionWork?.target?.[0] ?? -1);
+        mix(e.constructionWork?.target?.[1] ?? -1);
+        mix(e.moveQueue.length);
+        for (const q of e.moveQueue) {
+          mix(q.x);
+          mix(q.y);
+        }
       } else {
         mix(e.tx);
         mix(e.ty);
+        mix(e.attackTarget ?? 0);
         mix(e.hp);
         mix(Math.round(e.progress));
         mix(e.complete ? 1 : 0);
+        mix(e.rally ? e.rally.x : 0);
+        mix(e.rally ? e.rally.y : 0);
       }
     }
     for (const p of [...this.players.keys()].sort((a, b) => a - b)) {
@@ -583,6 +626,738 @@ export class World {
    */
   private readonly grinding = new Map<number, number>();
   /** Where each wild animal was born, so it has somewhere to wander around. */
+  patrolsEnabled = false;
+  /** The Orc Horde scouts, raids and finally invades. On for every normal match. */
+  hordeEnabled = true;
+  /** A Wars battle: its goals decide the winner, not the usual last-one-standing. */
+  war = false;
+  /** Wars battles: nothing may be upgraded past this level (null: no limit). */
+  levelCap: number | null = null;
+  /** Wars battles: the only buildings that may be raised (null: all of them). */
+  allowed: string[] | null = null;
+  /**
+   * Shared realm: the world lives on everyone's computer and people come and
+   * go. No one ever "wins" it, and each traveller keeps a seat -- keyed by a
+   * private id their browser remembers -- to come back to.
+   */
+  realm = false;
+  readonly realmSeats = new Map<string, PlayerId>();
+  /** Clans that have ever raised a Town Hall: their next one is free if it falls. */
+  readonly hallsBuilt = new Set<PlayerId>();
+  /** Mines whose crews have already warned they are nearly worked out. */
+  readonly warnedMines = new Set<number>();
+  /** How many Horde raids have been sent so far: each one is bigger. */
+  hordeRaids = 0;
+  /** Dragons arrive in the wild mid-game and raid settlements. On for every normal match. */
+  dragonsEnabled = true;
+
+  /** Patrols arrive after one minute and grow every ninety seconds, capped at 24. */
+  private stepPatrols(): void {
+    const first = 60 * TICKS_PER_SECOND, gap = 90 * TICKS_PER_SECOND;
+    if (!this.patrolsEnabled || this.tick < first || (this.tick - first) % gap !== 0 || !this.players.has(WILD)) return;
+    const alive = this.units().filter(u => (u.def === "barbarian" || u.def === "grunt")).length;
+    const size = Math.min(8, 2 + Math.floor((this.tick - first) / gap) * 2, 24 - alive);
+    if (size <= 0) return;
+    for (let attempt = 0; attempt < 160; attempt++) {
+      const x = 4 + this.rng.int(this.map.width - 8), y = 4 + this.rng.int(this.map.height - 8);
+      if (this.map.starts.some(s => Math.hypot(s.x - x,s.y - y) < 20)) continue;
+      if (this.buildings().some(b => b.owner !== WILD && Math.hypot(b.tx - x,b.ty - y) < 12)) continue;
+      if ([...this.vision].some(([id,v]) => id !== WILD && v.at(x,y) === 2)) continue;
+      const spots: Array<{x:number;y:number}> = [];
+      for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) {
+        if(this.map.isWalkable(x+dx,y+dy,"land")) spots.push({x:(x+dx+.5)*SUB,y:(y+dy+.5)*SUB});
+      }
+      if(spots.length < size) continue;
+      for(let i=0;i<size;i++) {
+        const u=this.spawnUnit(WILD,i % 3 === 0 ? "grunt" : "barbarian",spots[i]!);
+        u.patrolHome={x:(x+.5)*SUB,y:(y+.5)*SUB}; u.patrolBand=this.tick;
+      }
+      return;
+    }
+  }
+
+  /**
+   * Dragons. They were in the bestiary and never once left it -- nothing ever
+   * spawned one. Now the first comes over the edge of the map a few minutes in,
+   * roosts somewhere in the wild country between the settlements, and every so
+   * often goes raiding: straight for somebody's buildings. More follow as the
+   * match goes on. Every player hears when one arrives.
+   */
+  private stepDragons(): void {
+    if (!this.players.has(WILD) || !this.dragonsEnabled) return;
+    const first = DRAGON_FIRST * TICKS_PER_SECOND, gap = DRAGON_GAP * TICKS_PER_SECOND;
+    const dragons = this.units().filter((u) => u.def === "dragon" && u.owner === WILD);
+    // Only ever one dragon in the realm. Older worlds may have more: the rest leave.
+    for (const extra of dragons.splice(1)) this.removeEntity(extra.id);
+    // Raids: each dragon in turn leaves its roost to burn somebody's town.
+    const firstRaid = DRAGON_FIRST_RAID * TICKS_PER_SECOND;
+    if (this.tick >= firstRaid && (this.tick - firstRaid) % (DRAGON_RAID * TICKS_PER_SECOND) === 0) {
+      for (const d of dragons) {
+        if (d.dragon && d.dragon.phase !== "roost") continue;
+        const towns = this.buildings().filter((b) => b.owner !== WILD && this.players.has(b.owner));
+        if (!towns.length) break;
+        // Dragons hate the Dragonbane: they pick a town no harpoon covers.
+        const open = towns.filter((b) => !this.dragonbaneNear(centerOf(b), b.owner));
+        if (!open.length) { this.emit(this.buildings().find((b) => b.owner !== WILD)!.owner, "A dragon circled high over the realm, and found every town defended"); continue; }
+        const t = open[this.rng.int(open.length)]!;
+        const over = centerOf(t);
+        d.dragon = { phase: "raid", target: t.owner, over, until: this.tick + DRAGON_BURN * TICKS_PER_SECOND + 60 * TICKS_PER_SECOND };
+        d.task = { kind: "move", target: over };
+        this.pathTo(d, Math.floor(over.x / SUB), Math.floor(over.y / SUB), true);
+        for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, pid === t.owner ? "A dragon is flying at your settlement!" : "A dragon has taken wing");
+        this.fx.push({ kind: "alarm", x: over.x, y: over.y, owner: t.owner });
+      }
+    }
+    if (this.tick < first || (this.tick - first) % gap !== 0) return;
+    const cap = 1;
+    if (dragons.length >= cap) return;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const x = 3 + this.rng.int(this.map.width - 6), y = 3 + this.rng.int(this.map.height - 6);
+      if (this.map.starts.some((st) => Math.hypot(st.x - x, st.y - y) < Math.max(16, this.map.width * 0.22))) continue;
+      if (this.buildings().some((b) => b.owner !== WILD && Math.hypot(b.tx - x, b.ty - y) < 14)) continue;
+      // Arrive from the nearest edge of the map, and settle on the roost.
+      const ex = x < this.map.width / 2 ? 1 : this.map.width - 2;
+      const d = this.spawnUnit(WILD, "dragon", { x: (ex + 0.5) * SUB, y: (y + 0.5) * SUB });
+      this.lairs.set(d.id, { x: (x + 0.5) * SUB, y: (y + 0.5) * SUB });
+      this.pathTo(d, x, y, true);
+      d.task = { kind: "move", target: { x: (x + 0.5) * SUB, y: (y + 0.5) * SUB } };
+      for (const pid of this.players.keys()) if (pid !== WILD) this.emit(pid, "A DRAGON has come to the realm — guard your towns");
+      return;
+    }
+  }
+
+  /**
+   * The Orc Horde.
+   *
+   * Out past the edge of the map is an enemy nobody can reach, and it is
+   * coming. First its scouts: a pair of grunts who find your town, look it
+   * over and run back to report. Then raids, a bigger war band every few
+   * minutes, sent at each settlement in turn -- the computer's as much as
+   * yours. At the half-hour the Horde itself arrives: a warhost at every gate.
+   * Every sighting is shouted, and flashes where they are coming from.
+   */
+  private stepHordeArrivals(): void {
+    if (!this.hordeEnabled || !this.players.has(WILD)) return;
+    const t = this.tick, S = TICKS_PER_SECOND;
+    const seats = [...this.players.keys()].filter((p) => p !== WILD && this.buildings().some((b) => b.owner === p));
+    if (!seats.length) return;
+    const pick = (n: number) => seats[n % seats.length]!;
+    if (t >= HORDE_SCOUTS * S && (t - HORDE_SCOUTS * S) % (HORDE_SCOUT_GAP * S) === 0) {
+      const n = Math.floor((t - HORDE_SCOUTS * S) / (HORDE_SCOUT_GAP * S));
+      this.sendHorde(pick(n), "scout", ["grunt", "grunt"], "Orc scouts sighted");
+    }
+    if (t === HORDE_HOST * S && !this.realm) {
+      for (const p of seats) {
+        const host = Array.from({ length: Math.min(30, 16 + 4 * (seats.length - 1)) }, (_, i) => (i % 4 === 3 ? "direwolf" : "grunt"));
+        this.sendHorde(p, "raid", host, "THE HORDE IS HERE — a warhost marches");
+      }
+      return;
+    }
+    // The more kingdoms in the realm, the harder the Horde pushes: bigger war
+    // bands, sent more often. One family in the realm is a frontier; four is
+    // a war.
+    const crowd = Math.max(1, seats.length);
+    const gap = Math.round(((t > HORDE_HOST * S ? HORDE_RAID_GAP_LATE : HORDE_RAID_GAP) * S) / (1 + 0.3 * (crowd - 1)));
+    if (t >= HORDE_RAIDS * S && (t - HORDE_RAIDS * S) % gap === 0) {
+      const n = this.hordeRaids++;
+      const target = pick(n);
+      // Sized to the town it is sent at: a new hall faces a handful, a great
+      // city an army. In a realm that runs for days this matters -- a newcomer
+      // must not meet a war band built for someone else's fortress.
+      // Walls don't count: a well-walled town is not a bigger prize.
+      const built = this.buildings().filter((b) => b.owner === target && b.def !== "wall" && b.def !== "gate").length;
+      const growth = this.realm ? Math.min(10, 1 + Math.round(built * 0.6)) : Math.min(12, 3 + n * 2);
+      const size = Math.max(2, Math.min(16, Math.round(growth * (1 + 0.25 * (crowd - 1)))));
+      // One war band at a time per town: if the last is still about, no more.
+      const out = this.units().filter((u) => u.horde?.role === "raid" && u.horde.target === target).length;
+      if (out >= Math.ceil(size / 2)) return;
+      const band = Array.from({ length: size }, (_, i) => (i % 5 === 4 ? "direwolf" : "grunt"));
+      this.sendHorde(target, "raid", band, "An Orc war band approaches");
+    }
+  }
+
+  /** Bring a Horde party in over the map edge furthest from everyone, aimed at one player. */
+  /** Wars battles script their own raids; the same arrival as the Horde's. */
+  summonHorde(target: PlayerId, role: "scout" | "raid", defs: string[], shout: string): void { this.sendHorde(target, role, defs, shout); }
+
+  private sendHorde(target: PlayerId, role: "scout" | "raid", defs: string[], shout: string): void {
+    const home = this.buildings().find((b) => b.owner === target && b.def === "townhall") ?? this.buildings().find((b) => b.owner === target);
+    if (!home) return;
+    const hc = centerOf(home);
+    const hx = Math.floor(hc.x / SUB), hy = Math.floor(hc.y / SUB);
+    const W = this.map.width, H = this.map.height;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let k = 0; k < 60; k++) {
+      const side = this.rng.int(4), along = 2 + this.rng.int((side % 2 ? H : W) - 4);
+      const x = side === 0 ? along : side === 1 ? W - 2 : side === 2 ? along : 1;
+      const y = side === 0 ? 1 : side === 1 ? along : side === 2 ? H - 2 : along;
+      if (!this.map.isWalkable(x, y, "land")) continue;
+      const near = Math.min(...this.map.starts.map((st) => Math.hypot(st.x - x, st.y - y)));
+      if (near < 22) continue;
+      const d = Math.hypot(x - hx, y - hy);
+      // Far from everybody, but not the far side of the world from the target.
+      const score = near - Math.max(0, d - W * 0.75);
+      if (best && score <= best.d) continue;
+      if (!this.map.connected(x, y, hx, hy + Math.ceil(home.size / 2) + 1, "land") && !this.map.connected(x, y, hx, hy - Math.ceil(home.size / 2) - 1, "land")) continue;
+      best = { x, y, d: score };
+    }
+    if (!best) return;
+    const at = { x: (best.x + 0.5) * SUB, y: (best.y + 0.5) * SUB };
+    defs.forEach((def, i) => {
+      const u = this.spawnUnit(WILD, def, { x: at.x + ((i % 4) - 1.5) * SUB * 0.8, y: at.y + (Math.floor(i / 4) - 1) * SUB * 0.8 });
+      u.horde = { role, target, home: { ...at }, until: role === "raid" ? this.tick + 4 * 60 * TICKS_PER_SECOND : undefined };
+      u.patrolHome = { ...at };
+    });
+    const dir = compassFrom(best.x - hx, best.y - hy);
+    this.emit(target, `${shout} — from the ${dir}!`);
+    this.fx.push({ kind: "alarm", x: at.x, y: at.y, owner: target });
+  }
+
+  /**
+   * A dragon is weather with teeth. Nothing you have can kill it; all you can
+   * do is get out of its way. It flies to a town, circles it breathing fire --
+   * roofs catch, fields burn, and every man near it drops what he is doing and
+   * runs -- then, having made its point, flies home. It never razes a town:
+   * its fire stops short of bringing a building down.
+   */
+  private stepDragon(u: Unit): void {
+    const d = u.dragon;
+    if (!d || d.phase === "roost") {
+      // Circle lazily over the roost.
+      if (this.tick % 60 !== u.id % 60) return;
+      const lair = this.lairs.get(u.id);
+      if (!lair) return;
+      const a = this.rng.next() * Math.PI * 2;
+      const tx = Math.floor(lair.x / SUB + Math.cos(a) * 5), ty = Math.floor(lair.y / SUB + Math.sin(a) * 5);
+      if (!this.map.inBounds(tx, ty)) return;
+      this.pathTo(u, tx, ty, true);
+      u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+      return;
+    }
+    if (d.phase === "leave") {
+      const lair = this.lairs.get(u.id);
+      if (!lair || Math.hypot(u.pos.x - lair.x, u.pos.y - lair.y) < 3 * SUB) { d.phase = "roost"; return; }
+      if (u.path.length === 0) { this.pathTo(u, Math.floor(lair.x / SUB), Math.floor(lair.y / SUB), true); u.task = { kind: "move", target: { ...lair } }; }
+      return;
+    }
+    // A Dragonbane in reach: one harpoon and it turns tail.
+    if (this.tick % 10 === u.id % 10) {
+      const bane = this.buildings().find((b) => b.def === "tower" && b.dragonbane && b.complete && Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < (towerRange(b.level) + 2) * SUB);
+      if (bane) {
+        const c = centerOf(bane);
+        this.fx.push({ kind: "attack", x: c.x, y: c.y - SUB, tx: u.pos.x, ty: u.pos.y, def: "ballista", ranged: true });
+        this.projectiles.push({ from: { x: c.x, y: c.y - SUB }, to: { x: u.pos.x, y: u.pos.y }, t: 0, speed: 0.1, kind: "arrow" });
+        d.phase = "leave";
+        this.emit(bane.owner, "The Dragonbane drove the dragon off!", "info");
+        return;
+      }
+    }
+    // Raid: terror spreads ahead of it.
+    if (this.tick % 10 === u.id % 10) this.terrify(u.pos.x, u.pos.y, DRAGON_FEAR_RADIUS * SUB, d.target);
+    const overTown = Math.hypot(u.pos.x - d.over.x, u.pos.y - d.over.y) < 5 * SUB;
+    if (!overTown) {
+      if (u.path.length === 0) { this.pathTo(u, Math.floor(d.over.x / SUB), Math.floor(d.over.y / SUB), true); u.task = { kind: "move", target: { ...d.over } }; }
+      if (this.tick > d.until) d.phase = "leave";
+      return;
+    }
+    if (!d.arrived) { d.arrived = true; d.until = this.tick + DRAGON_BURN * TICKS_PER_SECOND; this.emit(d.target, "The dragon is burning your town! Your people are fleeing"); }
+    if (this.tick > d.until) {
+      d.phase = "leave";
+      this.emit(d.target, "The dragon is leaving — for now");
+      return;
+    }
+    // Wheel over the town.
+    if (u.path.length === 0) {
+      const a = (this.tick / 40 + u.id) % (Math.PI * 2);
+      const tx = Math.floor(d.over.x / SUB + Math.cos(a) * 4), ty = Math.floor(d.over.y / SUB + Math.sin(a) * 4);
+      if (this.map.inBounds(tx, ty)) { this.pathTo(u, tx, ty, true); u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } }; }
+    }
+    // Breathe fire on whatever of theirs is below.
+    if (this.tick % 30 !== u.id % 30) return;
+    const near = this.buildings().filter((b) => b.owner === d.target && b.complete && Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < 7 * SUB);
+    const b = near.length ? near[this.rng.int(near.length)]! : null;
+    const at = b ? centerOf(b) : { x: u.pos.x + (this.rng.next() - 0.5) * 4 * SUB, y: u.pos.y + 2 * SUB };
+    this.fx.push({ kind: "attack", x: u.pos.x, y: u.pos.y, tx: at.x, ty: at.y, def: "dragon", ranged: true });
+    if (b) {
+      // Burns, but never brings it down: fire stops at a quarter of its health.
+      const floor = Math.ceil(b.maxHp * DRAGON_FLOOR);
+      if (b.hp > floor) {
+        const burn = Math.min(b.hp - floor, Math.round(b.maxHp * 0.08));
+        b.hp -= burn;
+        this.fx.push({ kind: "hit", owner: b.owner, attackerOwner: WILD, id: b.id, x: at.x, y: at.y, building: true, amount: burn, crit: false });
+      }
+    }
+    // Anyone standing in the fire is scorched.
+    for (const v of this.units()) {
+      if (v.owner === WILD || Math.hypot(v.pos.x - at.x, v.pos.y - at.y) > 1.6 * SUB) continue;
+      this.dealDamage(v, 22, WILD, 0.2);
+    }
+  }
+
+  /** Whether one of this player's Dragonbane towers covers a point. */
+  private dragonbaneNear(at: Vec, owner: PlayerId): boolean {
+    return this.buildings().some((b) => b.owner === owner && b.def === "tower" && b.dragonbane && b.complete && Math.hypot(centerOf(b).x - at.x, centerOf(b).y - at.y) < (towerRange(b.level) + 2) * SUB);
+  }
+
+  /** Everyone of this player's near a terror drops what he is doing and runs. */
+  private terrify(x: number, y: number, r: number, owner: PlayerId): void {
+    for (const v of this.units()) {
+      if (v.owner !== owner || UNITS[v.def]!.domain !== "land" && UNITS[v.def]!.domain !== "amphibious") continue;
+      const dx = v.pos.x - x, dy = v.pos.y - y, dist = Math.hypot(dx, dy);
+      if (dist > r) continue;
+      if (!v.fear) v.fear = { until: 0, resume: v.task.kind === "gather" || v.task.kind === "build" || v.task.kind === "repair" ? v.task : null };
+      v.fear.until = this.tick + 5 * TICKS_PER_SECOND;
+      if (v.task.kind === "move" && v.path.length > 2) continue;
+      const a = Math.atan2(dy, dx);
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2, 2]) {
+        const tx = Math.floor((v.pos.x + Math.cos(a + turn) * (r - dist + 3 * SUB)) / SUB);
+        const ty = Math.floor((v.pos.y + Math.sin(a + turn) * (r - dist + 3 * SUB)) / SUB);
+        if (!this.map.inBounds(tx, ty) || !this.map.isWalkable(tx, ty, "land")) continue;
+        this.pathTo(v, tx, ty, true);
+        if (v.path.length === 0) continue;
+        v.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+        break;
+      }
+    }
+  }
+
+  /** One Horde fighter's turn: fight what is near, otherwise do the job it was sent for. */
+  private stepHorde(u: Unit): void {
+    if ((this.tick + u.id) % 10 !== 0) return;
+    const h = u.horde!;
+    if (u.task.kind === "attack" && this.entities.has(u.task.target)) return;
+    const foe = this.findTarget(u, (h.role === "scout" ? 3.5 : 7) * SUB);
+    if (foe) { u.task = { kind: "attack", target: foe.id }; return; }
+    const theirs = this.buildings().filter((b) => b.owner === h.target);
+    // A raid that has done its damage (or run out of time) goes home.
+    if (h.role === "raid" && h.until === undefined) h.until = this.tick + 60 * TICKS_PER_SECOND; // bands from before this rule
+    if (h.role === "raid" && h.until !== undefined && this.tick >= h.until) {
+      if (Math.hypot(u.pos.x - h.home.x, u.pos.y - h.home.y) < 3 * SUB) { this.removeEntity(u.id); return; }
+      if (u.task.kind !== "move" || u.path.length === 0) {
+        this.pathTo(u, Math.floor(h.home.x / SUB), Math.floor(h.home.y / SUB), true);
+        u.task = { kind: "move", target: { ...h.home } };
+      }
+      return;
+    }
+    if (h.role === "scout") {
+      if (!h.spotted) {
+        const near = theirs.some((b) => Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y) < 9 * SUB);
+        if (near) { h.spotted = true; this.emit(h.target, "Orc scouts are watching your town!"); this.fx.push({ kind: "alarm", x: u.pos.x, y: u.pos.y, owner: h.target }); }
+        else if (u.task.kind !== "move" || u.path.length === 0) {
+          const hall = theirs.find((b) => b.def === "townhall") ?? theirs[0];
+          if (!hall) { h.spotted = true; return; }
+          const c = centerOf(hall);
+          this.pathTo(u, Math.floor(c.x / SUB) + 5, Math.floor(c.y / SUB) + 5, true);
+          u.task = { kind: "move", target: c };
+        }
+        return;
+      }
+      // Seen enough: back over the edge to tell the warchief.
+      if (Math.hypot(u.pos.x - h.home.x, u.pos.y - h.home.y) < 3 * SUB) { this.removeEntity(u.id); return; }
+      if (u.task.kind !== "move" || u.path.length === 0) {
+        this.pathTo(u, Math.floor(h.home.x / SUB), Math.floor(h.home.y / SUB), true);
+        u.task = { kind: "move", target: { ...h.home } };
+      }
+      return;
+    }
+    // A raid goes for the nearest thing its target has built; with that gone,
+    // for anyone's.
+    if (u.task.kind === "attackMove" && u.path.length > 0) return;
+    const pool = theirs.length ? theirs : this.buildings().filter((b) => b.owner !== WILD);
+    let best: Building | null = null, bd = Infinity;
+    for (const b of pool) { const c = centerOf(b); const d = Math.hypot(c.x - u.pos.x, c.y - u.pos.y); if (d < bd) { bd = d; best = b; } }
+    if (!best) return;
+    const c = centerOf(best);
+    u.task = { kind: "attackMove", target: c };
+    this.pathTo(u, best.tx + Math.floor(best.size / 2), best.ty + best.size, true);
+    if (u.path.length === 0) {
+      // Walled out: hack through the nearest wall or gate instead.
+      let wall: Building | null = null, wd = Infinity;
+      for (const b of this.buildings()) {
+        if (b.owner === WILD || (b.def !== "wall" && b.def !== "gate")) continue;
+        const d2 = Math.hypot(centerOf(b).x - u.pos.x, centerOf(b).y - u.pos.y);
+        if (d2 < wd) { wd = d2; wall = b; }
+      }
+      if (wall) u.task = { kind: "attack", target: wall.id };
+    }
+  }
+
+  /**
+   * Why a building may not go up a level yet, or null if it may.
+   *
+   * A Town Hall grows with the town: each level wants the buildings of the
+   * stage before it standing (a farm and a barracks before it can become a
+   * Timber Hall, and so on). Every other building can rise no higher than the
+   * Town Hall itself -- a village does not get a cathedral.
+   */
+  upgradeBlocked(player: PlayerId, b: Building): string | null {
+    const to = b.level + 1;
+    if (this.levelCap !== null && to > this.levelCap) return `This battle allows level ${this.levelCap} at most`;
+    if (b.def === "townhall") {
+      const need = (HALL_NEEDS[to] ?? []).filter((d) => !this.hasBuilding(player, d));
+      return need.length ? `To grow the Town Hall you first need: ${need.map((d) => BUILDINGS[d]!.name).join(", ")}` : null;
+    }
+    const hall = Math.max(0, ...this.buildings().filter((h) => h.owner === player && h.def === "townhall" && h.complete).map((h) => h.level));
+    return to > hall ? `Upgrade your Town Hall to level ${to} first` : null;
+  }
+
+  /**
+   * A traveller walks into the realm.
+   *
+   * Someone coming back finds their own people where they left them. Someone
+   * new -- or someone whose town was burned to the ground while they were
+   * away -- is given a fresh start: a Town Hall, four workers and a King,
+   * beside a gold mine nobody has built near, well away from everyone else.
+   */
+  claimSeat(peer: string): PlayerId | null {
+    const had = this.realmSeats.get(peer);
+    if (had !== undefined && this.players.has(had)) {
+      const alive = [...this.entities.values()].some((e) => e.owner === had && (e.kind === "building" || UNITS[e.def]!.canBuild));
+      if (alive) return had;
+    }
+    // A player number: reuse theirs if they had one, otherwise the next free one.
+    let id = had;
+    if (id === undefined) {
+      id = 1;
+      while (this.players.has(id) || id === WILD) id++;
+      if (id > 60) return null;
+      this.addPlayer(id, Faction.Human, REALM_COLOURS[(id - 1) % REALM_COLOURS.length]!);
+    } else {
+      const p = this.players.get(id)!;
+      Object.assign(p, { ...START_PURSE, research: {} });
+    }
+    this.realmSeats.set(peer, id);
+    this.seatCamp(id);
+    // Let them see where they are at once. Part of the ledger order, so every
+    // computer does it at the same moment -- and a copy of the world handed
+    // to the newcomer is not all black before its first step.
+    this.updateVision(true);
+    return id;
+  }
+
+  /**
+   * Start again: whatever is left of your kingdom is abandoned -- its
+   * buildings fall to ruin and its people scatter -- and you arrive afresh
+   * somewhere else, with the same banner.
+   */
+  restartSeat(id: PlayerId): void {
+    if (!this.realm || !this.players.has(id) || id === WILD) return;
+    for (const e of [...this.entities.values()]) {
+      if (e.owner !== id) continue;
+      if (e.kind === "building") {
+        const c = centerOf(e);
+        this.fx.push({ kind: "death", x: c.x, y: c.y, def: e.def, owner: e.owner, facing: 6, building: true });
+      }
+      this.removeEntity(e.id);
+    }
+    const p = this.players.get(id)!;
+    Object.assign(p, { ...START_PURSE, research: {} });
+    this.homes.delete(id);
+    this.seatCamp(id);
+    this.updateVision(true);
+  }
+
+  /**
+   * A new arrival in the realm: one man, no King, no hall. Swords lie all over
+   * the realm; the first one his people find, he takes up and is crowned.
+   * One is always placed within a fair walk, so no arrival is hopeless.
+   */
+  private seatCamp(id: PlayerId): void {
+    // A fresh start is a fresh map: what the last kingdom explored is forgotten.
+    this.vision.get(id)?.explored.fill(0);
+    const spot = this.freeStart();
+    if (!spot) return;
+    const p = this.players.get(id)!;
+    Object.assign(p, { ...START_PURSE, research: {} });
+    for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.owner === id && !this.relics[i]!.taken) this.relics.splice(i, 1);
+    const tx = spot.x + 1, ty = spot.y + 1;
+    this.homes.set(id, { x: tx, y: ty });
+    this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
+    this.scatterSwords(1, { x: tx, y: ty });
+    this.clearBeastsFrom(tx + 1, ty + 1);
+  }
+
+  /**
+   * Move biting animals off a fresh camp's doorstep.
+   *
+   * Wildlife is only kept clear of the map's fixed seats, but realm camps are
+   * placed beside gold seams anywhere on the map -- so a newcomer's lone man
+   * could arrive inside a wolf's patch and die before he took a step. Any
+   * wolf or bear whose ground reaches the camp is walked out along the same
+   * line to a lair far enough that its wander plus its notice cannot reach.
+   * Deterministic (no dice), so every computer moves the same animals.
+   */
+  private clearBeastsFrom(cx: number, cy: number): void {
+    const keep = BEAST_RANGE + BEAST_AGGRO + 4;
+    for (const u of this.units()) {
+      if (u.owner !== WILD || u.horde || u.def === "dragon") continue;
+      const def = UNITS[u.def]!;
+      if (!def.beast || def.damage <= 0) continue;
+      const lair = this.lairs.get(u.id) ?? u.pos;
+      const lx = lair.x / SUB, ly = lair.y / SUB;
+      const d = Math.hypot(lx - cx, ly - cy);
+      if (d >= keep) continue;
+      const a = d < 0.5 ? (u.id % 8) * Math.PI / 4 : Math.atan2(ly - cy, lx - cx);
+      let moved = false;
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2, 2, -2, Math.PI]) {
+        for (const r of [keep + 2, keep + 6, keep + 10]) {
+          const nx = Math.floor(cx + Math.cos(a + turn) * r), ny = Math.floor(cy + Math.sin(a + turn) * r);
+          if (!this.map.inBounds(nx, ny) || !this.map.isWalkable(nx, ny, "land")) continue;
+          const pos = { x: (nx + 0.5) * SUB, y: (ny + 0.5) * SUB };
+          u.pos = { ...pos };
+          u.path = [];
+          u.moveQueue = [];
+          u.task = { kind: "idle" };
+          this.lairs.set(u.id, pos);
+          moved = true;
+          break;
+        }
+        if (moved) break;
+      }
+      // Nowhere to put it on a crowded map: it goes rather than ambush a newcomer.
+      if (!moved) this.removeEntity(u.id);
+    }
+  }
+
+  /** Whether this clan has a King or Prince living. */
+  hasRoyal(id: PlayerId): boolean {
+    return this.units().some((u) => u.owner === id && UNITS[u.def]!.royal);
+  }
+
+  /**
+   * Lay swords in the realm: anywhere walkable, or (with `near`) a fair walk
+   * from a spot -- far enough to be a search, close enough to be found.
+   */
+  scatterSwords(count: number, near?: { x: number; y: number }): void {
+    for (let k = 0; k < count; k++) {
+      for (let attempt = 0; attempt < 300; attempt++) {
+        let x: number, y: number;
+        if (near) {
+          const a = this.rng.next() * Math.PI * 2, d = 12 + this.rng.next() * 10;
+          x = Math.round(near.x + Math.cos(a) * d); y = Math.round(near.y + Math.sin(a) * d);
+          if (!this.map.connected(near.x, near.y, x, y, "land")) continue;
+        } else {
+          x = 3 + this.rng.int(this.map.width - 6); y = 3 + this.rng.int(this.map.height - 6);
+          // Out on open country, not shut in a pocket of trees no one can reach.
+          if (this.map.regionSize(x, y, "land") < 300) continue;
+        }
+        if (!this.map.inBounds(x, y) || !this.map.isWalkable(x, y, "land") || this.map.occupant[this.map.idx(x, y)] !== 0) continue;
+        if (this.relics.some((r) => !r.taken && Math.hypot(r.x - x, r.y - y) < 8)) continue;
+        this.relics.push({ owner: 0, faction: Faction.Human, x, y, taken: false });
+        break;
+      }
+    }
+  }
+
+  /**
+   * A realm sword lying beside a crowned clan's town is useless to them and
+   * just clutters the view, so it wanders off somewhere else in the realm.
+   */
+  clearSwordsFromTowns(): void {
+    const crowned = new Set<PlayerId>();
+    for (const id of this.players.keys()) if (this.hasRoyal(id)) crowned.add(id);
+    const halls: { x: number; y: number }[] = [];
+    for (const e of this.entities.values()) if (e.kind === "building" && crowned.has(e.owner)) halls.push({ x: e.tx + e.size / 2, y: e.ty + e.size / 2 });
+    const near = (x: number, y: number) => halls.some((h) => Math.hypot(h.x - x, h.y - y) < 18);
+    const seekers = this.units().filter((u) => u.owner !== WILD && this.players.has(u.owner) && !crowned.has(u.owner));
+    let moved = 0;
+    for (const r of this.relics) {
+      if (r.taken || r.owner !== 0) continue;
+      // Never pull a sword out from under someone still looking for one.
+      if (seekers.some((u) => Math.hypot(u.pos.x / SUB - r.x, u.pos.y / SUB - r.y) < 30)) continue;
+      // ...and one shut away where nobody can walk to it goes somewhere they can.
+      if (near(r.x + 0.5, r.y + 0.5) || this.map.regionSize(r.x, r.y, "land") < 60) { r.taken = true; moved++; }
+    }
+    if (!moved) return;
+    for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.taken && this.relics[i]!.owner === 0) this.relics.splice(i, 1);
+    for (let k = 0; k < moved; k++) {
+      const before = this.relics.length;
+      for (let tries = 0; tries < 20 && this.relics.length === before; tries++) {
+        this.scatterSwords(1);
+        const n = this.relics[this.relics.length - 1]!;
+        if (this.relics.length > before && near(n.x + 0.5, n.y + 0.5)) this.relics.pop();
+      }
+    }
+  }
+
+  /**
+   * Everyone eats. A worker eats about 2 food a minute and a soldier twice
+   * that. With no farm the hunger grows every minute -- slowly at first, then
+   * fast -- and it settles back the moment a farm is standing. At nothing in the
+   * stores, no one new can be trained.
+   */
+  private stepFood(): void {
+    if (this.tick % TICKS_PER_SECOND !== 0) return;
+    const minute = this.tick % (60 * TICKS_PER_SECOND) === 0;
+    for (const [id, p] of this.players) {
+      if (id === WILD) continue;
+      let mouths = 0;
+      for (const u of this.units()) {
+        if (u.owner !== id) continue;
+        const d = UNITS[u.def]!;
+        if (d.beast) continue;
+        mouths += d.canGather || d.royal ? 1 : 2;
+      }
+      for (const b of this.buildings()) if (b.owner === id && b.garrison) mouths += 2 * b.garrison.length;
+      if (!mouths) continue;
+      if (minute) {
+        const farmed = this.buildings().some((b) => b.owner === id && b.def === "farm" && b.complete);
+        p.hunger = farmed ? 1 : Math.min(HUNGER_MAX, (p.hunger ?? 1) * HUNGER_GROWTH);
+      }
+      p.appetite = (p.appetite ?? 0) + (mouths * (p.hunger ?? 1)) / 30;
+      const take = Math.floor(p.appetite);
+      if (take > 0) { p.appetite -= take; p.food = Math.max(0, p.food - take); }
+      if (p.food <= 0 && this.tick % (30 * TICKS_PER_SECOND) === 0) this.emit(id, STARVING_LINE);
+    }
+  }
+
+  /** This player's wall tier, 1..10. */
+  wallLevel(id: PlayerId): number { return 1 + (this.players.get(id)?.research.walls ?? 0); }
+  /** Walls and gates double in strength with each tier; nothing else changes. */
+  private wallFactor(owner: PlayerId, def: string): number {
+    return def === "wall" || def === "gate" ? Math.pow(2, this.wallLevel(owner) - 1) : 1;
+  }
+  /** Why the walls can't go up a tier yet, or null. They can never outgrow the hall. */
+  wallUpgradeBlocked(id: PlayerId): string | null {
+    const next = this.wallLevel(id) + 1;
+    if (next > WALL_TIERS.length) return "Your walls are as strong as walls get";
+    if (this.levelCap !== null && next > this.levelCap) return `This battle allows level ${this.levelCap} at most`;
+    const hall = Math.max(0, ...this.buildings().filter((b) => b.owner === id && b.def === "townhall" && b.complete).map((b) => b.level));
+    if (hall < next) return `Needs a level ${next} Town Hall first`;
+    return null;
+  }
+
+  /** The sword this clan is looking for: its own, or while it has no King the nearest in the realm. */
+  relicFor(id: PlayerId): Relic | null {
+    const own = this.relics.find((r) => r.owner === id && !r.taken);
+    if (own) return own;
+    if (!this.realm || this.hasRoyal(id)) return null;
+    const people = this.units().filter((u) => u.owner === id && UNITS[u.def]!.canGather);
+    if (!people.length) return null;
+    let best: Relic | null = null, bd = Infinity;
+    for (const r of this.relics) {
+      if (r.taken || r.owner !== 0) continue;
+      for (const u of people) { const d = Math.hypot((r.x + 0.5) * SUB - u.pos.x, (r.y + 0.5) * SUB - u.pos.y); if (d < bd) { bd = d; best = r; } }
+    }
+    return best;
+  }
+
+  /** Whether this player still has a kingdom: a building, or someone who could raise one. */
+  seatAlive(id: PlayerId): boolean {
+    for (const e of this.entities.values()) if (e.owner === id && (e.kind === "building" || UNITS[e.def]!.canBuild)) return true;
+    return false;
+  }
+
+  /** Somewhere to found a new town: open ground by unclaimed gold, far from everyone. */
+  private freeStart(): { x: number; y: number } | null {
+    const map = this.map;
+    // Everyone's towns, and everyone's people -- a newcomer with no hall yet
+    // still has a camp, and nobody should be dropped on top of it.
+    const taken = [
+      ...this.buildings().filter((b) => b.owner !== WILD).map((b) => centerOf(b)),
+      ...this.units().filter((u) => u.owner !== WILD && UNITS[u.def]!.canBuild).map((u) => u.pos),
+      ...[...this.homes.values()].map((h) => ({ x: (h.x + 2) * SUB, y: (h.y + 2) * SUB })),
+    ];
+    const far = (x: number, y: number) => Math.min(Infinity, ...taken.map((c) => Math.hypot(c.x / SUB - x, c.y / SUB - y)));
+    // Candidate spots: beside every gold seam, plus the map's own seats.
+    const seeds: Array<{ x: number; y: number }> = [...map.starts];
+    for (let y = 0; y < map.height; y += 1)
+      for (let x = 0; x < map.width; x += 1)
+        if (map.get(x, y) === Tile.Gold && !map.isHidden(x, y) && (x === 0 || map.get(x - 1, y) !== Tile.Gold) && (y === 0 || map.get(x, y - 1) !== Tile.Gold)) seeds.push({ x: x + 5, y: y + 1 }, { x: x - 6, y: y + 1 }, { x: x + 1, y: y + 5 }, { x: x + 1, y: y - 6 });
+    let best: { x: number; y: number; d: number } | null = null;
+    for (const s of seeds) {
+      for (const [ox, oy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [3, 3], [-3, -3]] as const) {
+        const tx = s.x + ox, ty = s.y + oy;
+        if (!map.canPlace(tx, ty, 4)) continue;
+        let room = true;
+        for (let y = ty - 1; y < ty + 7 && room; y++) for (let x = tx - 2; x < tx + 6 && room; x++) if (!map.isWalkable(x, y, "land") && !(map.get(x, y) === Tile.Tree)) room = false;
+        if (!room) continue;
+        const d = far(tx, ty);
+        if (d < 18) continue;
+        if (!best || d > best.d) best = { x: tx, y: ty, d };
+        break;
+      }
+    }
+    if (best) return best;
+    // Crowded realm: clear a patch in the least crowded place we can find.
+    for (let k = 0; k < 400; k++) {
+      const tx = 6 + this.rng.int(map.width - 14), ty = 6 + this.rng.int(map.height - 14);
+      if (far(tx, ty) < 12) continue;
+      for (let y = ty - 1; y < ty + 7; y++) for (let x = tx - 2; x < tx + 6; x++) if (map.get(x, y) === Tile.Tree || map.get(x, y) === Tile.Rock) { map.set(x, y, Tile.Grass); map.amount[map.idx(x, y)] = 0; }
+      if (map.canPlace(tx, ty, 4)) return { x: tx, y: ty };
+    }
+    return null;
+  }
+
+  isSheltered(u: Unit): boolean {
+    return this.buildings().some(b => b.owner === u.owner && b.def === "shelter" && b.complete
+      && Math.hypot(u.pos.x / SUB - b.tx - b.size/2, u.pos.y / SUB - b.ty - b.size/2) <= 3);
+  }
+
+  /** A reachable band outside each starting settlement rewards early exploration. */
+  spawnWanderers(): void {
+    if (!this.players.has(WILD)) return;
+    for (const start of this.map.starts) {
+      const traveller = this.units().filter(u => u.owner !== WILD && this.map.isWalkable(Math.floor(u.pos.x / SUB), Math.floor(u.pos.y / SUB), "land"))
+        .sort((a, b) => Math.hypot(a.pos.x / SUB - start.x, a.pos.y / SUB - start.y) - Math.hypot(b.pos.x / SUB - start.x, b.pos.y / SUB - start.y))[0];
+      const fromX = traveller ? Math.floor(traveller.pos.x / SUB) : start.x;
+      const fromY = traveller ? Math.floor(traveller.pos.y / SUB) : start.y;
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const angle = this.rng.next() * Math.PI * 2;
+        const distance = 12 + this.rng.int(9);
+        const x = Math.round(start.x + Math.cos(angle) * distance);
+        const y = Math.round(start.y + Math.sin(angle) * distance);
+        if (!this.map.isWalkable(x, y, "land") || !this.map.isWalkable(x + 1, y, "land") || !this.map.isWalkable(x, y + 1, "land")) continue;
+        if (!this.map.connected(fromX, fromY, x, y, "land")) continue;
+        const band = this.nextId;
+        for (const [i, def] of ["footman", "archer", "worker"].entries()) {
+          const u = this.spawnUnit(WILD, def, { x: (x + (i === 1 ? 1 : 0) + .5) * SUB, y: (y + (i === 2 ? 1 : 0) + .5) * SUB });
+          u.recruitBand = band;
+          u.patrolHome = { ...u.pos };
+        }
+        break;
+      }
+    }
+  }
+
+  private stepWanderers(): void {
+    if (this.tick % 20 !== 0) return;
+    const kings = this.units().filter(u => u.def === "king" && u.owner !== WILD && u.hp > 0);
+    for (const u of this.units()) {
+      if (u.recruitBand === undefined) continue;
+      const king = kings.find(k => Math.hypot(k.pos.x - u.pos.x, k.pos.y - u.pos.y) <= 3 * SUB
+        && this.map.connected(Math.floor(k.pos.x / SUB), Math.floor(k.pos.y / SUB), Math.floor(u.pos.x / SUB), Math.floor(u.pos.y / SUB), "land"));
+      if (king) {
+        const members = this.units().filter(m => m.recruitBand === u.recruitBand);
+        for (const member of members) {
+          member.owner = king.owner;
+          member.recruitBand = undefined;
+          member.patrolHome = undefined;
+          member.path = [];
+          member.task = { kind: "idle" };
+          member.engaging = null;
+        }
+        this.emit(king.owner, `${members.length} wanderers swear allegiance! A swordsman, archer and worker join your empire.`, "info");
+        this.fx.push({ kind: "battleRally", x: king.pos.x, y: king.pos.y, owner: king.owner });
+      } else if (this.tick % 100 === 0 && u.task.kind === "idle") {
+        const home = u.patrolHome!;
+        const x = Math.floor(home.x / SUB) + this.rng.int(7) - 3;
+        const y = Math.floor(home.y / SUB) + this.rng.int(7) - 3;
+        if (!this.map.isWalkable(x, y, "land")) continue;
+        this.pathTo(u, x, y, true);
+        u.task = { kind: "move", target: { x: (x + .5) * SUB, y: (y + .5) * SUB } };
+      }
+    }
+  }
+
+  private stepShelters(): void {
+    if(this.tick % TICKS_PER_SECOND !== 0 || this.rain < .15) return;
+    for(const u of this.units()) if(u.task.kind === "idle" && !u.engaging && u.hp < u.maxHp && this.isSheltered(u)) {
+      u.hp = Math.min(u.maxHp,u.hp+1);
+      this.fx.push({kind:"heal",id:u.id,x:u.pos.x,y:u.pos.y,amount:1});
+    }
+  }
+
   private readonly lairs = new Map<EntityId, { x: number; y: number }>();
   /** Every fire burning on the map. Scenery: nothing in the sim reads it. */
   readonly campfires: Campfire[] = [];
@@ -590,28 +1365,6 @@ export class World {
   private readonly hearths = new Set<EntityId>();
   /** Buildings that have already been joined to the road network. */
   private readonly roaded = new Set<EntityId>();
-  /**
-   * When the next dragon comes over the hills. Negative until the first tick
-   * sets it, so that "not scheduled yet" and "scheduled for tick zero" are
-   * different things -- with 0 as the sentinel there is no way to ask for one
-   * now, which makes the whole feature untestable without waiting out twenty
-   * minutes of simulation.
-   */
-  private nextDragon = -1;
-  /** Dragons on the wing: when each has had enough, and what it is burning. */
-  private readonly dragons = new Map<EntityId, { leaves: number; bored: number }>();
-  /** Whether dragons happen at all in this match. */
-  dragonsEnabled = true;
-  /**
-   * The war camps, by the id of the stronghold at the middle of each.
-   *
-   * `home` is kept separately rather than read off the building because the
-   * garrison has to keep standing somewhere once the stronghold is rubble --
-   * pulling down the hall must not teleport the survivors.
-   */
-  private readonly camps = new Map<EntityId, { x: number; y: number; nextRaid: number }>();
-  /** Which camp each orc belongs to, so a garrison knows where home is. */
-  private readonly warband = new Map<EntityId, EntityId>();
 
   /**
    * Begin as one peasant with no king and no hall.
@@ -663,12 +1416,16 @@ export class World {
    */
   private checkRelics(): void {
     if (this.relics.length === 0 || this.tick % 5 !== 0) return;
+    if (this.realm && this.tick % 100 === 0) this.clearSwordsFromTowns();
     for (const r of this.relics) {
       if (r.taken) continue;
       const cx = (r.x + 0.5) * SUB;
       const cy = (r.y + 0.5) * SUB;
       for (const u of this.units()) {
-        if (u.owner !== r.owner) continue;
+        if (r.owner === 0) {
+          // A realm sword: any clan with no King may claim it, with any of its people.
+          if (u.owner === WILD || !this.players.has(u.owner) || !UNITS[u.def]!.canGather || this.hasRoyal(u.owner)) continue;
+        } else if (u.owner !== r.owner) continue;
         const dx = u.pos.x - cx;
         const dy = u.pos.y - cy;
         if (dx * dx + dy * dy > (REACH * SUB) ** 2) continue;
@@ -680,6 +1437,8 @@ export class World {
         u.task = { kind: "idle" };
         u.carrying = null;
         this.emit(u.owner, WEAPON_OF[r.faction].taken, "info");
+        // Another sword finds its way into the realm for whoever comes next.
+        if (r.owner === 0) this.scatterSwords(1);
         this.fx.push({ kind: "crowned", x: u.pos.x, y: u.pos.y, owner: u.owner });
         this.rally(u);
         break;
@@ -761,6 +1520,7 @@ export class World {
    * arrive as a pack.
    */
   spawnWildlife(count: number): void {
+    this.patrolsEnabled = true;
     const home: Array<{ x: number; y: number }> = [];
     for (let attempt = 0; attempt < count * 40 && home.length < count; attempt++) {
       const tx = 2 + this.rng.int(this.map.width - 4);
@@ -1005,439 +1765,6 @@ export class World {
   }
 
   /**
-   * Put Blackrock war camps on the map.
-   *
-   * A camp is a stronghold, two or three huts and a garrison, set down well
-   * away from anybody's seat and away from each other. What it is FOR is the
-   * middle of the match: the good ground is never where you started, and now
-   * some of it is held. The country stops being an empty board with an opponent
-   * at the far end of it and becomes a place with a middle worth taking.
-   *
-   * Placed from the map's own generator like the wildlife and the fires, so
-   * every machine raises the same camps in the same order.
-   */
-  spawnOrcCamps(count: number): void {
-    const sited: Array<{ x: number; y: number }> = [];
-    for (let attempt = 0; attempt < count * 60 && sited.length < count; attempt++) {
-      const tx = 6 + this.rng.int(Math.max(1, this.map.width - 14));
-      const ty = 6 + this.rng.int(Math.max(1, this.map.height - 14));
-      // Well clear of a seat. A camp on your doorstep at tick zero is not
-      // something to plan around, it is a map you lost before you looked at it.
-      let bad = false;
-      for (const seat of this.map.starts) if (Math.hypot(tx - seat.x, ty - seat.y) < 34) bad = true;
-      for (const c of sited) if (Math.hypot(tx - c.x, ty - c.y) < 24) bad = true;
-      if (bad) continue;
-      if (!this.map.canPlace(tx, ty, 4)) continue;
-
-      const hall = this.placeBuilding(MARAUDER, "stronghold", tx, ty, true);
-      if (!hall) continue;
-      sited.push({ x: tx, y: ty });
-      // Staggered, but not by a whole raid interval: at full jitter the first
-      // warband out of a given camp could be half an hour away, which is longer
-      // than most matches and made the whole behaviour something players would
-      // never see.
-      const camp = {
-        x: (tx + 2) * SUB,
-        y: (ty + 2) * SUB,
-        nextRaid: this.paced(RAID_FIRST) + this.rng.int(Math.floor(this.paced(RAID_EVERY) / 2)),
-      };
-      this.camps.set(hall.id, camp);
-
-      // Huts around it, wherever they will go.
-      let huts = 0;
-      const want = 2 + this.rng.int(2);
-      for (let ring = 0; ring < 10 && huts < want; ring++) {
-        const a = this.rng.next() * Math.PI * 2;
-        const hx = tx + Math.round(Math.cos(a) * (4 + this.rng.int(3)));
-        const hy = ty + Math.round(Math.sin(a) * (4 + this.rng.int(3)));
-        if (!this.map.canPlace(hx, hy, 2)) continue;
-        const hut = this.placeBuilding(MARAUDER, "warhut", hx, hy, true);
-        if (hut) huts++;
-      }
-
-      // And whoever is at home. An ogre in roughly half of them, so meeting one
-      // is a thing that happens rather than a thing that always happens.
-      const roster: string[] = [];
-      for (let i = 0; i < 4; i++) roster.push("grunt");
-      roster.push("axethrower", "axethrower");
-      if (this.rng.next() < 0.55) roster.push("wargrider");
-      if (this.rng.next() < 0.45) roster.push("ogre");
-      for (const def of roster) {
-        const spot = this.findSpawnTile(hall, "land");
-        if (!spot) continue;
-        const orc = this.spawnUnit(MARAUDER, def, { x: spot[0] * SUB + SUB / 2, y: spot[1] * SUB + SUB / 2 });
-        this.warband.set(orc.id, hall.id);
-      }
-    }
-  }
-
-  /**
-   * The camps' turn: hold the ground, and every so often come and find you.
-   *
-   * Two behaviours and no more. A garrison drifts around its own stronghold and
-   * kills what walks in -- that is the encounter, and it is the one most players
-   * will ever see. When a camp has more warriors than it needs at home it sends
-   * the surplus at the nearest thing somebody built, which is the bill for
-   * having left it alone. They do not gather, expand, tech or retreat; the
-   * moment they did any of that they would be a third player, and a third
-   * player in a two-player skirmish is a different game.
-   */
-  private stepOrcs(): void {
-    if (this.tick % 20 !== 0) return;
-    if (this.camps.size === 0 && this.warband.size === 0) return;
-
-    // Who is still standing, and whose camp they belong to.
-    const atHome = new Map<EntityId, Unit[]>();
-    const loose: Unit[] = [];
-    for (const u of this.units()) {
-      if (u.owner !== MARAUDER) continue;
-      const campId = this.warband.get(u.id);
-      const camp = campId === undefined ? undefined : this.camps.get(campId);
-      if (!camp) {
-        loose.push(u);
-        continue;
-      }
-      const list = atHome.get(campId!);
-      if (list) list.push(u);
-      else atHome.set(campId!, [u]);
-    }
-
-    for (const [id, camp] of [...this.camps]) {
-      const hall = this.entities.get(id);
-      // The stronghold is down. The camp stops making anything and stops
-      // raiding; whoever is left fights where they stand until somebody
-      // finishes the job.
-      if (!hall) {
-        this.camps.delete(id);
-        continue;
-      }
-      const garrison = atHome.get(id) ?? [];
-
-      // Replace losses, one at a time, out of nothing. They have no economy and
-      // are not meant to: a camp is a slow tap, not an opponent.
-      if (hall.kind === "building" && hall.queue.length === 0 && garrison.length < CAMP_GARRISON) {
-        const def = this.rng.next() < 0.25 ? "axethrower" : this.rng.next() < 0.15 ? "wargrider" : "grunt";
-        const d = UNITS[def]!;
-        hall.queue.push({ unit: def, remaining: this.paced(d.trainTime), total: this.paced(d.trainTime) });
-      }
-
-      // A raid: the surplus over the floor, sent at the nearest thing anybody
-      // built. The ogre never goes -- it is what the camp is holding, and at
-      // five speed it would arrive a minute after everybody else was dead.
-      const sendable = garrison.filter((u) => u.def !== "ogre");
-      const spare = Math.min(RAID_SIZE, sendable.length - CAMP_KEEP);
-      if (this.tick >= camp.nextRaid && spare >= 3) {
-        const target = this.nearestSettlement(camp);
-        if (target) {
-          camp.nextRaid = this.tick + this.paced(RAID_EVERY);
-          const party = sendable.slice(0, spare);
-          for (const u of party) {
-            this.warband.delete(u.id);
-            u.task = { kind: "attackMove", target };
-            u.path = [];
-          }
-          for (const p of this.players.keys()) {
-            if (p !== WILD && p !== MARAUDER) this.emit(p, "Blackrock warriors have left their camp.", "error");
-          }
-        } else {
-          camp.nextRaid = this.tick + this.paced(RAID_EVERY);
-        }
-      }
-
-      // Everybody else drifts about at home and defends it.
-      for (const u of garrison) {
-        if (u.task.kind !== "idle") continue;
-        if (this.rng.next() > 0.25) continue;
-        const a = this.rng.next() * Math.PI * 2;
-        const d = this.rng.next() * CAMP_RANGE;
-        const tx = Math.floor(camp.x / SUB + Math.cos(a) * d);
-        const ty = Math.floor(camp.y / SUB + Math.sin(a) * d);
-        if (!this.map.isWalkable(tx, ty, "land")) continue;
-        this.pathTo(u, tx, ty, true);
-        u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
-      }
-    }
-
-    // Raiders, and the survivors of a camp that no longer exists. Once a
-    // warband is out it stays out -- there is nothing to go home to and a
-    // raid that turned round at the gate would be a very strange thing to
-    // watch.
-    for (const u of loose) {
-      if (u.task.kind !== "idle") continue;
-      const target = this.nearestSettlement(u.pos);
-      if (target) {
-        u.task = { kind: "attackMove", target };
-        u.path = [];
-      }
-    }
-  }
-
-  /** The nearest thing anybody has built, for a warband looking for a war. */
-  private nearestSettlement(from: { x: number; y: number }): Vec | null {
-    let best: Vec | null = null;
-    let bestD = Infinity;
-    for (const b of this.buildings()) {
-      if (b.owner === MARAUDER || b.owner === WILD) continue;
-      const c = centerOf(b);
-      const d = (c.x - from.x) ** 2 + (c.y - from.y) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = c;
-      }
-    }
-    return best;
-  }
-
-  /**
-   * Dragons: arrival, rampage, departure.
-   *
-   * The thing that makes this a weather event rather than a third army is that
-   * it is on a clock at both ends. One arrives on a schedule, burns what it
-   * finds for ninety seconds, and then leaves whether or not anybody fought
-   * it. A dragon that stayed would simply decide the match -- nine hundred hit
-   * points loose in somebody's base for twenty minutes is not a hazard, it is a
-   * winner -- and a dragon that had to be killed to be got rid of would be a
-   * boss fight, which is a different game.
-   *
-   * Only ever one at a time. Two is not twice as dramatic, it is a rout.
-   */
-  private stepDragons(): void {
-    if (!this.dragonsEnabled || this.tick % 10 !== 0) return;
-    if (this.nextDragon < 0) this.nextDragon = this.paced(DRAGON_FIRST);
-
-    if (this.dragons.size === 0 && this.tick >= this.nextDragon) {
-      this.nextDragon = this.tick + this.paced(DRAGON_EVERY);
-      this.summonDragon();
-    }
-
-    // Adopt any dragon this function did not itself summon -- one placed by a
-    // test, a tool or a future map script. Without this such a dragon has no
-    // orders at all and no clock: it hangs where it was put, inert and immortal,
-    // which is the worst of both halves of the design.
-    for (const u of this.units()) {
-      if (u.def === "dragon" && !this.dragons.has(u.id)) {
-        this.dragons.set(u.id, { leaves: this.tick + this.paced(DRAGON_STAY), bored: 0 });
-      }
-    }
-
-    for (const [id, state] of [...this.dragons]) {
-      const d = this.entities.get(id);
-      if (!d || d.kind !== "unit") {
-        this.dragons.delete(id);
-        continue;
-      }
-      // Off the edge of the world, and gone.
-      //
-      // It has to be walked out rather than teleported: everything in this
-      // simulation moves along a path, and a path is a list of TILES. The first
-      // cut aimed the dragon at a point just outside the map, which no path can
-      // reach, so `followPath` reported "arrived" on the spot, `stepUnit` set it
-      // idle, and the dragon hung over the valley forever -- immortal, since
-      // nothing on the ground could reach it either.
-      if (this.tick > state.leaves) {
-        const gate = this.nearestEdge(d.pos);
-        if (this.atEdge(d.pos)) {
-          this.dragons.delete(id);
-          this.entities.delete(id);
-          for (const p of this.players.keys()) {
-            if (p !== WILD) this.emit(p, "The dragon has gone back over the hills.", "info");
-          }
-          continue;
-        }
-        // Only re-issued once it has run out of path, or the ten-tick cadence
-        // of this function would wipe the route it is halfway along.
-        if (d.task.kind !== "move" || d.path.length === 0) {
-          this.pathTo(d, gate.x, gate.y, true);
-          d.task = { kind: "move", target: { x: (gate.x + 0.5) * SUB, y: (gate.y + 0.5) * SUB } };
-        }
-        continue;
-      }
-    }
-  }
-
-  /**
-   * One dragon's turn: keep your distance, and pick something else to burn.
-   *
-   * Runs per unit rather than off the schedule, so a dragon behaves the same
-   * however it got onto the map. `stepDragons` owns only the diary -- when one
-   * arrives and when it has had enough -- and hands back the wheel here.
-   */
-  private stepDragon(u: Unit): void {
-    if ((this.tick + u.id) % 5 !== 0) return;
-    const state = this.dragons.get(u.id);
-    // On its way out: stepDragons is flying it, and a victim picked now would
-    // turn it round in the doorway.
-    if (state && this.tick > state.leaves) return;
-
-    // Anything with a blade that has got close: take some air. A dragon is
-    // quicker than everything on foot, so this is not a fair chase and is not
-    // meant to be -- the answer to a dragon is a bow, not a crowd.
-    const away = this.crowdedAt(u);
-    if (away) {
-      // Already running, and still has somewhere to run to: leave it alone.
-      //
-      // Without this it re-picks a direction every five ticks, and with a ring
-      // of men around it "away from the nearest" swings wildly from one tick to
-      // the next -- so the dragon jitters on the spot, travels nowhere, and is
-      // cut down by the crowd it is theoretically outrunning. It lost four
-      // hundred hit points to eight footmen this way.
-      if (u.task.kind === "move" && u.path.length > 0) return;
-      const dir = Math.atan2(away.y, away.x);
-      for (const turn of [0, 0.6, -0.6, 1.3, -1.3, 2.2, -2.2]) {
-        const tx = Math.floor(u.pos.x / SUB + Math.cos(dir + turn) * 8);
-        const ty = Math.floor(u.pos.y / SUB + Math.sin(dir + turn) * 8);
-        if (!this.map.inBounds(tx, ty)) continue;
-        this.pathTo(u, tx, ty, true);
-        if (u.path.length === 0) continue;
-        u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
-        // It keeps breathing on the way out; a "move" task shoots what it passes.
-        return;
-      }
-    }
-
-    // Something new to burn, every so often and whenever the last thing died.
-    const busy = u.task.kind === "attack" && this.entities.has(u.task.target);
-    if (busy && state && this.tick < state.bored) return;
-    if (busy && !state) return;
-    const victim = this.pickVictim(u);
-    if (!victim) return;
-    if (state) state.bored = this.tick + this.paced(DRAGON_FICKLE);
-    u.task = { kind: "attack", target: victim.id };
-    u.path = [];
-  }
-
-  /**
-   * Move the next dragon in the diary. Used by the tests, and by any tool that
-   * wants to look at one without playing twenty minutes first.
-   */
-  scheduleDragon(atTick: number): void {
-    this.nextDragon = atTick;
-  }
-
-  /** Dragons on the wing right now, for the HUD and the tests. */
-  get dragonCount(): number {
-    return this.dragons.size;
-  }
-
-  /**
-   * Which way is "off me", summed over everything nearby that could hurt it.
-   *
-   * The sum, not the nearest. Away-from-the-nearest is the obvious version and
-   * it walks a cornered animal straight into the man behind it; adding up a
-   * unit vector per threat gives the direction with the fewest blades in it,
-   * which is the one it actually wants.
-   *
-   * Units only. A building cannot follow it, so backing away from one would
-   * just stop it ever burning anything that has walls.
-   */
-  private crowdedAt(u: Unit): { x: number; y: number } | null {
-    const r = DRAGON_BACK_OFF * SUB;
-    let x = 0;
-    let y = 0;
-    let n = 0;
-    for (const e of this.entities.values()) {
-      if (e.kind !== "unit" || !this.hostile(u, e)) continue;
-      if (UNITS[e.def]!.damage <= 0) continue;
-      const d = Math.hypot(e.pos.x - u.pos.x, e.pos.y - u.pos.y);
-      if (d > r) continue;
-      // Standing exactly on it: shove out along a fixed axis rather than
-      // dividing by zero and producing a NaN heading.
-      if (d < 1) {
-        x += 1;
-        n++;
-        continue;
-      }
-      x += (u.pos.x - e.pos.x) / d;
-      y += (u.pos.y - e.pos.y) / d;
-      n++;
-    }
-    if (n === 0) return null;
-    // Perfectly surrounded: the vectors cancel. Any direction beats standing.
-    if (Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6) return { x: 1, y: 0 };
-    return { x, y };
-  }
-
-  /** A dragon comes in over the nearest edge to nowhere in particular. */
-  private summonDragon(): void {
-    const edge = this.rng.int(4);
-    const along = this.rng.next();
-    const w = this.map.width * SUB;
-    const h = this.map.height * SUB;
-    // Just inside the border rather than exactly on it: a dragon sitting on
-    // tile zero counts as already gone by `atEdge`, and would turn round and
-    // leave the moment its welcome ran out without ever crossing the map.
-    const inset = 3 * SUB;
-    /** Keep the crossways coordinate off the very last tile. */
-    const span = (n: number): number => Math.round(inset + along * (n - 2 * inset));
-    const at =
-      edge === 0 ? { x: inset, y: span(h) }
-      : edge === 1 ? { x: w - inset, y: span(h) }
-      : edge === 2 ? { x: span(w), y: inset }
-      : { x: span(w), y: h - inset };
-    const d = this.spawnUnit(WILD, "dragon", at);
-    this.dragons.set(d.id, { leaves: this.tick + this.paced(DRAGON_STAY), bored: 0 });
-    this.fx.push({ kind: "call", x: d.pos.x, y: d.pos.y, def: "dragon" });
-    for (const p of this.players.keys()) {
-      if (p !== WILD) this.emit(p, "A dragon is on the wing. Get them inside.", "error");
-    }
-  }
-
-  /**
-   * What the dragon goes for next: anything at all, chosen at random.
-   *
-   * At random, and that word is doing the work. Nearest would make it a siege
-   * engine walking up your line; weakest would make it a farmer. Random is what
-   * makes it feel like weather -- it burns the barracks, then a peasant halfway
-   * across the map, then somebody else's tower -- and it is the only version in
-   * which "it attacked THEM this time" is a thing that can happen to you.
-   *
-   * Wildlife is not on the menu. A dragon that spent its ninety seconds chasing
-   * a sheep is funny once.
-   */
-  private pickVictim(d: Unit): Entity | null {
-    const options: Entity[] = [];
-    for (const e of this.entities.values()) {
-      if (e.owner === WILD) continue;
-      options.push(e);
-    }
-    if (options.length === 0) return null;
-    // Weighted a little towards what is nearby, so it does not visibly
-    // teleport its attention across the whole valley every twelve seconds.
-    let best: Entity | null = null;
-    let bestScore = -Infinity;
-    for (let i = 0; i < 5; i++) {
-      const e = options[this.rng.int(options.length)]!;
-      const p = this.posOf(e);
-      const score = -Math.hypot(p.x - d.pos.x, p.y - d.pos.y) / SUB + this.rng.next() * 30;
-      if (score > bestScore) {
-        bestScore = score;
-        best = e;
-      }
-    }
-    return best;
-  }
-
-  /** The nearest border TILE, for something on its way out. */
-  private nearestEdge(pos: Vec): { x: number; y: number } {
-    const tx = Math.floor(pos.x / SUB);
-    const ty = Math.floor(pos.y / SUB);
-    const w = this.map.width - 1;
-    const h = this.map.height - 1;
-    const min = Math.min(tx, w - tx, ty, h - ty);
-    if (min === tx) return { x: 0, y: Math.max(0, Math.min(h, ty)) };
-    if (min === w - tx) return { x: w, y: Math.max(0, Math.min(h, ty)) };
-    if (min === ty) return { x: Math.max(0, Math.min(w, tx)), y: 0 };
-    return { x: Math.max(0, Math.min(w, tx)), y: h };
-  }
-
-  /** Whether something is close enough to the border to be considered gone. */
-  private atEdge(pos: Vec): boolean {
-    const tx = Math.floor(pos.x / SUB);
-    const ty = Math.floor(pos.y / SUB);
-    return tx <= 1 || ty <= 1 || tx >= this.map.width - 2 || ty >= this.map.height - 2;
-  }
-
-  /**
    * Animals make noise.
    *
    * The wild is a place you cannot see most of, which is exactly why it should
@@ -1475,7 +1802,10 @@ export class World {
    * an animal with a patch of country it considers its own.
    */
   private stepBeast(u: Unit): void {
+    if (u.horde) { this.stepHorde(u); return; }
+    if (u.def === "dragon") { this.stepDragon(u); return; }
     const def = UNITS[u.def]!;
+    if (u.def === "barbarian" || u.def === "grunt") { this.stepBarbarian(u); return; }
     if (u.task.kind === "attack" || u.task.kind === "attackMove") {
       const t = u.task.kind === "attack" ? this.entities.get(u.task.target) : null;
       if (t) return;
@@ -1534,7 +1864,11 @@ export class World {
       }
     }
 
-    const prey = def.damage > 0 ? this.findTarget(u, BEAST_AGGRO * SUB) : null;
+    const dragon = u.def === "dragon";
+    // A raiding dragon keeps flying at the town it chose; anything on the way
+    // is still fair game, which the attack-move handles.
+    if (dragon && u.task.kind === "attackMove") return;
+    const prey = def.damage > 0 ? this.findTarget(u, (dragon ? 9 : BEAST_AGGRO) * SUB) : null;
     if (prey) {
       u.task = { kind: "attack", target: prey.id };
       return;
@@ -1545,12 +1879,26 @@ export class World {
     const lair = this.lairs.get(u.id);
     if (!lair) return;
     const a = this.rng.next() * Math.PI * 2;
-    const d = this.rng.next() * BEAST_RANGE;
+    const d = this.rng.next() * BEAST_RANGE * (dragon ? 1.6 : 1);
     const tx = Math.floor(lair.x / SUB + Math.cos(a) * d);
     const ty = Math.floor(lair.y / SUB + Math.sin(a) * d);
-    if (!this.map.isWalkable(tx, ty, "land")) return;
+    if (!this.map.isWalkable(tx, ty, def.domain === "air" ? "air" : "land")) return;
     this.pathTo(u, tx, ty, true);
     u.task = { kind: "move", target: { x: (tx + 0.5) * SUB, y: (ty + 0.5) * SUB } };
+  }
+
+  private stepBarbarian(u: Unit): void {
+    if ((this.tick + u.id) % 10 !== 0) return;
+    const home=u.patrolHome ?? u.pos;
+    const far=Math.hypot(u.pos.x-home.x,u.pos.y-home.y)>16*SUB;
+    const prey=far ? null : this.findTarget(u,5*SUB);
+    if(prey) { u.task={kind:"attack",target:prey.id}; return; }
+    if(!far && u.task.kind === "move" && u.path.length) return;
+    const phase=Math.floor(this.tick / 200) + (u.patrolBand ?? 0);
+    const angle=(phase % 8)*Math.PI/4;
+    const tx=Math.floor(home.x/SUB+Math.cos(angle)*7),ty=Math.floor(home.y/SUB+Math.sin(angle)*7);
+    if(!this.map.isWalkable(tx,ty,"land")) { u.task={kind:"idle"}; return; }
+    this.pathTo(u,tx,ty,true); u.task={kind:"move",target:{x:(tx+.5)*SUB,y:(ty+.5)*SUB}};
   }
 
   /** A duration in ticks, stretched by the match's pace. */
@@ -1571,6 +1919,7 @@ export class World {
       maxHp,
       task: { kind: "idle" },
       path: [],
+      moveQueue: [],
       repathIn: 0,
       carrying: null,
       facing: 4,
@@ -1578,7 +1927,6 @@ export class World {
       engaging: null,
       idleFor: 0,
       asleep: false,
-      post: null,
     };
     this.entities.set(u.id, u);
     return u;
@@ -1595,12 +1943,12 @@ export class World {
       tx,
       ty,
       size: d.size,
-      hp: complete ? d.hp : Math.max(1, Math.floor(d.hp * 0.1)),
-      maxHp: d.hp,
+      hp: complete ? d.hp * this.wallFactor(owner, def) : Math.max(1, Math.floor(d.hp * 0.1)),
+      maxHp: d.hp * this.wallFactor(owner, def),
       progress: complete ? d.buildTime : 0,
       complete,
       queue: [],
-      level: 1,
+      level: def === "wall" || def === "gate" ? this.wallLevel(owner) : 1,
       upgrade: null,
       research: null,
       rally: null,
@@ -1608,6 +1956,8 @@ export class World {
     };
     this.entities.set(b.id, b);
     this.map.occupy(tx, ty, d.size, b.id);
+    if (def === "townhall") this.hallsBuilt.add(owner);
+    if (def === "gate") this.map.setGate(tx, ty, d.size, owner);
     return b;
   }
 
@@ -1630,7 +1980,11 @@ export class World {
     for (const e of this.entities.values()) {
       if (e.owner !== player) continue;
       if (e.kind === "unit") used += UNITS[e.def]!.supply;
-      else if (e.complete) max += LEVELLED[e.def] ? levelDef(e.def, e.level).supply : BUILDINGS[e.def]!.supply;
+      else {
+        // Archers up in a tower or on a wall are still your soldiers.
+        for (const m of e.garrison ?? []) used += UNITS[m.def]!.supply;
+        if (e.complete) max += LEVELLED[e.def] ? levelDef(e.def, e.level).supply : BUILDINGS[e.def]!.supply;
+      }
     }
     return { used, max: Math.min(max, 200) };
   }
@@ -1668,6 +2022,33 @@ export class World {
     return false;
   }
 
+  /**
+   * What a building costs this player. The one exception to the price list:
+   * a clan whose Town Hall has been destroyed raises its next one for free.
+   * Losing your hall is a disaster; it should not also be the end.
+   */
+  buildCost(player: PlayerId, def: string): { gold: number; lumber: number; oil?: number; food?: number } {
+    const d = BUILDINGS[def]!;
+    if (def === "townhall" && this.hallsBuilt.has(player) && !this.buildings().some((b) => b.owner === player && b.def === "townhall")) return { gold: 0, lumber: 0 };
+    return d.cost;
+  }
+
+  /** "Not enough — need 120 more gold, 40 more wood". */
+  lacking(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): string {
+    const p = this.players.get(player)!;
+    const parts: string[] = [];
+    if (p.gold < cost.gold) parts.push(`${cost.gold - Math.floor(p.gold)} more gold`);
+    if (p.lumber < cost.lumber) parts.push(`${cost.lumber - Math.floor(p.lumber)} more wood`);
+    if (p.oil < (cost.oil ?? 0)) parts.push(`${(cost.oil ?? 0) - Math.floor(p.oil)} more oil`);
+    if (p.food < (cost.food ?? 0)) parts.push(`${(cost.food ?? 0) - Math.floor(p.food)} more food`);
+    return parts.length ? `Not enough — need ${parts.join(", ")}` : "Not enough resources";
+  }
+
+  /** True while any of the player's buildings is researching this upgrade. */
+  researching(player: PlayerId, upgrade: string): boolean {
+    return this.buildings().some((b) => b.owner === player && b.research?.id === upgrade);
+  }
+
   canAfford(player: PlayerId, cost: { gold: number; lumber: number; oil?: number; food?: number }): boolean {
     const p = this.players.get(player)!;
     return p.gold >= cost.gold && p.lumber >= cost.lumber && p.oil >= (cost.oil ?? 0) && p.food >= (cost.food ?? 0);
@@ -1693,15 +2074,22 @@ export class World {
   placementError(player: PlayerId, def: string, tx: number, ty: number, builderIsRoyal = false): string | null {
     const d = BUILDINGS[def];
     if (!d) return "Unknown building";
+    if (this.allowed && !this.allowed.includes(def)) return `${d.name} is not available in this battle`;
     // A King may raise a watchtower wherever he stands, without a barracks
     // behind him to justify it. He is walking his own country with no army yet,
     // and putting a tower on the ground he means to keep is exactly what a man
     // in that position does. Everything else still wants its prerequisites.
     const royalLicence = builderIsRoyal && ROYAL_LICENCE.has(def);
     if (!royalLicence) for (const r of d.requires) if (!this.hasBuilding(player, r)) return `Requires ${BUILDINGS[r]!.name}`;
-    if (!this.canAfford(player, d.cost)) return "Not enough resources";
+    if (!this.canAfford(player, this.buildCost(player, def))) return this.lacking(player, this.buildCost(player, def));
+    // A gate goes into a wall: on one of your own finished wall sections.
+    if (def === "gate") {
+      const w = this.entities.get(this.map.inBounds(tx, ty) ? this.map.occupant[this.map.idx(tx, ty)]! : 0);
+      if (w?.kind === "building" && w.def === "wall" && w.owner === player && w.complete) return null;
+    }
     if (!this.map.canPlace(tx, ty, d.size)) return "Cannot build there";
     if (d.coastal && !this.map.touchesWater(tx, ty, d.size)) return "Must be built on the shoreline";
+    if (d.oilGround && this.map.oilUnder(tx, ty, d.size) < Math.ceil((d.size * d.size) / 3)) return "Oil rigs must be built on oil ground — look for the dark tar seeps";
     // Room to work the seam.
     //
     // A hall dropped on top of a gold mine walls the seam in: the miners cannot
@@ -1722,6 +2110,11 @@ export class World {
       if (ux >= tx && ux < tx + d.size && uy >= ty && uy < ty + d.size) return "A unit is in the way";
     }
     return null;
+  }
+
+  /** Whether this player has a finished building that takes this resource. */
+  hasDropOff(player: PlayerId, resource: "gold" | "lumber"): boolean {
+    return this.buildings().some((b) => b.owner === player && b.complete && BUILDINGS[b.def]!.dropOff.includes(resource));
   }
 
   private nearestDropOff(u: Unit, resource: "gold" | "lumber"): Building | null {
@@ -1761,12 +2154,13 @@ export class World {
     return { x: pick[0], y: pick[1], resource: isGold ? "gold" : "lumber" };
   }
 
-  private findResourceNear(tx: number, ty: number, tile: Tile, radius = 8): [number, number] | null {
+  private findResourceNear(tx: number, ty: number, tile: Tile, radius = 8, exclude?: [number, number]): [number, number] | null {
     let best: [number, number] | null = null;
     let bestD = Infinity;
     for (let y = ty - radius; y <= ty + radius; y++)
       for (let x = tx - radius; x <= tx + radius; x++) {
         if (!this.map.inBounds(x, y) || this.map.get(x, y) !== tile || this.map.amount[this.map.idx(x, y)]! <= 0) continue;
+        if (exclude && x === exclude[0] && y === exclude[1]) continue;
         // Must have a walkable neighbour to harvest from.
         if (!this.adjacentWalkable(x, y, 1)) continue;
         const d = (x - tx) ** 2 + (y - ty) ** 2;
@@ -1809,26 +2203,118 @@ export class World {
   }
 
   private applyCommand(c: Command): void {
+    if ("units" in c && c.type !== "battleRally") for(const u of this.ownedUnits(c.player,c.units)) u.buildQueue=[];
     switch (c.type) {
+      case "alliance": {
+        if (this.winner !== null || c.player === c.target || c.player === WILD || c.target === WILD ||
+            !this.players.has(c.player) || !this.players.has(c.target)) break;
+        if (c.allied) {
+          const team = this.teams.get(c.player) ?? c.player;
+          this.teams.set(c.player, team);
+          this.teams.set(c.target, team);
+        } else if (this.allied(c.player, c.target)) {
+          this.teams.set(c.target, Math.max(0, ...this.players.keys(), ...this.teams.values()) + 1);
+        }
+        for (const u of this.units()) {
+          if (u.task.kind === "attack") {
+            const target = this.entities.get(u.task.target);
+            if (target && this.allied(u.owner, target.owner)) { u.task = { kind: "idle" }; u.path = []; }
+          }
+          if (u.engaging !== null) {
+            const target = this.entities.get(u.engaging);
+            if (target && this.allied(u.owner, target.owner)) u.engaging = null;
+          }
+        }
+        break;
+      }
+      case "buildWallLine": {
+        const workers=this.ownedUnits(c.player,c.units).filter(u=>UNITS[u.def]!.canBuild);if(!workers.length)break;
+        const royal=workers.some(u=>!!UNITS[u.def]!.royal),ids: number[]=[];
+        for(const tile of c.tiles.slice(0,64)){
+          if(!Number.isInteger(tile.x)||!Number.isInteger(tile.y)||this.placementError(c.player,"wall",tile.x,tile.y,royal))continue;
+          this.spend(c.player,BUILDINGS.wall!.cost);const b=this.placeBuilding(c.player,"wall",tile.x,tile.y)!;ids.push(b.id);
+        }
+        if(ids.length){for(const u of workers){u.buildQueue=[...ids];this.nextQueuedBuild(u);}const first=this.entities.get(ids[0]!)!;const at=this.posOf(first);this.fx.push({kind:"buildStart",x:at.x,y:at.y,def:"wall"});}
+        break;
+      }
       case "move": {
+        const target = { x: c.x, y: c.y };
         for (const u of this.ownedUnits(c.player, c.units)) {
-          u.task = { kind: "move", target: { x: c.x, y: c.y } };
+          // Shift-moving while already marching appends a waypoint. Any ordinary
+          // move is a fresh order and deliberately clears the old route.
+          if (c.queue && u.task.kind === "move") {
+            u.moveQueue.push(target);
+            continue;
+          }
+          u.moveQueue = [];
+          u.task = { kind: "move", target };
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
         }
         break;
       }
+      case "dragonbane": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.def !== "tower" || !b.complete || b.owner !== c.player || b.dragonbane) break;
+        if (!this.canAfford(c.player, DRAGONBANE_COST)) { this.emit(c.player, this.lacking(c.player, DRAGONBANE_COST)); break; }
+        this.spend(c.player, DRAGONBANE_COST);
+        b.dragonbane = true;
+        this.emit(c.player, "Dragonbane mounted — no dragon will come near this tower", "info");
+        break;
+      }
+      case "joinRealm": {
+        this.claimSeat(c.peer);
+        break;
+      }
+      case "restartSeat": {
+        this.restartSeat(c.player);
+        break;
+      }
+      case "garrison": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || !b.complete || b.owner !== c.player) break;
+        if (b.def !== "tower" && !(b.def === "wall" && this.wallLevel(c.player) >= WALL_ARCHER_TIER)) {
+          if (b.def === "wall") this.emit(c.player, `Archers need a wall walk: upgrade your walls to ${WALL_TIERS[WALL_ARCHER_TIER - 1]} first`);
+          break;
+        }
+        for (const u of this.ownedUnits(c.player, c.units)) {
+          if (u.def !== "archer") continue;
+          u.enterTower = b.id;
+          u.moveQueue = [];
+          u.task = { kind: "move", target: centerOf(b) };
+          this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + b.size, true);
+        }
+        break;
+      }
+      case "ungarrison": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.owner !== c.player) break;
+        this.releaseGarrison(b);
+        break;
+      }
+      case "towerAttack": {
+        const b=this.entities.get(c.building),target=this.entities.get(c.target);
+        if (!b || b.kind!=='building' || b.def!=='tower' || !b.complete || b.owner!==c.player || !target || !this.hostile(b,target) || !this.canSeeEntity(c.player,target)) break;
+        if (target.kind==='unit' && UNITS[target.def]!.submerged) { this.emit(c.player,'Watch towers cannot attack submerged units.'); break; }
+        const origin=centerOf(b),at=this.posOf(target);
+        if (Math.hypot(at.x-origin.x,at.y-origin.y)-this.radiusOf(target) > towerRange(b.level)*SUB) { this.emit(c.player,'That enemy is outside the watchtower’s attack range.'); break; }
+        b.attackTarget=target.id;
+        break;
+      }
       case "attack": {
         const target = this.entities.get(c.target);
-        if (!target || target.owner === c.player) break;
+        const force = !!c.force && this.allied(target?.owner ?? WILD, c.player);
+        if (!target || (this.allied(target.owner, c.player) && !force)) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
-          if (UNITS[u.def]!.damage <= 0) continue;
-          u.task = { kind: "attack", target: c.target };
+          if (UNITS[u.def]!.damage <= 0 || u.id === target.id) continue;
+          u.moveQueue = [];
+          u.task = force ? { kind: "attack", target: c.target, force: true } : { kind: "attack", target: c.target };
           u.engaging = null;
         }
         break;
       }
       case "attackMove": {
         for (const u of this.ownedUnits(c.player, c.units)) {
+          u.moveQueue = [];
           u.task = { kind: "attackMove", target: { x: c.x, y: c.y } };
           u.engaging = null;
           this.pathTo(u, Math.floor(c.x / SUB), Math.floor(c.y / SUB), true);
@@ -1839,6 +2325,7 @@ export class World {
         for (const u of this.ownedUnits(c.player, c.units)) {
           u.task = { kind: "idle" };
           u.path = [];
+          u.moveQueue = [];
           u.engaging = null;
         }
         break;
@@ -1851,11 +2338,25 @@ export class World {
         // snap to the nearest harvestable tile of the same kind instead.
         const node: [number, number] | null = this.adjacentWalkable(c.tx, c.ty, 1) ? [c.tx, c.ty] : this.findResourceNear(c.tx, c.ty, t);
         if (!node) break;
+        let homeless = false;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (!UNITS[u.def]!.canGather) continue;
+          // Nowhere to take it: a worker will not cut wood he has nowhere to
+          // put, and says so rather than silently standing there.
+          // He still walks over to it, so he is there when a store goes up.
+          if (!this.nearestDropOff(u, resource)) {
+            homeless = true;
+            u.moveQueue = [];
+            u.engaging = null;
+            u.task = { kind: "move", target: { x: (node[0] + 0.5) * SUB, y: (node[1] + 0.5) * SUB } };
+            this.pathTo(u, node[0], node[1], true);
+            continue;
+          }
+          u.moveQueue = [];
           u.task = { kind: "gather", tx: node[0], ty: node[1], resource, phase: "toNode", timer: 0 };
           this.pathTo(u, node[0], node[1], true);
         }
+        if (homeless) this.emit(c.player, NO_STORE_LINE);
         break;
       }
       case "build": {
@@ -1875,10 +2376,20 @@ export class World {
           break;
         }
         const d = BUILDINGS[c.building]!;
-        this.spend(c.player, d.cost);
+        const paid = this.buildCost(c.player, c.building);
+        this.spend(c.player, paid);
+        if (c.building === "gate") {
+          const w = this.entities.get(this.map.occupant[this.map.idx(c.tx, c.ty)]!);
+          if (w?.kind === "building" && w.def === "wall") {
+            this.releaseGarrison(w);
+            this.removeEntity(w.id);
+          }
+        }
         const b = this.placeBuilding(c.player, c.building, c.tx, c.ty)!;
+        b.paid = paid;
         this.fx.push({ kind: "buildStart", x: (c.tx + b.size / 2) * SUB, y: (c.ty + b.size / 2) * SUB, def: b.def });
         for (const u of workers) {
+          u.moveQueue = [];
           u.task = { kind: "build", building: b.id };
           this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), true);
         }
@@ -1889,8 +2400,31 @@ export class World {
         if (!b || b.kind !== "building" || b.owner !== c.player) break;
         for (const u of this.ownedUnits(c.player, c.units)) {
           if (!UNITS[u.def]!.canBuild) continue;
+          u.moveQueue = [];
           u.task = b.complete ? { kind: "repair", building: b.id } : { kind: "build", building: b.id };
           this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), true);
+        }
+        break;
+      }
+      case "setRally": {
+        const b = this.entities.get(c.building);
+        if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete) break;
+        b.rally = { x: c.x, y: c.y };
+        break;
+      }
+      case "battleRally": {
+        for (const king of this.ownedUnits(c.player, c.units)) {
+          if (king.def !== "king" || (king.rallyReadyAt ?? 0) > this.tick) continue;
+          king.rallyReadyAt = this.tick + this.paced(60 * TICKS_PER_SECOND);
+          for (const ally of this.units()) {
+            if (this.allied(ally.owner,king.owner) && !UNITS[ally.def]!.beast && UNITS[ally.def]!.domain === 'land' && Math.hypot(ally.pos.x-king.pos.x,ally.pos.y-king.pos.y)<=6*SUB) {
+              const alreadyRallied=(ally.ralliedUntil??0)>this.tick;
+              ally.ralliedUntil=this.tick+this.paced(12*TICKS_PER_SECOND);
+              if(!alreadyRallied){const healed=Math.min(ally.maxHp-ally.hp,Math.ceil(ally.maxHp*.25));ally.hp+=healed;if(healed>0)this.fx.push({kind:'heal',id:ally.id,x:ally.pos.x,y:ally.pos.y,amount:healed});}
+            }
+          }
+          this.fx.push({ kind: "battleRally", x: king.pos.x, y: king.pos.y, owner: king.owner });
+          this.emit(king.owner, "For the King! Troops grow stronger: 25% health restored, +50% damage and +3 armour for 12 seconds.", "info");
         }
         break;
       }
@@ -1899,15 +2433,10 @@ export class World {
         const d = UNITS[c.unit];
         if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete || !d) break;
         if (!BUILDINGS[b.def]!.trains.includes(c.unit)) break;
-        if (b.queue.length >= 5) {
-          this.emit(c.player, "Queue is full");
+        if (b.queue.length >= MAX_TRAIN_QUEUE) {
+          this.emit(c.player, `Only ${MAX_TRAIN_QUEUE} can wait in line`);
           break;
         }
-        if (!this.canAfford(c.player, d.cost)) {
-          this.emit(c.player, "Not enough resources");
-          break;
-        }
-        this.spend(c.player, d.cost);
         // Heirs are rationed: three at once, or the mechanic is just an
         // expensive worker and losing a King costs nothing.
         if (d.royal) {
@@ -1922,8 +2451,33 @@ export class World {
             break;
           }
         }
+        // Paid for now if the purse allows; otherwise it waits in line and is
+        // paid for, in order, as the gold and lumber come in.
+        const paid = b.queue.every((j) => j.paid !== false) && this.canAfford(c.player, d.cost);
+        if (paid) this.spend(c.player, d.cost);
+        else if (b.queue.length === 0 || b.queue.every((j) => j.paid === false)) this.emit(c.player, `${this.lacking(c.player, d.cost)} — queued until you have it`);
         const train = this.paced(d.trainTime);
-        b.queue.push({ unit: c.unit, remaining: train, total: train });
+        b.queue.push({ unit: c.unit, remaining: train, total: train, paid });
+        break;
+      }
+      case "upgradeWalls": {
+        const p = this.players.get(c.player);
+        if (!p) break;
+        const why = this.wallUpgradeBlocked(c.player);
+        if (why) { this.emit(c.player, why); break; }
+        const next = this.wallLevel(c.player) + 1;
+        const cost = wallTierCost(next);
+        if (!this.canAfford(c.player, cost)) { this.emit(c.player, this.lacking(c.player, cost)); break; }
+        this.spend(c.player, cost);
+        p.research.walls = next - 1;
+        // Every wall and gate you own doubles, keeping how damaged it is.
+        for (const b of this.buildings()) {
+          if (b.owner !== c.player || (b.def !== "wall" && b.def !== "gate")) continue;
+          b.maxHp *= 2;
+          b.hp = b.complete ? b.hp * 2 : b.hp;
+          b.level = next;
+        }
+        this.emit(c.player, `${WALL_TIERS[next - 1]} — every wall and gate twice as strong`, "info");
         break;
       }
       case "cancelTrain": {
@@ -1932,7 +2486,7 @@ export class World {
         const job = b.queue[c.index];
         if (!job) break;
         b.queue.splice(c.index, 1);
-        this.refund(c.player, UNITS[job.unit]!.cost);
+        if (job.paid !== false) this.refund(c.player, UNITS[job.unit]!.cost);
         break;
       }
       case "upgrade": {
@@ -1941,16 +2495,10 @@ export class World {
         const table = LEVELLED[b.def];
         if (!table) break;
         if (b.research) {
-      if (--b.research.remaining <= 0) {
-        const up = UPGRADES[b.research.id]!;
-        const p = this.players.get(b.owner)!;
-        p.research[up.id] = b.research.toLevel;
-        this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
-        b.research = null;
-      }
-      return; // researching halts training, as upgrading does
-    }
-    if (b.upgrade) {
+          this.emit(c.player, "Already researching");
+          break;
+        }
+        if (b.upgrade) {
           this.emit(c.player, "Already upgrading");
           break;
         }
@@ -1959,8 +2507,10 @@ export class World {
           break;
         }
         const next = levelDef(b.def, b.level + 1);
+        const blocked = this.upgradeBlocked(c.player, b);
+        if (blocked) { this.emit(c.player, blocked); break; }
         if (!this.canAfford(c.player, next.cost)) {
-          this.emit(c.player, "Not enough resources");
+          this.emit(c.player, this.lacking(c.player, next.cost));
           break;
         }
         this.spend(c.player, next.cost);
@@ -1973,7 +2523,14 @@ export class World {
         const up = UPGRADES[c.upgrade];
         if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete || !up) break;
         if (up.host !== b.def) break;
-        if (b.research || b.upgrade) break;
+        if (b.research || b.upgrade) {
+          this.emit(c.player, b.upgrade ? "Wait for the upgrade to finish" : "Already researching");
+          break;
+        }
+        if (this.researching(c.player, up.id)) {
+          this.emit(c.player, `${up.name} is already being researched`);
+          break;
+        }
         const p = this.players.get(c.player)!;
         const have = p.research[up.id] ?? 0;
         if (have >= up.levels.length) {
@@ -1982,7 +2539,7 @@ export class World {
         }
         const lv = up.levels[have]!;
         if (!this.canAfford(c.player, lv.cost)) {
-          this.emit(c.player, "Not enough resources");
+          this.emit(c.player, this.lacking(c.player, lv.cost));
           break;
         }
         this.spend(c.player, lv.cost);
@@ -2008,11 +2565,94 @@ export class World {
       case "cancelBuild": {
         const b = this.entities.get(c.building);
         if (!b || b.kind !== "building" || b.owner !== c.player || b.complete) break;
-        this.refund(c.player, BUILDINGS[b.def]!.cost, CANCEL_REFUND);
+        this.refund(c.player, b.paid ?? BUILDINGS[b.def]!.cost, CANCEL_REFUND);
         this.removeEntity(b.id);
         break;
       }
     }
+  }
+
+  /**
+   * A gold mine is one seam, not nine separate rocks.
+   *
+   * Each tile of a mine used to run dry on its own and turn to boulders, so a
+   * worked mine became a ring of grey rocks round a centre tile nobody could
+   * reach -- with its gold still in it. Now a face that runs dry is refilled
+   * from the rest of the seam, and only when the whole mine is empty does it
+   * collapse, all at once, into open ground.
+   */
+  private drainMine(tx: number, ty: number, owner: PlayerId): void {
+    const map = this.map;
+    const seam: number[] = [];
+    const seen = new Set<number>([map.idx(tx, ty)]);
+    const q: Array<[number, number]> = [[tx, ty]];
+    while (q.length) {
+      const [x, y] = q.pop()!;
+      seam.push(map.idx(x, y));
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (!map.inBounds(nx, ny)) continue;
+        const ni = map.idx(nx, ny);
+        if (seen.has(ni) || map.get(nx, ny) !== Tile.Gold) continue;
+        seen.add(ni);
+        q.push([nx, ny]);
+      }
+    }
+    const here = map.idx(tx, ty);
+    let total = 0;
+    for (const k of seam) total += map.amount[k]!;
+    const key = Math.min(...seam);
+    if (total > 0 && total < LOW_MINE_GOLD && !this.warnedMines.has(key)) {
+      this.warnedMines.add(key);
+      this.emit(owner, LOW_MINE_LINE);
+    }
+    let donor = -1;
+    for (const k of seam) if (k !== here && map.amount[k]! > 0 && (donor < 0 || map.amount[k]! > map.amount[donor]!)) donor = k;
+    if (donor >= 0) {
+      // Move a good share across so this face keeps working a while.
+      const moved = Math.min(map.amount[donor]!, Math.max(200, Math.floor(map.amount[donor]! / 2)));
+      map.amount[donor]! -= moved;
+      map.amount[here] = moved;
+      return;
+    }
+    // The seam is spent: the whole mine caves in to bare ground.
+    for (const k of seam) {
+      map.amount[k] = 0;
+      map.set(k % map.width, Math.floor(k / map.width), Tile.Dirt);
+    }
+    this.emit(owner, "The gold mine has run dry — find another seam");
+  }
+
+  /** An archer on his way up a tower: climb in when he reaches its foot. */
+  private tryEnterTower(u: Unit): boolean {
+    const b = this.entities.get(u.enterTower!);
+    if (!b || b.kind !== "building" || !b.complete || b.owner !== u.owner || u.task.kind !== "move") { u.enterTower = undefined; return false; }
+    if ((b.garrison?.length ?? 0) >= (b.def === "wall" ? wallGarrisonCap(this.wallLevel(b.owner)) : towerGarrisonCap(b.level))) {
+      u.enterTower = undefined;
+      this.emit(u.owner, b.def === "wall" ? "No room on that stretch of wall" : "That tower is full");
+      return false;
+    }
+    if (!this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
+      if (u.path.length === 0) this.pathTo(u, b.tx + Math.floor(b.size / 2), b.ty + b.size);
+      return false;
+    }
+    (b.garrison ??= []).push({ def: u.def, hp: u.hp, maxHp: u.maxHp });
+    this.removeEntity(u.id);
+    return true;
+  }
+
+  /** Everyone down from the tower, standing round its foot. */
+  releaseGarrison(b: Building, hurt = false): void {
+    const g = b.garrison;
+    if (!g?.length) return;
+    b.garrison = [];
+    g.forEach((m, i) => {
+      const a = (i / g.length) * Math.PI * 2;
+      const x = (b.tx + b.size / 2 + Math.cos(a) * (b.size / 2 + 0.8)) * SUB;
+      const y = (b.ty + b.size / 2 + Math.sin(a) * (b.size / 2 + 0.8)) * SUB;
+      const u = this.spawnUnit(b.owner, m.def, { x, y });
+      u.hp = Math.max(1, Math.min(u.maxHp, hurt ? Math.round(m.hp / 2) : m.hp));
+    });
   }
 
   removeEntity(id: EntityId): void {
@@ -2031,20 +2671,23 @@ export class World {
       if (heir) {
         heir.def = "king";
         const d = UNITS.king!;
-        heir.maxHp = Math.round(d.hp * (1 + this.armourBonus(heir.owner)));
         // He inherits wounded, not renewed: the same fraction of health he had.
-        heir.hp = Math.max(1, Math.round(heir.maxHp * (heir.hp / Math.max(1, heir.maxHp))));
+        const frac = heir.hp / Math.max(1, heir.maxHp);
+        heir.maxHp = Math.round(d.hp * (1 + this.armourBonus(heir.owner)));
+        heir.hp = Math.max(1, Math.round(heir.maxHp * frac));
         this.emit(e.owner, "The King has fallen. Long live the King.", "info");
       } else {
         this.emit(e.owner, "The King has fallen, and left no heir. No new Town Hall may be founded.");
       }
     }
+    const lostArmour = e.kind === "building" && e.complete && !!LEVELLED[e.def] && !!levelDef(e.def, e.level).armour;
     if (e.kind === "building") {
       this.map.release(e.tx, e.ty, e.size);
+      if (e.def === "gate") this.map.setGate(e.tx, e.ty, e.size, 0);
       // Refund queued training.
-      for (const j of e.queue) this.refund(e.owner, UNITS[j.unit]!.cost);
-      if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost);
-      if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost);
+      for (const j of e.queue) if (j.paid !== false) this.refund(e.owner, UNITS[j.unit]!.cost);
+      if (e.research) this.refund(e.owner, UPGRADES[e.research.id]!.levels[e.research.toLevel - 1]!.cost, CANCEL_REFUND);
+      if (e.upgrade) this.refund(e.owner, levelDef(e.def, e.upgrade.toLevel).cost, CANCEL_REFUND);
       for (const u of this.units())
         if ((u.task.kind === "build" || u.task.kind === "repair") && u.task.building === id) u.task = { kind: "idle" };
       // The hearth goes out with the roof it belonged to. Leaving it burning
@@ -2055,6 +2698,7 @@ export class World {
       if (hearth >= 0) this.campfires.splice(hearth, 1);
     }
     this.entities.delete(id);
+    if (lostArmour) this.refreshArmour(e.owner);
   }
 
   private pathTo(u: Unit, tx: number, ty: number, fresh = false): void {
@@ -2073,7 +2717,10 @@ export class World {
     }
     const sx = Math.floor(u.pos.x / SUB);
     const sy = Math.floor(u.pos.y / SUB);
+    const was = this.map.passer;
+    this.map.passer = u.owner;
     u.path = findPath(this.map, sx, sy, tx, ty, UNITS[u.def]!.domain);
+    this.map.passer = was;
     u.repathIn = u.path.length === 0 ? 40 : 0;
   }
 
@@ -2084,7 +2731,10 @@ export class World {
     this.fx = [];
     for (const c of commands) this.applyCommand(c);
     for (const b of this.buildings()) b.builders = 0;
-    for (const u of this.units()) this.stepUnit(u);
+    this.map.teams = [];
+    for (const [pid, team] of this.teams) this.map.teams[pid] = team;
+    for (const u of this.units()) { this.map.passer = u.owner; this.stepUnit(u); }
+    this.map.passer = -1;
     for (const b of this.buildings()) this.stepBuilding(b);
     this.separate();
     this.updateVision();
@@ -2092,8 +2742,12 @@ export class World {
     this.checkDiscovery();
     this.checkRelics();
     this.stepLatecomers();
+    this.stepPatrols();
     this.stepDragons();
-    this.stepOrcs();
+    this.stepHordeArrivals();
+    this.stepFood();
+    this.stepWanderers();
+    this.stepShelters();
     this.decayPaths();
     this.stepMud();
     this.checkVictory();
@@ -2112,25 +2766,26 @@ export class World {
    * only the moment an enemy slips out of sight is blurred by a fifth of a
    * second, which no one can perceive.
    */
-  private updateVision(): void {
+  updateVision(force = false): void {
     if (!this.fogEnabled) return;
-    if (this.tick % VISION_INTERVAL !== 0) return;
+    if (!force && this.tick % VISION_INTERVAL !== 0) return;
     for (const [id, v] of this.vision) {
-      const watchers: Array<{ x: number; y: number; r: number }> = [];
+      const watchers: Array<{ x: number; y: number; r: number; elevated?: boolean }> = [];
       for (const e of this.entities.values()) {
-        if (e.owner !== id) continue;
+        if (!this.allied(e.owner, id)) continue;
         if (e.kind === "unit") {
-          watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6 });
+          watchers.push({ x: e.pos.x, y: e.pos.y, r: UNITS[e.def]!.sight ?? 6, elevated: UNITS[e.def]!.domain === "air" });
         } else {
-          // A building watches from its middle, and a levelled Watch Tower
-          // finally gets to use the radius it has always carried.
+          // Towers and Torches use their tier radius; ordinary buildings
+          // keep a modest footprint-based sight range.
           const c = centerOf(e);
           const lv = LEVELLED[e.def] ? levelDef(e.def, e.level) : null;
-          const r = e.def === "tower" && lv?.radius ? lv.radius : Math.max(5, e.size + 3);
-          watchers.push({ x: c.x, y: c.y, r });
+          const tierSight = (e.def === "tower" && e.complete || e.def === "torch") ? lv?.radius : undefined;
+          const r = tierSight ?? Math.max(5, e.size + 3);
+          watchers.push({ x: c.x, y: c.y, r, elevated: e.def === "tower" && e.complete });
         }
       }
-      v.update(watchers);
+      v.update(watchers, (x,y) => this.map.get(x,y) === Tile.Tree);
     }
   }
 
@@ -2142,7 +2797,7 @@ export class World {
 
   /** Whether a player can currently see an entity. */
   canSeeEntity(player: PlayerId, e: Entity): boolean {
-    if (!this.fogEnabled || e.owner === player) return true;
+    if (!this.fogEnabled || this.allied(e.owner, player)) return true;
     const p = this.posOf(e);
     return this.canSee(player, p.x, p.y);
   }
@@ -2207,15 +2862,69 @@ export class World {
     return e.kind === "unit" ? SUB * 0.35 : (e.size * SUB) / 2;
   }
 
-  /** A unit's damage, range and armour after its owner's researched upgrades. */
+  /** Strongest completed Mage Tower focus owned by a player. */
+  private spellPower(player: PlayerId): number {
+    let best = 0;
+    for (const b of this.buildings()) {
+      if (b.owner !== player || b.def !== "magetower" || !b.complete) continue;
+      best = Math.max(best, levelDef("magetower", b.level).spellPower ?? 0);
+    }
+    return best;
+  }
+
+  /** A unit's damage, range and armour after research and faction infrastructure. */
   stats(u: Unit): { damage: number; range: number; armour: number } {
     const d = UNITS[u.def]!;
     const b = researchBonus(u.def, this.players.get(u.owner)?.research ?? {});
-    return { damage: d.damage + b.damage, range: d.range + b.range, armour: d.armour + b.armour };
+    let damage = d.damage + b.damage;
+    let range = d.range + b.range;
+    if (u.def === "mage") {
+      const power = this.spellPower(u.owner);
+      damage *= 1 + power;
+      range += power * 0.45;
+    }
+    const rallied=(u.ralliedUntil??0)>this.tick;
+    if (rallied) damage *= 1.5;
+    return { damage, range, armour: d.armour + b.armour + (rallied?3:0) };
+  }
+
+  /** Priest healing after Church research. */
+  private healingStats(u: Unit): { heal: number; range: number } {
+    const d = UNITS[u.def]!;
+    const b = researchBonus(u.def, this.players.get(u.owner)?.research ?? {});
+    return { heal: (d.heal ?? 0) + b.heal, range: (d.healRange ?? 0) + b.healRange };
+  }
+
+  /** Heal the most wounded ally in reach. Returns true if a heal was cast. */
+  private tryHeal(u: Unit): boolean {
+    const st = this.healingStats(u);
+    if (st.heal <= 0 || st.range <= 0 || u.cooldown > 0) return false;
+    let best: Unit | null = null;
+    let bestFrac = 2;
+    let bestD = Infinity;
+    const r = st.range * SUB;
+    for (const ally of this.units()) {
+      if (ally.owner !== u.owner || ally.id === u.id || ally.hp >= ally.maxHp) continue;
+      const d = Math.hypot(ally.pos.x - u.pos.x, ally.pos.y - u.pos.y);
+      if (d > r) continue;
+      const frac = ally.hp / Math.max(1, ally.maxHp);
+      if (frac < bestFrac || (frac === bestFrac && d < bestD) || (frac === bestFrac && d === bestD && best && ally.id < best.id)) {
+        best = ally;
+        bestFrac = frac;
+        bestD = d;
+      }
+    }
+    if (!best) return false;
+    const amount = Math.min(st.heal, best.maxHp - best.hp);
+    best.hp += amount;
+    u.cooldown = UNITS[u.def]!.cooldown;
+    this.fx.push({ kind: "heal", id: best.id, x: best.pos.x, y: best.pos.y, amount });
+    return true;
   }
 
   private hostile(a: Entity, b: Entity): boolean {
-    return a.owner !== b.owner;
+    if ((a.kind === "unit" && a.recruitBand !== undefined) || (b.kind === "unit" && b.recruitBand !== undefined)) return false;
+    return !this.allied(a.owner, b.owner);
   }
 
   /** Nearest enemy within `range` sub-units of a unit, or null. */
@@ -2250,10 +2959,13 @@ export class World {
   }
 
   private findTarget(u: Unit, range: number): Entity | null {
+    // A dragon does not duel; its fire is aimed by its raid (see stepDragon).
+    if (u.def === "dragon") return null;
     let best: Entity | null = null;
     let bestD = Infinity;
     for (const e of this.entities.values()) {
       if (!this.hostile(u, e)) continue;
+      if (e.kind === "unit" && e.def === "dragon") continue; // nobody picks a fight they cannot win
       if (!this.canStrike(u, e)) continue;
       // Aircraft are only reachable by units that can shoot upward; for now
       // everything can, which keeps the first pass simple and readable.
@@ -2280,8 +2992,10 @@ export class World {
    * lockstep play. A random source outside the sim would desync the game the
    * first time two players fought.
    */
-  private damage(target: Entity, amount: number, attacker: Unit): void {
-    const spread = UNITS[attacker.def]!.spread ?? 0.3;
+  private dealDamage(target: Entity, amount: number, attackerOwner: PlayerId, spread = 0.3, force = false): void {
+    if (!force && this.allied(target.owner, attackerOwner)) return;
+    // Nothing mortal hurts a dragon.
+    if (target.kind === "unit" && target.def === "dragon") return;
     const swing = 1 + spread * (this.rng.next() * 2 - 1);
     const crit = this.rng.next() < CRIT_CHANCE;
     const rolled = amount * swing * (crit ? CRIT_MULTIPLIER : 1);
@@ -2289,7 +3003,7 @@ export class World {
     const dealt = Math.max(1, Math.round(rolled - armour));
     target.hp -= dealt;
     const at = this.posOf(target);
-    this.fx.push({ kind: "hit", id: target.id, x: at.x, y: at.y, building: target.kind === "building", amount: dealt, crit });
+    this.fx.push({ kind: "hit", owner: target.owner, attackerOwner, id: target.id, x: at.x, y: at.y, building: target.kind === "building", amount: dealt, crit });
     if (target.hp > 0) return;
     this.fx.push({
       kind: "death",
@@ -2300,27 +3014,41 @@ export class World {
       facing: target.kind === "unit" ? target.facing : 6,
       building: target.kind === "building",
     });
-    // Meat. A hunted animal pays in food rather than in coin, which is what
-    // makes hunting an economy and not just a way to make the map safer.
     const meat = target.kind === "unit" ? UNITS[target.def]!.food : undefined;
     if (meat) {
-      const p = this.players.get(attacker.owner);
+      const p = this.players.get(attackerOwner);
       if (p) p.food += meat;
-      this.emit(attacker.owner, `${UNITS[target.def]!.name} taken — ${meat} food`, "info");
+      this.emit(attackerOwner, `${UNITS[target.def]!.name} taken — ${meat} food`, "info");
     }
     const bounty = target.kind === "unit" ? UNITS[target.def]!.bounty : undefined;
     if (bounty) {
-      const p = this.players.get(attacker.owner);
+      const p = this.players.get(attackerOwner);
       if (p) p.gold += bounty;
-      // A bear pays for its hide; an orc pays because it was carrying something.
-      const why = UNITS[target.def]!.beast ? "gold for the hide" : "gold in plunder";
-      this.emit(attacker.owner, `${UNITS[target.def]!.name} killed — ${bounty} ${why}`, "info");
+      this.emit(attackerOwner, `${UNITS[target.def]!.name} killed — ${bounty} gold for the hide`, "info");
     }
     if (target.kind === "building") {
       this.emit(target.owner, `${BUILDINGS[target.def]!.name} destroyed`);
-      this.emit(attacker.owner, `${BUILDINGS[target.def]!.name} destroyed`, "info");
+      this.emit(attackerOwner, `${BUILDINGS[target.def]!.name} destroyed`, "info");
+      // Archers on a falling tower jump for it, and land hurt.
+      this.releaseGarrison(target, true);
     }
     this.removeEntity(target.id);
+  }
+
+  private damage(target: Entity, amount: number, attacker: Unit): void {
+    // Ordered to knock down your own: allowed, and nobody rushes to defend it.
+    const force = attacker.task.kind === "attack" && !!attacker.task.force && attacker.task.target === target.id;
+    this.dealDamage(target, amount, attacker.owner, UNITS[attacker.def]!.spread ?? 0.3, force);
+    if (force) return;
+    // Idle soldiers answer nearby allies; workers keep their jobs and direct orders win.
+    for (const ally of this.units()) {
+      const def = UNITS[ally.def]!;
+      if (!this.allied(ally.owner, target.owner) || ally.task.kind !== 'idle' || def.canGather || def.beast || def.damage <= 0 || !this.canStrike(ally, attacker)) continue;
+      const at = this.posOf(target);
+      if (Math.hypot(ally.pos.x-at.x,ally.pos.y-at.y) > 8*SUB) continue;
+      ally.guardOrigin ??= {...ally.pos};
+      if (Math.hypot(attacker.pos.x-ally.guardOrigin.x,attacker.pos.y-ally.guardOrigin.y) <= 8*SUB) ally.engaging=attacker.id;
+    }
   }
 
   /**
@@ -2359,7 +3087,22 @@ export class World {
     if (u.cooldown > 0) return true;
     u.cooldown = def.cooldown;
     this.fx.push({ kind: "attack", x: u.pos.x, y: u.pos.y, tx: p.x, ty: p.y, def: u.def, ranged: st.range > 1.5 });
+
+    // Mage bolts are the Human faction's crowd-control damage: the main target
+    // takes the full spell and nearby hostiles take a smaller arcane splash.
+    // Mage Tower spellPower grows both the main hit and the splash radius.
+    const splash =
+      u.def === "mage"
+        ? [...this.entities.values()].filter((e) => {
+            if (e.id === target.id || !this.hostile(u, e) || !this.canStrike(u, e)) return false;
+            const q = this.posOf(e);
+            const radius = (1.15 + this.spellPower(u.owner) * 0.28) * SUB;
+            return Math.hypot(q.x - p.x, q.y - p.y) <= radius;
+          })
+        : [];
     this.damage(target, st.damage, u);
+    for (const e of splash) if (this.entities.has(e.id)) this.damage(e, st.damage * 0.38, u);
+
     if (st.range > 1.5) {
       this.projectiles.push({
         from: { x: u.pos.x, y: u.pos.y },
@@ -2376,20 +3119,56 @@ export class World {
     return true;
   }
 
+  /** Idle soldiers intercept visible threats, then return to their guard position. */
+  private defendPosition(u: Unit): void {
+    const origin = u.guardOrigin ?? u.pos;
+    const valid = (e: Entity): boolean => e.kind === 'unit' && this.hostile(u,e) && this.canStrike(u,e) && this.canSeeEntity(u.owner,e) && Math.hypot(e.pos.x-origin.x,e.pos.y-origin.y) <= 8*SUB;
+    let foe = u.engaging === null ? undefined : this.entities.get(u.engaging);
+    if (!foe || !valid(foe)) {
+      foe = undefined;
+      // Armed enemies first; healers and unarmed hulls only when nothing is shooting back.
+      let nearest = Math.max(7,this.stats(u).range)*SUB, armed = false;
+      for (const enemy of this.units()) {
+        if (!valid(enemy)) continue;
+        const threat = UNITS[enemy.def]!.damage > 0;
+        if (armed && !threat) continue;
+        const distance = Math.hypot(enemy.pos.x-u.pos.x,enemy.pos.y-u.pos.y);
+        if (distance < nearest || (threat && !armed)) { nearest=distance; foe=enemy; armed=threat; }
+      }
+    }
+    if (foe) {
+      u.guardOrigin ??= {...u.pos};
+      u.engaging=foe.id;
+      if (!this.tryAttack(u,foe)) {
+        const at=this.posOf(foe);
+        if (!u.path.length || this.tick%20===0) this.pathTo(u,Math.floor(at.x/SUB),Math.floor(at.y/SUB));
+        this.followPath(u);
+      }
+      return;
+    }
+    if (u.engaging !== null) u.path=[];
+    u.engaging=null;
+    if (u.guardOrigin) {
+      if (Math.hypot(u.pos.x-origin.x,u.pos.y-origin.y) < SUB*.5) { u.guardOrigin=undefined;u.path=[]; }
+      else { if(!u.path.length || this.tick%20===0)this.pathTo(u,Math.floor(origin.x/SUB),Math.floor(origin.y/SUB),true);this.followPath(u); }
+    }
+  }
+
   /** Idle and passing units shoot back at anything that comes close. */
   private autoAcquire(u: Unit): Entity | null {
     const def = UNITS[u.def]!;
     if (def.damage <= 0) return null;
+    const range = this.stats(u).range;
     if (u.engaging !== null) {
       const e = this.entities.get(u.engaging);
       if (e && this.hostile(u, e)) {
         const p = this.posOf(e);
-        if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) < (def.range + 3) * SUB) return e;
+        if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) < (range + 3) * SUB) return e;
       }
       u.engaging = null;
     }
     // Workers only defend themselves at arm's length; soldiers watch a wider field.
-    const watch = (def.canGather ? def.range + 0.5 : def.range + 2.5) * SUB;
+    const watch = (def.canGather ? range + 0.5 : range + 2.5) * SUB;
     const t = this.findTarget(u, watch);
     u.engaging = t ? t.id : null;
     return t;
@@ -2408,7 +3187,12 @@ export class World {
    */
   private separate(): void {
     const units = this.units();
-    const R = SUB * 0.55;
+    // A soft personal-space ring starts before sprites overlap. Inside the hard
+    // radius the old separation force still does the real work; outside it a
+    // much smaller predictive nudge encourages two streams to flow around one
+    // another instead of waiting until they are already occupying the same spot.
+    const HARD = SUB * 0.55;
+    const SOFT = SUB * 0.82;
     const px = new Float64Array(units.length);
     const py = new Float64Array(units.length);
     for (let i = 0; i < units.length; i++) {
@@ -2417,17 +3201,24 @@ export class World {
       for (let j = i + 1; j < units.length; j++) {
         const b = units[j]!;
         if (UNITS[b.def]!.domain !== da) continue; // a boat never jostles a footman
+        // Workers on a resource run slip through their own side. Two men meeting
+        // head-on in a narrow tree line used to shove each other to a standstill,
+        // and a busy mine turned into a scrum where nobody reached the ore. A
+        // gathering worker now walks through friends the way Warcraft peons do.
+        if (a.owner === b.owner && (a.task.kind === "gather" || b.task.kind === "gather")) continue;
         let dx = b.pos.x - a.pos.x;
         let dy = b.pos.y - a.pos.y;
         let d = Math.hypot(dx, dy);
-        if (d >= R) continue;
+        if (d >= SOFT) continue;
         if (d < 0.001) {
           // Exactly coincident: push apart along a fixed axis so it stays deterministic.
           dx = (a.id % 2 === 0 ? 1 : -1) * 0.5;
           dy = 0.5;
           d = Math.hypot(dx, dy);
         }
-        const push = (R - d) / 2;
+        const overlap = Math.max(0, HARD - d);
+        const warning = Math.max(0, SOFT - Math.max(HARD, d));
+        const push = overlap / 2 + warning * 0.09;
         px[i]! -= (dx / d) * push;
         py[i]! -= (dy / d) * push;
         px[j]! += (dx / d) * push;
@@ -2447,7 +3238,10 @@ export class World {
       }
       const nx = Math.round(u.pos.x + dx);
       const ny = Math.round(u.pos.y + dy);
-      if (this.map.isWalkable(Math.floor(nx / SUB), Math.floor(ny / SUB), UNITS[u.def]!.domain)) {
+      this.map.passer = u.owner;
+      const ok = this.map.isWalkable(Math.floor(nx / SUB), Math.floor(ny / SUB), UNITS[u.def]!.domain);
+      this.map.passer = -1;
+      if (ok) {
         u.pos.x = nx;
         u.pos.y = ny;
       }
@@ -2524,6 +3318,7 @@ export class World {
 
   /** A player with nothing left that could build has lost. */
   private checkVictory(): void {
+    if (this.realm || this.war) return;
     if (this.winner !== null || this.tick % 20 !== 0) return;
     // Alive means "can still do something": a standing building, or a worker who
     // could raise one. Counting buildings alone declared a winner on the first
@@ -2531,14 +3326,16 @@ export class World {
     const alive: PlayerId[] = [];
     for (const p of this.players.keys()) {
       // The wild does not win wars. Counting it kept every match alive forever,
-      // because there was always one more bear in the woods. The Blackrock are
-      // the same: they hold camps and they raid, but they are not in the
-      // competition and a match is not still running because one hut stands.
-      if (p === WILD || p === MARAUDER) continue;
+      // because there was always one more bear in the woods.
+      if (p === WILD) continue;
+      // Workers only count while there is a King or heir to found a hall for
+      // them; kingless workers with no buildings can never do anything again.
+      let royal = false;
+      for (const e of this.entities.values()) if (e.owner === p && e.kind === "unit" && UNITS[e.def]!.royal) { royal = true; break; }
       let has = false;
       for (const e of this.entities.values()) {
         if (e.owner !== p) continue;
-        if (e.kind === "building" || (e.kind === "unit" && UNITS[e.def]!.canBuild)) {
+        if (e.kind === "building" || (e.kind === "unit" && UNITS[e.def]!.canBuild && royal)) {
           has = true;
           break;
         }
@@ -2547,16 +3344,23 @@ export class World {
       if (!has && this.sendHeir(p)) has = true;
       if (has) alive.push(p);
     }
-    if (alive.length === 1) this.winner = alive[0]!;
+    if (alive.length && alive.every(p => this.allied(p, alive[0]!))) this.winner = alive[0]!;
   }
 
   private stepUnit(u: Unit): void {
-    // The post is the ground a standing unit holds. Any other business -- an
-    // order, a job, a chase somebody told it to make -- gives it up, so that
-    // when it next comes to rest it holds wherever it ended up rather than
-    // being leashed to somewhere it left minutes ago.
-    if (u.task.kind !== "idle" && !(u.task.kind === "attack" && u.task.guard)) u.post = null;
     if (u.cooldown > 0) u.cooldown--;
+    if (u.enterTower !== undefined && this.tryEnterTower(u)) return;
+    if (u.fear && this.tick >= u.fear.until) {
+      // The danger has passed: back to work.
+      const resume = u.fear.resume;
+      u.fear = undefined;
+      if (resume) {
+        u.task = resume;
+        if (resume.kind === "gather") { resume.phase = u.carrying ? "toDrop" : "toNode"; u.path = []; }
+        else if (resume.kind === "build" || resume.kind === "repair") u.path = [];
+      } else if (u.task.kind === "move") u.task = { kind: "idle" };
+    }
+    const supportCast = this.tryHeal(u);
     if (UNITS[u.def]!.breaksIce) this.grindIce(u);
     if (UNITS[u.def]!.beast) {
       // A dragon is a beast by the data -- it belongs to nobody and fights
@@ -2569,43 +3373,15 @@ export class World {
     }
     this.stepRest(u);
     const t = u.task;
+    if (t.kind !== "idle") u.guardOrigin = undefined;
+    if(t.kind !== "build" && t.kind !== "repair") u.constructionWork = undefined;
     switch (t.kind) {
       case "idle": {
-        /**
-         * Standing units hold their ground and fight what comes near it.
-         *
-         * This used to acquire a target and then, if it was not already within
-         * arm's reach, do nothing whatsoever -- it set `engaging` and stood
-         * there. Since `autoAcquire` watches two and a half tiles further than
-         * any hand weapon can reach, that meant the entire watch radius was
-         * dead for infantry: a footman only ever swung at something already
-         * standing on top of him. Eight of them would sit in a neat line a
-         * tile and a half from an enemy King, all of them with him acquired,
-         * none of them moving. It reads exactly like an opponent that is not
-         * playing, and it applied to the player's own army just as much.
-         *
-         * They close the gap now, leashed to the ground they were holding.
-         */
+        // Priests hold the line while casting; combat units defend themselves.
+        if (supportCast) return;
+        if (!UNITS[u.def]!.canGather && !UNITS[u.def]!.beast && UNITS[u.def]!.damage > 0) { this.defendPosition(u); return; }
         const foe = this.autoAcquire(u);
-        if (!foe) {
-          // Nothing about. Wherever it has come to rest is the ground it holds,
-          // and the leash below is measured from here. Written in place rather
-          // than replaced: this runs every tick for every unit with nothing to
-          // do, which on a full board is a few thousand throwaway objects a
-          // second for a pair of numbers that mostly do not change.
-          if (u.post) {
-            u.post.x = u.pos.x;
-            u.post.y = u.pos.y;
-          } else {
-            u.post = { x: u.pos.x, y: u.pos.y };
-          }
-          return;
-        }
-        if (this.tryAttack(u, foe)) return;
-        if (UNITS[u.def]!.damage <= 0) return;
-        if (!u.post) u.post = { x: u.pos.x, y: u.pos.y };
-        if (Math.hypot(u.pos.x - u.post.x, u.pos.y - u.post.y) > GUARD_LEASH * SUB) return;
-        u.task = { kind: "attack", target: foe.id, guard: true };
+        if (foe) this.tryAttack(u, foe);
         return;
       }
       case "move": {
@@ -2614,26 +3390,26 @@ export class World {
         if (foe && u.cooldown === 0) {
           const p = this.posOf(foe);
           const def = UNITS[u.def]!;
-          if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) - this.radiusOf(foe) <= def.range * SUB) {
+          if (Math.hypot(p.x - u.pos.x, p.y - u.pos.y) - this.radiusOf(foe) <= this.stats(u).range * SUB) {
             const keep = [...u.path];
             this.tryAttack(u, foe);
             u.path = keep; // tryAttack halts a chaser; a moving unit keeps going
           }
         }
-        if (this.followPath(u)) u.task = { kind: "idle" };
+        if (this.followPath(u)) {
+          const next = u.moveQueue.shift();
+          if (next) {
+            u.task = { kind: "move", target: next };
+            this.pathTo(u, Math.floor(next.x / SUB), Math.floor(next.y / SUB), true);
+          } else {
+            u.task = { kind: "idle" };
+          }
+        }
         return;
       }
       case "attack": {
-        // A chase it started itself only runs so far from where it began. An
-        // ordered one runs as far as the player likes.
-        if (t.guard && u.post && Math.hypot(u.pos.x - u.post.x, u.pos.y - u.post.y) > GUARD_LEASH * SUB) {
-          u.task = { kind: "idle" };
-          u.path = [];
-          u.engaging = null;
-          return;
-        }
         const target = this.entities.get(t.target);
-        if (!target || !this.hostile(u, target)) {
+        if (!target || (!t.force && !this.hostile(u, target))) {
           // Target gone: hold position and look for another rather than idling.
           u.task = { kind: "idle" };
           u.path = [];
@@ -2665,11 +3441,30 @@ export class World {
       case "repair": {
         const b = this.entities.get(t.building);
         if (!b || b.kind !== "building") {
-          u.task = { kind: "idle" };
+          if(!this.nextQueuedBuild(u)) u.task = { kind: "idle" };
+          return;
+        }
+        if(b.complete && (t.kind === "build" || b.hp >= b.maxHp)) {
+          u.constructionWork=undefined;u.path=[];
+          // Job done: back to the wood or the mine, not stood about.
+          if(!this.nextQueuedBuild(u)) { u.task={kind:"idle"}; this.autoGatherAfterBuild(u, b); }
+          return;
+        }
+        if(u.constructionWork?.building !== b.id) u.constructionWork={building:b.id,ticks:60+u.id%16,travel:0};
+        const work=u.constructionWork;
+        if(work.target) {
+          // Use normal locomotion/collision handling, never teleport between poses.
+          const arrived=this.followPath(u);
+          if(arrived || --work.travel <= 0) {work.target=undefined;work.ticks=60+u.id%16;u.path=[];}
           return;
         }
         if (this.isAdjacentTo(u, b.tx, b.ty, b.size)) {
           u.path = [];
+          if(--work.ticks <= 0) {
+            work.ticks=60+u.id%16;
+            if(this.nextConstructionSpot(u,b)) return;
+          }
+          u.facing=Math.round((Math.atan2((b.ty+b.size/2)*SUB-u.pos.y,(b.tx+b.size/2)*SUB-u.pos.x)+Math.PI)/(Math.PI*2)*8)%8;
           const d = BUILDINGS[b.def]!;
           // A stroke a second, which is what makes a man at a building site look
           // like he is working on it. Gathering has had this since the start;
@@ -2679,23 +3474,25 @@ export class World {
           if (!b.complete) {
             b.builders++;
             // Diminishing returns for extra builders: 1st = 100%, each extra = +50%.
-            const rate = (b.builders === 1 ? 1 : 0.5) / this.pace;
+            const royalCraft = u.def === "king" && ROYAL_LICENCE.has(b.def) ? 1.5 : 1;
+            const rate = royalCraft * (b.builders === 1 ? 1 : 0.5) / this.pace;
             b.progress = Math.min(d.buildTime, b.progress + rate);
-            b.hp = Math.min(d.hp, b.hp + Math.ceil((d.hp * 0.9) / d.buildTime));
+            b.hp = Math.min(b.maxHp, b.hp + Math.ceil((b.maxHp * 0.9) / d.buildTime));
             if (b.progress >= d.buildTime) {
               b.complete = true;
               this.fx.push({ kind: "built", x: (b.tx + b.size / 2) * SUB, y: (b.ty + b.size / 2) * SUB, def: b.def });
-              b.hp = d.hp;
+              b.hp = b.maxHp;
               this.refreshArmour(b.owner);
               this.emit(b.owner, `${d.name} complete`, "info");
               u.task = { kind: "idle" };
               // Workers auto-return to gathering if the finished building is a drop-off.
-              this.autoGatherAfterBuild(u, b);
+              if(!this.nextQueuedBuild(u)) this.autoGatherAfterBuild(u, b);
             }
           } else if (t.kind === "repair" && b.hp < b.maxHp) {
-            b.hp = Math.min(b.maxHp, b.hp + 1);
+            b.hp = Math.min(b.maxHp, b.hp + (u.def === "king" && ROYAL_LICENCE.has(b.def) ? 2 : 1));
           } else {
-            u.task = { kind: "idle" };
+            // Finished (by someone else, or repaired): back to work, not idle.
+            if(!this.nextQueuedBuild(u)) { u.task = { kind: "idle" }; this.autoGatherAfterBuild(u, b); }
           }
           return;
         }
@@ -2708,9 +3505,10 @@ export class World {
       }
       case "gather": {
         const def = UNITS[u.def]!;
+        u.lastGather = { tx: t.tx, ty: t.ty, resource: t.resource };
         // A worker under attack fights back, but does not abandon its trip.
         if (def.damage > 0 && u.cooldown === 0) {
-          const foe = this.findTarget(u, def.range * SUB);
+          const foe = this.findTarget(u, this.stats(u).range * SUB);
           if (foe) {
             const keep = [...u.path];
             this.tryAttack(u, foe);
@@ -2722,55 +3520,81 @@ export class World {
             const amt = this.map.inBounds(t.tx, t.ty) ? this.map.amount[this.map.idx(t.tx, t.ty)]! : 0;
             const tile = t.resource === "gold" ? Tile.Gold : Tile.Tree;
             if (amt <= 0 || this.map.get(t.tx, t.ty) !== tile) {
-              const alt = this.findResourceNear(t.tx, t.ty, tile);
+              const alt = this.findResourceNear(t.tx, t.ty, tile) ?? this.findResourceNear(t.tx, t.ty, tile, 20);
               if (!alt) {
+                if (u.carrying?.amount && this.nearestDropOff(u, t.resource)) { t.phase = "toDrop"; u.path = []; return; }
                 u.task = { kind: "idle" };
                 return;
               }
               [t.tx, t.ty] = alt;
-              this.pathTo(u, t.tx, t.ty);
+              this.pathTo(u, t.tx, t.ty, true);
               return;
             }
             if (this.isAdjacentTo(u, t.tx, t.ty, 1)) {
               u.path = [];
               t.phase = "harvest";
-              t.timer = this.paced(HARVEST_TICKS);
+              t.timer = this.paced(t.resource === "lumber" ? CHOP_TICKS : HARVEST_TICKS);
               return;
             }
             if (this.followPath(u)) {
-              // Path exhausted but not adjacent: the node is unreachable from here.
-              // Try another node of the same kind, or give up.
-              const alt = this.findResourceNear(t.tx, t.ty, tile);
-              if (!alt || (alt[0] === t.tx && alt[1] === t.ty)) {
-                if (u.repathIn-- > 0) return;
-                u.task = { kind: "idle" };
-                return;
+              // Path exhausted but not adjacent. Usually that is the crowd, not
+              // the ground: another worker shouldered this one off the last tile,
+              // or a throttled re-path left it holding nothing. It used to count
+              // down and quit to idle, which is why men "stopped harvesting
+              // randomly" -- mostly while jostling at a busy mine or tree line.
+              // Now: ask for the same node again, then any other node nearby,
+              // then further out; with a load in hand take it home; only a
+              // worker with genuinely nothing left to cut stands down.
+              this.pathTo(u, t.tx, t.ty, true);
+              if (u.path.length > 0) return;
+              const alt = this.findResourceNear(t.tx, t.ty, tile, 8, [t.tx, t.ty]) ?? this.findResourceNear(t.tx, t.ty, tile, 20, [t.tx, t.ty]);
+              if (alt) {
+                [t.tx, t.ty] = alt;
+                this.pathTo(u, t.tx, t.ty, true);
+                if (u.path.length > 0) return;
               }
-              [t.tx, t.ty] = alt;
-              this.pathTo(u, t.tx, t.ty);
-              u.repathIn = 20;
+              if (u.carrying?.amount) {
+                t.phase = "toDrop";
+                const drop = this.nearestDropOff(u, t.resource);
+                if (drop) { this.pathTo(u, drop.tx + Math.floor(drop.size / 2), drop.ty + Math.floor(drop.size / 2), true); return; }
+              }
+              u.task = { kind: "idle" };
             }
             return;
           }
           case "harvest": {
+            u.facing = Math.round((Math.atan2((t.ty+.5)*SUB-u.pos.y,(t.tx+.5)*SUB-u.pos.x)+Math.PI)/(Math.PI*2)*8)%8;
             // One stroke a second while the trip lasts: the swing the renderer
             // animates and the sound plays on, distinct from the load landing.
             if (t.timer % 20 === 0) this.fx.push({ kind: "chop", id: u.id, x: u.pos.x, y: u.pos.y });
             if (--t.timer > 0) return;
             const i = this.map.idx(t.tx, t.ty);
-            const take = Math.min(def.carry, this.map.amount[i]!);
+            const capacity = def.carryByResource?.[t.resource] ?? def.carry;
+            const held = u.carrying?.resource === t.resource ? u.carrying.amount : 0;
+            const take = Math.min(capacity - held, this.map.amount[i]!);
             this.map.amount[i]! -= take;
             if (this.map.amount[i]! <= 0) {
-              // Trees are felled; gold mines become rock when exhausted.
-              this.map.set(t.tx, t.ty, t.resource === "lumber" ? Tile.Grass : Tile.Rock);
-              // Leave the stump, so the wood shows where it has been worked.
-              if (t.resource === "lumber") this.map.felled[i] = 1;
+              if (t.resource === "lumber") {
+                // Trees are felled; leave the stump, so the wood shows where it has been worked.
+                this.map.set(t.tx, t.ty, Tile.Grass);
+                this.map.felled[i] = 1;
+              } else this.drainMine(t.tx, t.ty, u.owner);
             }
-            u.carrying = { resource: t.resource, amount: take };
+            u.carrying = { resource: t.resource, amount: held + take };
+            // A tree contains 40 wood: finish the load from another tree instead
+            // of returning with a partial load whenever one is nearby.
+            if (held + take < capacity) {
+              const alt = this.findResourceNear(t.tx, t.ty, t.resource === "gold" ? Tile.Gold : Tile.Tree);
+              if (alt) {
+                [t.tx,t.ty] = alt; t.phase = "toNode";
+                this.pathTo(u,t.tx,t.ty,true); return;
+              }
+            }
             t.phase = "toDrop";
             const drop = this.nearestDropOff(u, t.resource);
             if (!drop) {
               u.task = { kind: "idle" };
+              this.emit(u.owner, NO_STORE_LINE);
               return;
             }
             this.pathTo(u, drop.tx + Math.floor(drop.size / 2), drop.ty + Math.floor(drop.size / 2));
@@ -2808,7 +3632,7 @@ export class World {
               u.carrying = null;
             }
             t.phase = "toNode";
-            this.pathTo(u, t.tx, t.ty);
+            this.pathTo(u, t.tx, t.ty, true);
             return;
           }
         }
@@ -2816,15 +3640,62 @@ export class World {
     }
   }
 
+  private nextQueuedBuild(u: Unit): boolean {
+    while(u.buildQueue?.length){const b=this.entities.get(u.buildQueue.shift()!);if(b?.kind!=="building"||b.complete)continue;
+      u.task={kind:"build",building:b.id};u.moveQueue=[];this.pathTo(u,b.tx,b.ty,true);return true;
+    }return false;
+  }
+
+  /** Walk clockwise around the site, skipping blocked or occupied work spots. */
+  private nextConstructionSpot(u: Unit,b: Building): boolean {
+    const ring:Array<[number,number]>=[];
+    for(let x=b.tx-1;x<=b.tx+b.size;x++)ring.push([x,b.ty-1]);
+    for(let y=b.ty;y<=b.ty+b.size;y++)ring.push([b.tx+b.size,y]);
+    for(let x=b.tx+b.size-1;x>=b.tx-1;x--)ring.push([x,b.ty+b.size]);
+    for(let y=b.ty+b.size-1;y>=b.ty;y--)ring.push([b.tx-1,y]);
+    let nearest=0,best=Infinity;
+    ring.forEach(([x,y],i)=>{const d=Math.hypot((x+.5)*SUB-u.pos.x,(y+.5)*SUB-u.pos.y);if(d<best){best=d;nearest=i;}});
+    for(let offset=1;offset<=3;offset++) {
+      const [x,y]=ring[(nearest+offset)%ring.length]!;
+      if(!this.map.isWalkable(x,y,UNITS[u.def]!.domain)||this.map.get(x,y)===Tile.Tree)continue;
+      if(this.units().some(other=>other.id!==u.id && (Math.hypot(other.pos.x-(x+.5)*SUB,other.pos.y-(y+.5)*SUB)<SUB*.7 || (other.constructionWork?.target?.[0]===x&&other.constructionWork?.target?.[1]===y))))continue;
+      const path=findPath(this.map,Math.floor(u.pos.x/SUB),Math.floor(u.pos.y/SUB),x,y,UNITS[u.def]!.domain);
+      const last=path[path.length-1];
+      if(!last||last[0]!==x||last[1]!==y||path.length>5)continue;
+      u.path=path;u.repathIn=0;u.constructionWork!.target=[x,y];u.constructionWork!.travel=100;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A worker who has finished a building goes back to work instead of
+   * standing beside it: to whatever he was cutting or mining before, or
+   * failing that the nearest wood or gold -- as long as there is somewhere
+   * to take it.
+   */
   private autoGatherAfterBuild(u: Unit, b: Building): void {
+    if (!UNITS[u.def]!.canGather || UNITS[u.def]!.royal) return;
+    const go = (tx: number, ty: number, resource: "gold" | "lumber"): boolean => {
+      if (!this.nearestDropOff(u, resource)) return false;
+      u.task = { kind: "gather", tx, ty, resource, phase: "toNode", timer: 0 };
+      this.pathTo(u, tx, ty, true);
+      return true;
+    };
+    const last = u.lastGather;
+    if (last) {
+      const tile = last.resource === "gold" ? Tile.Gold : Tile.Tree;
+      const node = this.map.get(last.tx, last.ty) === tile && this.map.amount[this.map.idx(last.tx, last.ty)]! > 0
+        ? ([last.tx, last.ty] as [number, number]) : this.findResourceNear(last.tx, last.ty, tile, 12);
+      if (node && go(node[0], node[1], last.resource)) return;
+    }
     const d = BUILDINGS[b.def]!;
     if (d.dropOff.includes("lumber")) {
       const node = this.findResourceNear(b.tx, b.ty, Tile.Tree, 10);
-      if (node) {
-        u.task = { kind: "gather", tx: node[0], ty: node[1], resource: "lumber", phase: "toNode", timer: 0 };
-        this.pathTo(u, node[0], node[1]);
-      }
+      if (node && go(node[0], node[1], "lumber")) return;
     }
+    const near = this.nearestResource(b.tx + Math.floor(b.size / 2), b.ty + Math.floor(b.size / 2), 16);
+    if (near) go(near.x, near.y, near.resource);
   }
 
   /** True when an amphibious unit is currently over water. */
@@ -2899,13 +3770,7 @@ export class World {
       while (u.path.length > 0 && u.path[0]![0] === utx && u.path[0]![1] === uty) u.path.shift();
       if (u.path.length === 0) return true;
     }
-    // Everything moves at half the pace it used to.
-    //
-    // The board is 160 tiles across and armies were crossing it faster than you
-    // could think about what they were crossing it for, which makes ground
-    // worth nothing: if a march is instant then holding a pass is not a
-    // decision. Halving it makes distance a cost, which is what makes the next
-    // paragraph worth having.
+    // Base travel pace, before roads, mud and terrain modify it.
     let speed = def.speed * MOVE_SCALE;
     // Swimmers move at roughly half pace while they are in the water.
     if (def.domain === "amphibious" && this.isAfloat(u)) speed *= 0.5;
@@ -2932,7 +3797,9 @@ export class World {
           if (!this.paved(u.owner)) speed *= 1 - (this.map.mud[i0]! / 255) * MUD_PENALTY;
           // And walking it wears it further. Capped, so a path becomes a path
           // and not a motorway.
-          this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);
+          // Animals and raiders do not beat roads: a deer grazing back and
+          // forth left lone worn patches that showed up as stray brown dots.
+          if (u.owner !== WILD) this.tread(tx0, ty0, def.domain === "amphibious" ? 3 : 2);
         }
       }
     }
@@ -2947,6 +3814,15 @@ export class World {
       const tx0 = Math.floor(u.pos.x / SUB);
       const ty0 = Math.floor(u.pos.y / SUB);
       if (this.map.inBounds(tx0, ty0) && this.map.get(tx0, ty0) === Tile.Ice) return false;
+    }
+    for(let n=Math.min(3,u.path.length-1);n>0;n--) {
+      const p=u.path[n]!,gx=(p[0]+.5)*SUB,gy=(p[1]+.5)*SUB;
+      const steps=Math.ceil(Math.hypot(gx-u.pos.x,gy-u.pos.y)/(SUB*.15));let clear=true;
+      for(let j=1;j<=steps&&clear;j++) {
+        const x=(u.pos.x+(gx-u.pos.x)*j/steps)/SUB,y=(u.pos.y+(gy-u.pos.y)*j/steps)/SUB;
+        for(const ox of [-.18,.18])for(const oy of [-.18,.18])if(!this.map.isWalkable(Math.floor(x+ox),Math.floor(y+oy),def.domain))clear=false;
+      }
+      if(clear){u.path.splice(0,n);break;}
     }
     const [tx, ty] = u.path[0]!;
     const goal = { x: tx * SUB + SUB / 2, y: ty * SUB + SUB / 2 };
@@ -2965,10 +3841,17 @@ export class World {
     if (dist <= speed) {
       u.pos.x = goal.x;
       u.pos.y = goal.y;
+      u.moveRemainder = { x: 0, y: 0 };
       u.path.shift();
     } else {
-      u.pos.x = Math.round(u.pos.x + (dx / dist) * speed);
-      u.pos.y = Math.round(u.pos.y + (dy / dist) * speed);
+      // Preserve fractional movement instead of rounding slow steps to zero.
+      const rest = u.moveRemainder ?? { x: 0, y: 0 };
+      const fx = rest.x + Math.round((dx / dist) * speed * 1024);
+      const fy = rest.y + Math.round((dy / dist) * speed * 1024);
+      const mx = Math.trunc(fx / 1024), my = Math.trunc(fy / 1024);
+      u.pos.x += mx;
+      u.pos.y += my;
+      u.moveRemainder = { x: fx - mx * 1024, y: fy - my * 1024 };
     }
     u.facing = Math.round(((Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI)) * 8) % 8;
     return u.path.length === 0;
@@ -2991,6 +3874,86 @@ export class World {
     }
     // A completed Church mends friendly units standing within its radius.
     const lv = LEVELLED[b.def] ? levelDef(b.def, b.level) : null;
+
+    // Watch Towers become genuine defensive structures rather than expensive
+    // vision posts. Higher tiers shoot farther, harder and more frequently.
+    if (b.def === "tower") {
+      // A watch tower is a platform with archers on it, and it fights like one.
+      // Every archer draws and looses on his own count, staggered so a tower's
+      // arrows land as a steady rain rather than one volley. Upgrading puts
+      // more men up there: three on a wooden tower, one more per level. Three
+      // archers see off six footmen who walk into them -- that is the tower's
+      // job, and why it is worth the timber.
+      const level = Math.max(1, b.level);
+      const crew = towerArchers(level);
+      const garrison = b.garrison?.length ?? 0;
+      const archers = crew + garrison;
+      const range = towerRange(level) * SUB;
+      const interval = TOWER_ARCHER_INTERVAL;
+      const origin = centerOf(b);
+      let targets: Entity[] | null = null;
+      for (let k = 0; k < archers; k++) {
+        const phase = (b.id * 7 + Math.floor((k * interval) / archers)) % interval;
+        if (this.tick % interval !== phase) continue;
+        if (!targets) {
+          targets = [];
+          const scored: Array<{ e: Entity; d: number }> = [];
+          for (const e of this.entities.values()) {
+            // Only fire on another actual player. Wildlife remains wildlife rather
+            // than causing every border tower to spend the match shooting deer.
+            if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner,e)) continue;
+            if (e.kind === "unit" && UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) continue;
+            if (e.kind === "unit" && UNITS[e.def]!.submerged) continue;
+            if (e.kind === "unit" && e.def === "dragon") continue;
+            const p = this.posOf(e);
+            const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e);
+            if (d > range) continue;
+            // Men before walls: a tower shoots the soldiers, not the siege line's
+            // buildings, unless it has been told to.
+            scored.push({ e, d: e.id === b.attackTarget ? -Infinity : d + (e.kind === "building" ? range * 2 : 0) });
+          }
+          scored.sort((x, y) => x.d - y.d || x.e.id - y.e.id);
+          for (const t of scored) targets.push(t.e);
+        }
+        const target = targets.find((t) => t.hp > 0);
+        if (!target) break;
+        const p = this.posOf(target);
+        // Garrisoned archers are trained soldiers shooting from height: they
+        // hit harder than the tower's own watchmen.
+        const damage = TOWER_ARROW_DAMAGE + level * 2 + (k >= crew ? 6 : 0);
+        // Each archer stands at his own spot on the platform.
+        const from = { x: origin.x + ((k % 3) - 1) * SUB * 0.35, y: origin.y - SUB * 0.8 };
+        this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
+        this.projectiles.push({ from, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
+        this.dealDamage(target, damage, b.owner, 0.12);
+      }
+    }
+
+    // Archers on the wall walk shoot like tower archers, from a little lower.
+    if (b.def === "wall" && b.complete && b.garrison?.length) {
+      const origin = centerOf(b);
+      const range = (UNITS.archer!.range + 2) * SUB;
+      const n = b.garrison.length;
+      for (let k = 0; k < n; k++) {
+        const phase = (b.id * 7 + Math.floor((k * TOWER_ARCHER_INTERVAL) / n)) % TOWER_ARCHER_INTERVAL;
+        if (this.tick % TOWER_ARCHER_INTERVAL !== phase) continue;
+        let best: Entity | null = null, bd = Infinity;
+        for (const e of this.entities.values()) {
+          if (!this.hostile(b, e) || !this.players.has(e.owner) || !this.canSeeEntity(b.owner, e)) continue;
+          if (e.kind === "unit" && ((UNITS[e.def]!.beast && UNITS[e.def]!.damage <= 0) || UNITS[e.def]!.submerged || e.def === "dragon")) continue;
+          const p = this.posOf(e);
+          const d = Math.hypot(p.x - origin.x, p.y - origin.y) - this.radiusOf(e) + (e.kind === "building" ? range * 2 : 0);
+          if (d <= range && d < bd) { bd = d; best = e; }
+        }
+        if (!best) break;
+        const p = this.posOf(best);
+        const from = { x: origin.x + (k - (n - 1) / 2) * SUB * 0.4, y: origin.y - SUB * 0.6 };
+        this.fx.push({ kind: "attack", x: from.x, y: from.y, tx: p.x, ty: p.y, def: "tower", ranged: true });
+        this.projectiles.push({ from, to: { x: p.x, y: p.y }, t: 0, speed: 0.12, kind: "arrow" });
+        this.dealDamage(best, TOWER_ARROW_DAMAGE + 4, b.owner, 0.12);
+      }
+    }
+
     if (lv?.heal && lv.radius) {
       const c = centerOf(b);
       const r2 = (lv.radius * SUB) ** 2;
@@ -3004,7 +3967,7 @@ export class World {
       if (--b.research.remaining <= 0) {
         const up = UPGRADES[b.research.id]!;
         const p = this.players.get(b.owner)!;
-        p.research[up.id] = b.research.toLevel;
+        p.research[up.id] = Math.max(p.research[up.id] ?? 0, b.research.toLevel);
         this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
         b.research = null;
       }
@@ -3020,6 +3983,7 @@ export class World {
         b.maxHp = lv.hp;
         b.hp = Math.round(lv.hp * frac);
         this.emit(b.owner, `${lv.name} complete (level ${b.level})`, "info");
+        { const c = centerOf(b); this.fx.push({ kind: "levelUp", id: b.id, x: c.x, y: c.y, def: b.def, level: b.level, owner: b.owner }); }
         if (lv.armour) this.refreshArmour(b.owner);
       }
       return; // upgrading halts training
@@ -3027,9 +3991,17 @@ export class World {
     const job = b.queue[0];
     if (!job) return;
     const d = UNITS[job.unit]!;
+    // Nobody new comes to a town with empty stores.
+    if ((this.players.get(b.owner)?.food ?? 1) <= 0) return;
+    if (job.paid === false) {
+      // Waiting on the purse: pay the moment it can be paid.
+      if (!this.canAfford(b.owner, d.cost)) return;
+      this.spend(b.owner, d.cost);
+      job.paid = true;
+    }
     const s = this.supply(b.owner);
     if (s.used + d.supply > s.max) {
-      if (this.tick % 100 === 0) this.emit(b.owner, "Not enough supply — build another Town Hall");
+      if (this.tick % 100 === 0) this.emit(b.owner, "Not enough supply — build more Farms or upgrade your Town Hall");
       return;
     }
     // A levelled workshop trains faster.
@@ -3044,35 +4016,12 @@ export class World {
     }
     b.queue.shift();
     const u = this.spawnUnit(b.owner, job.unit, { x: spawn[0] * SUB + SUB / 2, y: spawn[1] * SUB + SUB / 2 });
-    // An orc off a camp's own line belongs to that camp. Without this the
-    // replacements a stronghold makes are counted as loose warriors, march off
-    // to the nearest town the moment they are born, and the camp empties itself
-    // one warrior at a time instead of holding its ground.
-    if (b.owner === MARAUDER) this.warband.set(u.id, this.campOf(b) ?? b.id);
     if (b.rally) {
       u.task = { kind: "move", target: b.rally };
       this.pathTo(u, Math.floor(b.rally.x / SUB), Math.floor(b.rally.y / SUB));
     }
   }
 
-  /**
-   * Which camp a Blackrock building belongs to: itself if it is the stronghold,
-   * otherwise the nearest one. A hut turns out grunts for the camp it stands in.
-   */
-  private campOf(b: Building): EntityId | null {
-    if (this.camps.has(b.id)) return b.id;
-    const c = centerOf(b);
-    let best: EntityId | null = null;
-    let bestD = Infinity;
-    for (const [id, camp] of this.camps) {
-      const d = (camp.x - c.x) ** 2 + (camp.y - c.y) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = id;
-      }
-    }
-    return best;
-  }
 
   private findSpawnTile(b: Building, domain: Domain): [number, number] | null {
     for (let r = 1; r < 6; r++)

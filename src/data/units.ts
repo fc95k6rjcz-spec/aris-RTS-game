@@ -34,6 +34,7 @@ export interface UnitDef {
   canGather: boolean;
   /** Amount of resource carried per trip. */
   carry: number;
+  carryByResource?: { gold: number; lumber: number };
   /** Damage per attack. 0 means the unit cannot fight. */
   damage: number;
   /** Attack range in tiles. Anything above 1.5 fires a projectile. */
@@ -42,6 +43,10 @@ export interface UnitDef {
   cooldown: number;
   /** Flat damage subtracted from each hit taken. */
   armour: number;
+  /** Amount restored when this support unit heals an ally. */
+  heal?: number;
+  /** Healing reach in tiles. */
+  healRange?: number;
   /**
    * How far this unit sees, in tiles. Scouts and archers see further than they
    * shoot; siege engines are half blind and want a spotter.
@@ -106,11 +111,15 @@ export function unitName(def: string, faction: string): string {
 }
 
 export const UNITS: Record<string, UnitDef> = {
+  grunt: {id:"grunt",name:"Grunt",hotkey:"",cost: {gold: 0,lumber: 0},hp:145,speed:6,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:16,range:1.1,cooldown:30,armour:2,sight:6,spread:.2,beast:true,bounty:40,description:"A brutal roaming enemy with a heavy axe."},
+  direwolf: {id:"direwolf",name:"Dire Wolf",hotkey:"",cost: {gold: 0,lumber: 0},hp:160,speed:9,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:18,range:1.1,cooldown:26,armour:1,sight:7,spread:.2,beast:true,bounty:45,description:"A fast woodland predator."},
+  dragon: {id:"dragon",name:"Dragon",hotkey:"",cost: {gold: 0,lumber: 0},hp:700,speed:8,trainTime:0,supply:0,domain:"air",canBuild:false,canGather:false,carry:0,damage:38,range:4,cooldown:40,armour:4,sight:9,spread:.15,beast:true,bounty:250,description:"Unstoppable. Burns towns and scatters your people, then flies home. Nothing you have can kill it -- get out of its way."},
+  barbarian: { id:"barbarian",name:"Barbarian",hotkey:"",cost: {gold: 0,lumber: 0},hp:95,speed:6,trainTime:0,supply:0,domain:"land",canBuild:false,canGather:false,carry:0,damage:11,range:1.1,cooldown:28,armour:1,sight:6,spread:0,beast:true,bounty:25,description:"Roaming raider. Travels with a band and attacks intruders." },
   worker: {
     id: "worker",
     name: "Worker",
     hotkey: "W",
-    cost: { gold: 60, lumber: 0 },
+    cost: { gold: 135, lumber: 0 },
     hp: 40,
     speed: 6,
     trainTime: 20 * 15,
@@ -118,20 +127,21 @@ export const UNITS: Record<string, UnitDef> = {
     domain: "amphibious",
     canBuild: true,
     canGather: true,
-    carry: 10,
+    carry: 50,
+    carryByResource: { gold: 50, lumber: 25 },
     damage: 4,
     range: 1.0,
     cooldown: 22,
     armour: 0,
     sight: 5,
     spread: 0.5,
-    description: "Builds, gathers, swims — and will defend itself, badly.",
+    description: "Builds, gathers, swims. Carries 50 gold or 25 wood per trip.",
   },
   footman: {
     id: "footman",
     name: "Footman",
     hotkey: "F",
-    cost: { gold: 120, lumber: 0, food: 40 },
+    cost: { gold: 270, lumber: 0, food: 60 },
     hp: 120,
     speed: 6,
     trainTime: 20 * 20,
@@ -152,7 +162,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "archer",
     name: "Archer",
     hotkey: "A",
-    cost: { gold: 100, lumber: 40, food: 35 },
+    cost: { gold: 225, lumber: 90, food: 53 },
     hp: 70,
     speed: 7,
     trainTime: 20 * 22,
@@ -173,7 +183,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "knight",
     name: "Knight",
     hotkey: "K",
-    cost: { gold: 200, lumber: 60, food: 70 },
+    cost: { gold: 450, lumber: 135, food: 105 },
     hp: 240,
     speed: 12,
     trainTime: 20 * 30,
@@ -194,7 +204,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "mage",
     name: "Mage",
     hotkey: "M",
-    cost: { gold: 220, lumber: 40, food: 60 },
+    cost: { gold: 495, lumber: 90, food: 90 },
     hp: 65,
     speed: 6,
     trainTime: 20 * 35,
@@ -209,13 +219,36 @@ export const UNITS: Record<string, UnitDef> = {
     armour: 0,
     sight: 9,
     spread: 0.35,
-    description: "Fragile spellcaster. Long reach, and worth protecting.",
+    description: "Fragile spellcaster. Arcane bolts splash through clustered enemies, and Mage Tower tiers amplify the spell.",
+  },
+  priest: {
+    id: "priest",
+    name: "Priest",
+    hotkey: "P",
+    cost: { gold: 383, lumber: 90, food: 68 },
+    hp: 82,
+    speed: 6,
+    trainTime: 20 * 32,
+    supply: 2,
+    domain: "land",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 0,
+    range: 0,
+    cooldown: 26,
+    armour: 0,
+    heal: 11,
+    healRange: 5.5,
+    sight: 8,
+    spread: 0,
+    description: "Support caster. Automatically heals the most wounded nearby ally and belongs behind the battle line.",
   },
   ballista: {
     id: "ballista",
     name: "Ballista",
     hotkey: "V",
-    cost: { gold: 300, lumber: 220, food: 50 },
+    cost: { gold: 675, lumber: 495, food: 75 },
     hp: 150,
     speed: 4,
     trainTime: 20 * 45,
@@ -388,62 +421,6 @@ export const UNITS: Record<string, UnitDef> = {
     food: 90,
     description: "Bolts, slowly. Ninety in meat, and they graze in flocks.",
   },
-  /**
-   * The dragon.
-   *
-   * Not wildlife and not an opponent: a disaster with wings. It is not sent by
-   * anybody, it does not want your gold mine, and it does not care which
-   * banner you fly -- it arrives, burns whatever it happens to see, and goes.
-   * That is the whole design, and every number here serves it.
-   *
-   * It is deliberately not winnable-by-accident. Nine hundred hit points and
-   * six armour means a handful of footmen die badly; it takes a real body of
-   * archers, or a mage, or a stone tower, and it takes them together. And it is
-   * deliberately not unwinnable either -- it does not heal, it does not run,
-   * and it only stays a minute and a half. Weathering one is a decision (pull
-   * the workers in, lose the outlying farm) and killing one is an achievement
-   * worth four hundred gold.
-   *
-   * It flies, so terrain is nothing to it and the walls you built are nothing
-   * either. Its breath outranges every hand weapon and most bows.
-   */
-  dragon: {
-    id: "dragon",
-    name: "Dragon",
-    hotkey: "",
-    // Not trainable, not tameable, and not yours.
-    cost: { gold: 0, lumber: 0 },
-    hp: 900,
-    speed: 14,
-    trainTime: 0,
-    supply: 0,
-    domain: "air",
-    canBuild: false,
-    canGather: false,
-    carry: 0,
-    damage: 62,
-    range: 3.2,
-    cooldown: 30,
-    /**
-     * Three, not six.
-     *
-     * Six was chosen to make it feel armoured and it quietly deleted the one
-     * answer the design promises. An Archer hits for nine, so six armour takes
-     * two thirds of every arrow: sixteen of them put out two points of damage a
-     * tick, and since the dragon wanders off to burn something else halfway
-     * through they never get the uptime to finish nine hundred hit points. They
-     * lost three fights in four. At three they do six a shot, the maths works
-     * even at partial uptime, and a body of bowmen is a real answer rather than
-     * a stated one. It is still four hits of plate against a footman.
-     */
-    armour: 3,
-    // It sees most of a valley at once, which is how it finds you.
-    sight: 14,
-    spread: 0.35,
-    beast: true,
-    bounty: 400,
-    description: "Fire on the wing. It belongs to nobody, it burns what it finds, and it leaves.",
-  },
   // ───────────────────────────── the Blackrock ─────────────────────────────
   //
   // Orcs are not balanced against each other, they are balanced against what
@@ -452,29 +429,6 @@ export const UNITS: Record<string, UnitDef> = {
   // the answer has to be "not enough of them". None of them is trainable by a
   // player: they come with the camp, and the camp makes more.
 
-  /** The rank and file. A footman who has been eating better. */
-  grunt: {
-    id: "grunt",
-    name: "Grunt",
-    hotkey: "",
-    cost: { gold: 0, lumber: 0 },
-    hp: 135,
-    speed: 6,
-    trainTime: 20 * 22,
-    supply: 0,
-    domain: "land",
-    canBuild: false,
-    canGather: false,
-    carry: 0,
-    damage: 17,
-    range: 1.0,
-    cooldown: 20,
-    armour: 2,
-    sight: 6,
-    spread: 0.3,
-    bounty: 15,
-    description: "Blackrock infantry. Slower to die than a man and quicker to swing.",
-  },
 
   /**
    * Reach, which is the thing that makes a camp a problem rather than a chore.
@@ -575,7 +529,7 @@ export const UNITS: Record<string, UnitDef> = {
     // A King outpaces everything else on foot. He is one man crossing a
     // continent alone for the first part of the game, and the whole opening is
     // watching him do it.
-    speed: 16,
+    speed: 6, // walks with his men, not ahead of them
     trainTime: 0,
     supply: 0,
     domain: "land",
@@ -595,9 +549,9 @@ export const UNITS: Record<string, UnitDef> = {
     id: "prince",
     name: "Prince",
     hotkey: "R",
-    cost: { gold: 350, lumber: 120 },
+    cost: { gold: 788, lumber: 270 },
     hp: 300,
-    speed: 9,
+    speed: 6, // walks with his men, not ahead of them
     trainTime: 20 * 50,
     supply: 3,
     domain: "land",
@@ -617,7 +571,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "cannon",
     name: "Cannon",
     hotkey: "N",
-    cost: { gold: 400, lumber: 180, food: 60 },
+    cost: { gold: 900, lumber: 405, food: 90 },
     hp: 180,
     speed: 3,
     trainTime: 20 * 55,
@@ -640,7 +594,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "scout",
     name: "Scout Plane",
     hotkey: "S",
-    cost: { gold: 140, lumber: 90, oil: 30, food: 25 },
+    cost: { gold: 315, lumber: 203, oil: 45, food: 38 },
     hp: 90,
     speed: 22,
     trainTime: 20 * 25,
@@ -661,7 +615,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "bomber",
     name: "Bomber",
     hotkey: "B",
-    cost: { gold: 260, lumber: 180, oil: 70, food: 45 },
+    cost: { gold: 585, lumber: 405, oil: 105, food: 68 },
     hp: 220,
     speed: 15,
     trainTime: 20 * 40,
@@ -678,11 +632,32 @@ export const UNITS: Record<string, UnitDef> = {
     spread: 0.45,
     description: "Heavy aircraft. Slow, tough, and ignores the ground entirely.",
   },
+  gryphon: {
+    id: "gryphon",
+    name: "Gryphon Rider",
+    hotkey: "G",
+    cost: { gold: 743, lumber: 315, food: 135 },
+    hp: 285,
+    speed: 17,
+    trainTime: 20 * 48,
+    supply: 4,
+    domain: "air",
+    canBuild: false,
+    canGather: false,
+    carry: 0,
+    damage: 31,
+    range: 1.4,
+    cooldown: 30,
+    armour: 2,
+    sight: 10,
+    spread: 0.3,
+    description: "Elite fantasy air cavalry. Fast, durable and deadly when it dives onto exposed troops or siege.",
+  },
   longboat: {
     id: "longboat",
     name: "Longboat",
     hotkey: "L",
-    cost: { gold: 150, lumber: 120 },
+    cost: { gold: 338, lumber: 270 },
     hp: 200,
     speed: 22,
     trainTime: 20 * 30,
@@ -705,7 +680,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "transport",
     name: "Transport",
     hotkey: "T",
-    cost: { gold: 200, lumber: 180, oil: 60 },
+    cost: { gold: 450, lumber: 405, oil: 90 },
     hp: 320,
     speed: 15,
     trainTime: 20 * 35,
@@ -726,8 +701,8 @@ export const UNITS: Record<string, UnitDef> = {
   submarine: {
     id: "submarine",
     name: "Submarine",
-    hotkey: "U",
-    cost: { gold: 350, lumber: 100, oil: 220 },
+    hotkey: "S",
+    cost: { gold: 788, lumber: 225, oil: 330 },
     hp: 260,
     speed: 14,
     trainTime: 20 * 45,
@@ -750,7 +725,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "battleship",
     name: "Battleship",
     hotkey: "B",
-    cost: { gold: 900, lumber: 300, oil: 500 },
+    cost: { gold: 2025, lumber: 675, oil: 750 },
     hp: 1600,
     speed: 9,
     trainTime: 20 * 90,
@@ -771,7 +746,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "tanker",
     name: "Oil Tanker",
     hotkey: "O",
-    cost: { gold: 400, lumber: 250, oil: 100 },
+    cost: { gold: 900, lumber: 563, oil: 150 },
     hp: 700,
     speed: 8,
     trainTime: 20 * 60,
@@ -792,7 +767,7 @@ export const UNITS: Record<string, UnitDef> = {
     id: "icebreaker",
     name: "Icebreaker",
     hotkey: "K",
-    cost: { gold: 300, lumber: 200, oil: 180 },
+    cost: { gold: 675, lumber: 450, oil: 270 },
     hp: 520,
     speed: 11,
     trainTime: 20 * 50,
