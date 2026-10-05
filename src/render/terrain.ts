@@ -301,6 +301,37 @@ function paintIce(c: CanvasRenderingContext2D, map: GameMap, x: number, y: numbe
   }
 }
 
+/**
+ * How deep the water is here: 0 at the beach, 1 well out to sea.
+ *
+ * Depth used to be a yes/no -- "is any neighbour land" -- and a yes/no is why
+ * the sea read as a flat navy sheet with a pale square fringe stuck round the
+ * edge of it. Real water tells you how deep it is by its colour, continuously,
+ * over a good few tiles; that gradient from turquoise to blue is most of what
+ * makes a coastline look like a coastline rather than like a hole in the map.
+ *
+ * Measured as the distance to the nearest non-water tile, out to REACH, on a
+ * square ring search. Pack ice does not count as shore: a floe is floating on
+ * the same sea, and treating it as land turned every tile beside the pack pale.
+ */
+function seaDepth(map: GameMap, x: number, y: number): number {
+  const REACH = 5;
+  for (let r = 1; r <= REACH; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        // Off the edge of the map is open sea, not a shore.
+        if (!map.inBounds(nx, ny)) continue;
+        const n = map.get(nx, ny);
+        if (n !== Tile.Water && n !== Tile.Ice) return (r - 1) / REACH;
+      }
+    }
+  }
+  return 1;
+}
+
 function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number, pat: CanvasPattern | null = null): void {
   // With a photograph to hand, lay it down first and let the painted detail
   // below add depth and shoreline shading over the top. Without one, the painted
@@ -315,6 +346,7 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     if (n !== Tile.Water && n !== Tile.Ice) land++;
   }
   const shallow = land > 0;
+  const depth = seaDepth(map, x, y);
   if (pat) {
     // The photograph is the water. All the painting does over the top is the one
     // thing a photograph cannot know: where the bottom comes up. Laying the
@@ -323,20 +355,27 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     c.save();
     c.fillStyle = pat;
     c.fillRect(x * T, y * T, T, T);
-    c.fillStyle = "rgba(16,48,96,0.28)";
+    // The depth tint, graded. This was one flat navy wash at a fixed strength,
+    // which is why the sea was the same colour from the beach to the horizon.
+    // Turquoise where the bottom is close, deep blue where it is not, and the
+    // wash gets heavier as it goes out so the far water reads as dark rather
+    // than merely as a different hue.
+    const k = (a: number, b: number) => Math.round(a + (b - a) * depth);
+    c.fillStyle = `rgba(${k(86, 11)},${k(198, 44)},${k(188, 96)},${(0.3 + depth * 0.2).toFixed(3)})`;
     c.fillRect(x * T, y * T, T, T);
-    // Shallows are drawn as a band on the sides that actually face the shore,
-    // faded outward, rather than as a flat wash over the whole tile: a tile-wide
-    // wash puts a hard square edge in the middle of open water.
+    // And a brighter lip on the sides that actually face the shore, faded
+    // outward, rather than a flat wash over the whole tile: a tile-wide wash
+    // puts a hard square edge in the middle of open water.
     if (shallow)
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const n = map.inBounds(x + dx, y + dy) ? map.get(x + dx, y + dy) : Tile.Grass;
         if (n === Tile.Water || n === Tile.Ice) continue;
         const gx0 = x * T + (dx > 0 ? T : 0);
         const gy0 = y * T + (dy > 0 ? T : 0);
-        const grad = c.createLinearGradient(gx0, gy0, gx0 - dx * T * 0.7, gy0 - dy * T * 0.7);
-        grad.addColorStop(0, "rgba(120,185,205,0.45)");
-        grad.addColorStop(1, "rgba(120,185,205,0)");
+        const grad = c.createLinearGradient(gx0, gy0, gx0 - dx * T * 0.9, gy0 - dy * T * 0.9);
+        grad.addColorStop(0, "rgba(168,232,222,0.6)");
+        grad.addColorStop(0.45, "rgba(132,214,210,0.26)");
+        grad.addColorStop(1, "rgba(132,214,210,0)");
         c.fillStyle = grad;
         c.fillRect(x * T, y * T, T, T);
       }
@@ -347,10 +386,12 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
   for (let sy = 0; sy < 4; sy++)
     for (let sx = 0; sx < 4; sx++) {
       const n = fbm(x + sx / 4, y + sy / 4, seed + 40);
-      const deep = shallow ? 0.35 + n * 0.2 : 0.05 + n * 0.25;
-      const r = Math.round(28 + deep * 60);
-      const g = Math.round(74 + deep * 80);
-      const b = Math.round(130 + deep * 60);
+      // Same gradient as the photographed path, so a map without the texture
+      // loaded still shows a coastline rather than a slab.
+      const t = Math.min(1, Math.max(0, depth + (n - 0.5) * 0.2));
+      const r = Math.round(96 - t * 76);
+      const g = Math.round(200 - t * 140);
+      const b = Math.round(186 - t * 74);
       c.fillStyle = `rgb(${r},${g},${b})`;
       c.fillRect(x * T + sx * q, y * T + sy * q, q + 1, q + 1);
     }
@@ -391,16 +432,22 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     const ex = px + (dx > 0 ? T : 0);
     const ey = py + (dy > 0 ? T : 0);
     const grad = c.createLinearGradient(ex, ey, ex - dx * T * 0.62, ey - dy * T * 0.62);
-    grad.addColorStop(0, "rgba(232,244,252,0.72)");
-    grad.addColorStop(0.35, "rgba(214,236,248,0.3)");
-    grad.addColorStop(1, "rgba(200,230,245,0)");
+    // Sand, then shallow turquoise, then nothing. It was a near-white blue at
+    // nearly full strength, which outlined every lake in a hard white crust and
+    // made the tile staircase along the shore the first thing you saw. A beach
+    // is where the land colour carries on under the water for a stride or two,
+    // so the first stop is the colour of wet sand and the whole band is light
+    // enough to sit under the water rather than on top of it.
+    grad.addColorStop(0, "rgba(234,220,186,0.5)");
+    grad.addColorStop(0.3, "rgba(186,228,220,0.3)");
+    grad.addColorStop(1, "rgba(170,222,218,0)");
     c.fillStyle = grad;
     c.fillRect(px, py, T, T);
 
     // A broken line of surf a short way off the sand, wobbling along the edge
     // so the boundary is not a straight rule.
-    c.strokeStyle = "rgba(255,255,255,0.5)";
-    c.lineWidth = Math.max(1, T * 0.045);
+    c.strokeStyle = "rgba(255,255,255,0.26)";
+    c.lineWidth = Math.max(1, T * 0.035);
     c.beginPath();
     const steps = 6;
     for (let i = 0; i <= steps; i++) {

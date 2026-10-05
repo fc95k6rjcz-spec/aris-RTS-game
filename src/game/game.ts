@@ -301,7 +301,7 @@ export class Game {
     if (wild) w.spawnWildlife(Math.round(6 * ((n * n) / (64 * 64))));
     // War camps, scaled to the board like everything else out here.
     //
-    // One per a hundred and twenty tiles square, which is three on the big map.
+    // One per a hundred tiles square, which is three on the big map.
     //
     // This has been walked down twice, both times because of what the camps do
     // to the SKIRMISH AI rather than to the player. Measured on fixed maps, the
@@ -318,7 +318,7 @@ export class Game {
     // dropped straight on top of one -- a hearth burning inside a hut, on a tile
     // nothing can walk to. Fire placement checks walkability, so putting the
     // buildings down first makes the fires route around them for free.
-    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (120 * 120))));
+    if (wild) w.spawnOrcCamps(Math.max(1, Math.round((n * n) / (100 * 100))));
     // Somebody's camp, every so often, and one at each seat. Scaled the same
     // way, and laid whatever the wildlife setting says -- an empty country
     // still had people through it once.

@@ -144,17 +144,28 @@ const raid = await page.evaluate((MARAUDER) => {
   w.scheduleDragon(1e9);
   const homes = new Map();
   for (const b of w.buildings()) if (b.owner === MARAUDER && b.def === "stronghold") homes.set(b.id, { x: (b.tx + 2) * SUB, y: (b.ty + 2) * SUB });
+  // Sampled as the match runs, not counted at the end.
+  //
+  // The end-of-run snapshot was the wrong measurement and it only looked right
+  // while there were a lot of camps: a warband that set out, crossed the map
+  // and died at somebody's gate is a raid that happened, and at the final tick
+  // there is nobody on the road to count. With the camps thinned out it read
+  // zero every time while the raids themselves were working.
   let raiders = 0, warned = 0, firstAt = null;
+  const onTheRoad = () => {
+    let n = 0;
+    for (const u of w.units()) {
+      if (u.owner !== MARAUDER) continue;
+      let d = Infinity;
+      for (const h of homes.values()) d = Math.min(d, Math.hypot(u.pos.x - h.x, u.pos.y - h.y) / SUB);
+      if (d > 20) n++;
+    }
+    return n;
+  };
   for (let i = 0; i < 20 * 60 * 30; i++) {
     g.tick();
     for (const e of w.events) if (e.text.includes("left their camp")) { warned++; firstAt ??= w.tick; }
-  }
-  // Anybody a long way from every camp is on the road.
-  for (const u of w.units()) {
-    if (u.owner !== MARAUDER) continue;
-    let d = Infinity;
-    for (const h of homes.values()) d = Math.min(d, Math.hypot(u.pos.x - h.x, u.pos.y - h.y) / SUB);
-    if (d > 20) raiders++;
+    if (i % 200 === 0) raiders = Math.max(raiders, onTheRoad());
   }
   return { warned, firstAt, raiders, winner: w.winner };
 }, MARAUDER);
@@ -176,7 +187,7 @@ console.log(`one peasant walking into a camp: ${fight.manDead ? "killed" : "surv
 console.log(`fourteen knights sent to clear it: stronghold ${fight.hallDown ? "pulled down" : "still standing"}, paid ${fight.paid} gold on the way`);
 console.log(`one grunt, killed on its own: ${fight.perGrunt} gold`);
 console.log(`garrison wiped to ${regrow.emptied}, back to ${regrow.after} after five minutes`);
-console.log(`over thirty minutes: ${raid.warned} raids called, first at tick ${raid.firstAt}, ${raid.raiders} orcs out on the road`);
+console.log(`over thirty minutes: ${raid.warned} raids called, first at tick ${raid.firstAt}, at most ${raid.raiders} orcs on the road at once`);
 
 const fail = [];
 if (camps.halls < 1) fail.push("no war camp was placed anywhere");
