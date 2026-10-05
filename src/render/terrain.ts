@@ -113,6 +113,170 @@ function blendEdges(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
   }
 }
 
+/**
+ * Soft, ragged tile edges.
+ *
+ * Every terrain that is not grass used to be laid down as a hard square: dirt
+ * and rock as a flat coloured rectangle over the grass, water as a full tile of
+ * texture. Both meet their neighbours exactly on the tile boundary, so a dirt
+ * patch is a brown rectangle and a lake is a pixel staircase, and the eye finds
+ * the lattice immediately. It is the single thing that most says "tiles".
+ *
+ * The fix costs no new art, because the grass is already painted underneath
+ * everything: if the layer on top fades out as it approaches a neighbour of a
+ * different material, the grass shows through and the two blend. So each
+ * non-grass tile is drawn through a mask that is solid in the middle and
+ * feathers away towards whichever edges face something else -- with the edge
+ * broken up by noise, because a smooth ramp reads as a soft focus rather than
+ * as ground.
+ *
+ * The mask depends only on which of the eight neighbours match, so there are at
+ * most 256 of them and they are built once and kept.
+ */
+/**
+ * How far the feather reaches in, per material.
+ *
+ * Water gets a narrow one. Thinning a water tile shows the grass underneath it,
+ * and water that is slightly grassy looks like a mistake, so the seam is
+ * softened and no more -- the beach band does the real blending there.
+ *
+ * A dirt or rock WASH can afford a much deeper one, because what shows through
+ * is the same grass the wash is sitting on: eating into it just makes the patch
+ * a less square shape, which is the whole problem with it.
+ */
+const FEATHER_SEA = 0.18;
+const FEATHER_WASH = 0.4;
+const masks = new Map<string, HTMLCanvasElement>();
+
+/** Which of the eight neighbours are the same material, as an eight-bit key. */
+function matchKey(map: GameMap, x: number, y: number, same: (t: Tile) => boolean): number {
+  let key = 0;
+  let bit = 1;
+  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]] as const) {
+    const nx = x + dx;
+    const ny = y + dy;
+    // Off the edge of the map counts as more of the same, so the coast of the
+    // world is not drawn as a shoreline.
+    if (!map.inBounds(nx, ny) || same(map.get(nx, ny))) key |= bit;
+    bit <<= 1;
+  }
+  return key;
+}
+
+/**
+ * A tile-sized mask that is solid in the middle and faded to nothing on all
+ * four sides. One for the whole program.
+ *
+ * Unlike `featherMask` this knows nothing about neighbours, because what it is
+ * for does not care: it is the mask a half-offset copy of a grass variant is
+ * laid through, and that copy's job is to sit over a seam with its own edges
+ * nowhere near one.
+ */
+let softMask: HTMLCanvasElement | null = null;
+
+function softTileMask(): HTMLCanvasElement {
+  if (softMask) return softMask;
+  const m = document.createElement("canvas");
+  m.width = T;
+  m.height = T;
+  const mc = m.getContext("2d")!;
+  mc.fillStyle = "#fff";
+  mc.fillRect(0, 0, T, T);
+  mc.globalCompositeOperation = "destination-in";
+  for (const horizontal of [true, false]) {
+    const g = horizontal ? mc.createLinearGradient(0, 0, T, 0) : mc.createLinearGradient(0, 0, 0, T);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(0.3, "rgba(0,0,0,1)");
+    g.addColorStop(0.7, "rgba(0,0,0,1)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    mc.fillStyle = g;
+    mc.fillRect(0, 0, T, T);
+  }
+  softMask = m;
+  return m;
+}
+
+function featherMask(key: number, feather: number): HTMLCanvasElement {
+  const id = `${key}/${feather}`;
+  const had = masks.get(id);
+  if (had) return had;
+  const m = document.createElement("canvas");
+  m.width = T;
+  m.height = T;
+  const mc = m.getContext("2d")!;
+  mc.fillStyle = "#fff";
+  mc.fillRect(0, 0, T, T);
+  const band = T * feather;
+  mc.globalCompositeOperation = "destination-out";
+  // The four sides. Bits 0..3 are N, E, S, W.
+  const sides: Array<[number, number, number]> = [
+    [0, 0, -1],
+    [1, 1, 0],
+    [2, 0, 1],
+    [3, -1, 0],
+  ];
+  for (const [bit, dx, dy] of sides) {
+    if (key & (1 << bit)) continue;
+    const ex = dx > 0 ? T : 0;
+    const ey = dy > 0 ? T : 0;
+    const grad = mc.createLinearGradient(ex, ey, ex - dx * band, ey - dy * band);
+    // Full erase only right on the seam, and back to solid well before the
+    // middle. The first cut ran the ramp nearly half a tile in and took most of
+    // the material with it, so a shore tile -- which faces something different
+    // on three sides -- came out as a pale smear rather than as water.
+    grad.addColorStop(0, "rgba(0,0,0,1)");
+    grad.addColorStop(0.4, "rgba(0,0,0,0.3)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    mc.fillStyle = grad;
+    mc.fillRect(0, 0, T, T);
+  }
+  // The four corners, for a diagonal neighbour that differs while both of its
+  // own sides match -- the inside of a bay, which the side ramps above do not
+  // touch and which would otherwise stay a perfect right angle.
+  const corners: Array<[number, number, number]> = [
+    [4, T, 0],
+    [5, T, T],
+    [6, 0, T],
+    [7, 0, 0],
+  ];
+  for (const [bit, cx, cy] of corners) {
+    if (key & (1 << bit)) continue;
+    const grad = mc.createRadialGradient(cx, cy, 0, cx, cy, band * 0.9);
+    grad.addColorStop(0, "rgba(0,0,0,0.75)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    mc.fillStyle = grad;
+    mc.fillRect(0, 0, T, T);
+  }
+  // Break the ramp up. A gradient alone is a soft focus; ground has a ragged
+  // edge, so material is bitten out of the band and put back in flecks just
+  // beyond it. Deterministic from the key, so the same edge is always the same
+  // shape and two chunks meeting agree about it.
+  for (let i = 0; i < 90; i++) {
+    const h1 = hash2(key * 7 + i, i * 13, 99);
+    const h2 = hash2(i * 31, key * 11 + i, 77);
+    const h3 = hash2(key + i * 5, i * 3, 41);
+    const px = h1 * T;
+    const py = h2 * T;
+    const r = 1.2 + h3 * 2.6;
+    // Only near an edge that is actually fading.
+    const near = Math.min(
+      key & 1 ? 9 : py,
+      key & 2 ? 9 : T - px,
+      key & 4 ? 9 : T - py,
+      key & 8 ? 9 : px,
+    );
+    if (near > band) continue;
+    mc.globalCompositeOperation = h3 > 0.55 ? "destination-out" : "source-over";
+    mc.fillStyle = h3 > 0.55 ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.5)";
+    mc.beginPath();
+    mc.arc(px, py, r, 0, Math.PI * 2);
+    mc.fill();
+  }
+  mc.globalCompositeOperation = "source-over";
+  masks.set(id, m);
+  return m;
+}
+
 function paintScatter(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number): void {
   const t = map.get(x, y);
   if (t !== Tile.Grass && t !== Tile.Dirt) return;
@@ -332,6 +496,91 @@ function seaDepth(map: GameMap, x: number, y: number): number {
   return 1;
 }
 
+/**
+ * `seaDepth` for a whole map, worked out once.
+ *
+ * The grade across a tile is read at its four corners, and each corner is the
+ * mean of the four tiles meeting there, so a bake asks for sixteen depths per
+ * water tile -- and every one of those is a spiral search out to five tiles.
+ * Done naively that is a couple of thousand map reads for every tile of coast,
+ * repeated for each chunk. Done once per map it is a single array, and every
+ * bake after the first pays nothing. Water and ice are the only tiles it reads
+ * and neither is created or destroyed in play -- a floe drifting is ice
+ * swapping with water, and the search counts both as sea -- so the field cannot
+ * go stale.
+ */
+const depthFields = new WeakMap<GameMap, Float32Array>();
+
+function depthField(map: GameMap): Float32Array {
+  const had = depthFields.get(map);
+  if (had) return had;
+  const f = new Float32Array(map.width * map.height);
+  for (let y = 0; y < map.height; y++)
+    for (let x = 0; x < map.width; x++) f[y * map.width + x] = seaDepth(map, x, y);
+  depthFields.set(map, f);
+  return f;
+}
+
+/**
+ * Depth at the four corners of a tile, each the mean of the four tiles that
+ * meet there: `[top-left, top-right, bottom-left, bottom-right]`.
+ *
+ * Neighbouring tiles share their corners by construction, so anything that
+ * interpolates between these four runs on smoothly across the tile line.
+ */
+function cornerDepths(map: GameMap, x: number, y: number): [number, number, number, number] {
+  const f = depthField(map);
+  const at = (tx: number, ty: number): number => (map.inBounds(tx, ty) ? f[ty * map.width + tx]! : 1);
+  const corner = (cx: number, cy: number): number =>
+    (at(cx - 1, cy - 1) + at(cx, cy - 1) + at(cx - 1, cy) + at(cx, cy)) / 4;
+  return [corner(x, y), corner(x + 1, y), corner(x, y + 1), corner(x + 1, y + 1)];
+}
+
+/** The two-by-two surface the depth tint is interpolated from, reused. */
+let tintCell: HTMLCanvasElement | null = null;
+
+/**
+ * The depth tint, graded across the tile rather than flat over it.
+ *
+ * One colour per tile is what put a staircase across open water. `seaDepth`
+ * answers in six steps, so a wide bay came out as six plateaus of flat blue
+ * with square edges between them -- the single most obviously wrong thing about
+ * the sea, and the thing that reads as tiles rather than as water.
+ *
+ * The tint is now a bilinear surface over the tile's four corner depths. The
+ * interpolation is the browser's own: a two-by-two image drawn at twice the
+ * tile size and offset by half a tile puts its four pixel CENTRES exactly on
+ * the tile's corners, so what lands inside the tile is bilinear between them by
+ * definition. The three quarters of that draw which fall outside the tile are
+ * clipped by the scratch surface this is painted on.
+ */
+function depthTint(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number): void {
+  const [d00, d10, d01, d11] = cornerDepths(map, x, y);
+  if (!tintCell) {
+    tintCell = document.createElement("canvas");
+    tintCell.width = 2;
+    tintCell.height = 2;
+  }
+  const cc = tintCell.getContext("2d")!;
+  cc.clearRect(0, 0, 2, 2);
+  const corners: Array<[number, number, number]> = [
+    [0, 0, d00],
+    [1, 0, d10],
+    [0, 1, d01],
+    [1, 1, d11],
+  ];
+  for (const [i, j, d] of corners) {
+    const k = (a: number, b: number): number => Math.round(a + (b - a) * d);
+    cc.fillStyle = `rgba(${k(86, 11)},${k(198, 44)},${k(188, 96)},${(0.3 + d * 0.2).toFixed(3)})`;
+    cc.fillRect(i, j, 1, 1);
+  }
+  c.save();
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = "high";
+  c.drawImage(tintCell, x * T - T / 2, y * T - T / 2, T * 2, T * 2);
+  c.restore();
+}
+
 function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number, pat: CanvasPattern | null = null): void {
   // With a photograph to hand, lay it down first and let the painted detail
   // below add depth and shoreline shading over the top. Without one, the painted
@@ -355,14 +604,11 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     c.save();
     c.fillStyle = pat;
     c.fillRect(x * T, y * T, T, T);
-    // The depth tint, graded. This was one flat navy wash at a fixed strength,
-    // which is why the sea was the same colour from the beach to the horizon.
-    // Turquoise where the bottom is close, deep blue where it is not, and the
-    // wash gets heavier as it goes out so the far water reads as dark rather
-    // than merely as a different hue.
-    const k = (a: number, b: number) => Math.round(a + (b - a) * depth);
-    c.fillStyle = `rgba(${k(86, 11)},${k(198, 44)},${k(188, 96)},${(0.3 + depth * 0.2).toFixed(3)})`;
-    c.fillRect(x * T, y * T, T, T);
+    // The depth tint. Turquoise where the bottom is close, deep blue where it is
+    // not, and the wash gets heavier as it goes out so the far water reads as
+    // dark rather than merely as a different hue -- graded across the tile, so
+    // the sea floor is a slope and not a flight of stairs.
+    depthTint(c, map, x, y);
     // And a brighter lip on the sides that actually face the shore, faded
     // outward, rather than a flat wash over the whole tile: a tile-wide wash
     // puts a hard square edge in the middle of open water.
@@ -383,12 +629,16 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     return;
   }
   const q = T / 4;
+  // Graded off the same four corner depths the photographed path uses, so a map
+  // without the texture loaded gets the same slope rather than a flat tile.
+  const [d00, d10, d01, d11] = cornerDepths(map, x, y);
   for (let sy = 0; sy < 4; sy++)
     for (let sx = 0; sx < 4; sx++) {
       const n = fbm(x + sx / 4, y + sy / 4, seed + 40);
-      // Same gradient as the photographed path, so a map without the texture
-      // loaded still shows a coastline rather than a slab.
-      const t = Math.min(1, Math.max(0, depth + (n - 0.5) * 0.2));
+      const u = (sx + 0.5) / 4;
+      const v = (sy + 0.5) / 4;
+      const d = (d00 * (1 - u) + d10 * u) * (1 - v) + (d01 * (1 - u) + d11 * u) * v;
+      const t = Math.min(1, Math.max(0, d + (n - 0.5) * 0.2));
       const r = Math.round(96 - t * 76);
       const g = Math.round(200 - t * 140);
       const b = Math.round(186 - t * 74);
@@ -406,6 +656,59 @@ function paintWater(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     c.quadraticCurveTo(rx + 6, ry - 2, rx + 12, ry);
     c.stroke();
   }
+}
+
+/**
+ * Sand on the land side of a shoreline.
+ *
+ * The other half of a beach, and the half that actually breaks the staircase.
+ * Fading the water out as it approaches the grass softens the seam but leaves
+ * the boundary exactly where the tile boundary is, so a coast is still a row of
+ * soft squares. A real shore is a band of sand that belongs to NEITHER tile: it
+ * starts on the land, crosses the line, and carries on under the water. Drawing
+ * it from the land tile outward is what lets the edge sit somewhere other than
+ * on the grid.
+ */
+function paintBeach(c: CanvasRenderingContext2D, map: GameMap, x: number, y: number, seed: number): void {
+  const here = map.get(x, y);
+  if (here !== Tile.Grass && here !== Tile.Dirt) return;
+  const px = x * T;
+  const py = y * T;
+  c.save();
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (!map.inBounds(nx, ny) || map.get(nx, ny) !== Tile.Water) continue;
+    const ex = px + (dx > 0 ? T : 0);
+    const ey = py + (dy > 0 ? T : 0);
+    const grad = c.createLinearGradient(ex, ey, ex - dx * T * 0.55, ey - dy * T * 0.55);
+    grad.addColorStop(0, "rgba(226,206,160,0.72)");
+    grad.addColorStop(0.45, "rgba(222,206,164,0.3)");
+    grad.addColorStop(1, "rgba(218,204,166,0)");
+    c.fillStyle = grad;
+    c.fillRect(px, py, T, T);
+  }
+  // A ragged line of wet sand just back from the water, so the band does not
+  // end on a ruler-straight edge either.
+  for (let i = 0; i < 26; i++) {
+    const h = hash2(x * 17 + i, y * 23 + i * 5, seed + 9);
+    const h2v = hash2(y * 13 + i, x * 29 + i * 3, seed + 19);
+    if (h > 0.5) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!map.inBounds(nx, ny) || map.get(nx, ny) !== Tile.Water) continue;
+      const along = h2v * T;
+      const into = (0.1 + h * 0.7) * T * 0.5;
+      const sx = dx === 0 ? px + along : dx > 0 ? px + T - into : px + into;
+      const sy = dy === 0 ? py + along : dy > 0 ? py + T - into : py + into;
+      c.fillStyle = `rgba(232,214,172,${(0.18 + h * 0.3).toFixed(2)})`;
+      c.beginPath();
+      c.arc(sx, sy, 1.4 + h2v * 3.2, 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+  c.restore();
 }
 
 /**
@@ -438,8 +741,11 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
     // is where the land colour carries on under the water for a stride or two,
     // so the first stop is the colour of wet sand and the whole band is light
     // enough to sit under the water rather than on top of it.
-    grad.addColorStop(0, "rgba(234,220,186,0.5)");
-    grad.addColorStop(0.3, "rgba(186,228,220,0.3)");
+    // Carries the sand across onto the water side, which also covers the grass
+    // that the feather lets through at the very edge of a shore tile -- so the
+    // sequence reads sand, shallows, deep rather than sand, grass, shallows.
+    grad.addColorStop(0, "rgba(232,216,178,0.52)");
+    grad.addColorStop(0.3, "rgba(186,228,220,0.26)");
     grad.addColorStop(1, "rgba(170,222,218,0)");
     c.fillStyle = grad;
     c.fillRect(px, py, T, T);
@@ -487,44 +793,70 @@ function paintShore(c: CanvasRenderingContext2D, map: GameMap, x: number, y: num
  * put a hard vertical and horizontal line through the water every few tiles,
  * and once you have seen it you cannot stop seeing it.
  *
- * This is the third option. The cell is drawn, then a half-offset copy of
- * itself is laid over the top, feathered to nothing at its own edges. The
- * offset copy's solid middle sits exactly where the original's seams were and
- * covers them; the offset copy's own edges are transparent by the time they
- * reach the cell boundary, so they add no seam of their own. Nothing is
- * mirrored, so a wave stays a wave.
+ * This is the third option: the cell is drawn, then a half-offset copy of
+ * itself is laid over the join, feathered to nothing at its own edges, so the
+ * copy's solid middle covers the original's seam while its own edges add none.
+ * Nothing is mirrored, so a wave stays a wave.
+ *
+ * It is done in TWO PASSES, one per axis, and that is the whole trick. The
+ * first attempt offset diagonally -- four copies at plus and minus half a cell
+ * in both directions, each faded on all four sides -- and it did cover the
+ * corners, where some copy was always solid. It did not cover the MIDDLE of an
+ * edge: there every one of the four copies is at the end of its own feather and
+ * has faded to nothing, so the raw picture showed through at full strength on
+ * both sides of the join, left edge meeting right edge. The result was a hard
+ * bright line every six tiles across open water, in a cross through the middle
+ * of each edge, which is exactly the artefact the blending exists to remove.
+ *
+ * Offsetting along one axis at a time has no such gap, because the copy is
+ * feathered on two sides rather than four and runs the full length of the join
+ * it is covering. The second pass works on the result of the first rather than
+ * on the photograph, so closing the horizontal seam cannot reopen the vertical
+ * one.
  */
 function blendedPattern(c: CanvasRenderingContext2D, img: HTMLImageElement, tiles: number): CanvasPattern | null {
   const cell = T * tiles;
+  const half = cell / 2;
+  const feather = Math.round(cell * 0.22);
+
+  /** A copy of `src`, faded to nothing at two opposite edges and solid between. */
+  const faded = (src: CanvasImageSource, horizontal: boolean): HTMLCanvasElement => {
+    const o = document.createElement("canvas");
+    o.width = cell;
+    o.height = cell;
+    const k = o.getContext("2d")!;
+    k.drawImage(src, 0, 0, cell, cell);
+    k.globalCompositeOperation = "destination-in";
+    const g = horizontal ? k.createLinearGradient(0, 0, cell, 0) : k.createLinearGradient(0, 0, 0, cell);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(feather / cell, "rgba(0,0,0,1)");
+    g.addColorStop(1 - feather / cell, "rgba(0,0,0,1)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    k.fillStyle = g;
+    k.fillRect(0, 0, cell, cell);
+    return o;
+  };
+
   const base = document.createElement("canvas");
   base.width = cell;
   base.height = cell;
   const b = base.getContext("2d")!;
   b.drawImage(img, 0, 0, cell, cell);
 
-  // The same picture, faded out towards all four of its edges.
-  const soft = document.createElement("canvas");
-  soft.width = cell;
-  soft.height = cell;
-  const o = soft.getContext("2d")!;
-  o.drawImage(img, 0, 0, cell, cell);
-  o.globalCompositeOperation = "destination-in";
-  const feather = Math.round(cell * 0.28);
-  for (const horizontal of [true, false]) {
-    const g = horizontal ? o.createLinearGradient(0, 0, cell, 0) : o.createLinearGradient(0, 0, 0, cell);
-    g.addColorStop(0, "rgba(0,0,0,0)");
-    g.addColorStop(feather / cell, "rgba(0,0,0,1)");
-    g.addColorStop(1 - feather / cell, "rgba(0,0,0,1)");
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    o.fillStyle = g;
-    o.fillRect(0, 0, cell, cell);
-  }
+  // Across first: a copy shifted half a cell sideways, faded at its left and
+  // right only, so it is solid over the full height of the join it covers. Two
+  // placements, one each side, so the overlay wraps the cell instead of
+  // stopping at its edge.
+  const across = faded(img, true);
+  b.drawImage(across, -half, 0);
+  b.drawImage(across, half, 0);
 
-  // Four placements, so the overlay wraps round the cell rather than stopping
-  // at its edge.
-  b.globalCompositeOperation = "source-over";
-  const half = cell / 2;
-  for (const dx of [-half, half]) for (const dy of [-half, half]) b.drawImage(soft, dx, dy);
+  // Then down, taken from what the first pass produced. Snapshotted before
+  // anything is drawn over it, and already seamless left to right, so the
+  // vertical join stays closed.
+  const down = faded(base, false);
+  b.drawImage(down, 0, -half);
+  b.drawImage(down, 0, half);
   return c.createPattern(base, "repeat");
 }
 
@@ -605,15 +937,64 @@ export function bakeRegion(
   // not grass over the top. The pattern is drawn through the same transform, so
   // its phase follows world coordinates and neighbouring chunks line up.
   const pattern = grass ? grassPattern(c, grass) : null;
-  // One texture covers two map tiles for grass; water and ice get three, because
-  // a wave or a floe is a bigger thing than a blade of grass and repeating them
-  // every two tiles reads as wallpaper.
+  // One texture covers two map tiles for grass; water and ice get far more,
+  // because a wave or a floe is a bigger thing than a blade of grass and
+  // repeating them every two tiles reads as wallpaper. Ice gets the biggest
+  // cell of the three: pack ice is a few high-contrast shapes on a white field,
+  // and the eye finds a repeat in that much faster than in water, where there is
+  // nothing but gradient to recognise.
   const waterImg = waterTexture();
   const iceImg = iceTexture();
   // Six tiles rather than four, and blended rather than plainly repeated: a
   // bigger cell means the eye has further to go before it finds the repeat.
   const waterPat = waterImg ? blendedPattern(c, waterImg, 6) : null;
-  const icePat = iceImg ? blendedPattern(c, iceImg, 5) : null;
+  const icePat = iceImg ? blendedPattern(c, iceImg, 9) : null;
+
+  // One scratch tile, reused, for everything drawn through a feather mask.
+  //
+  // It has to be a separate surface: the mask works by erasing, and erasing on
+  // the bake itself would take the grass underneath with it -- which is the one
+  // thing the blend depends on being there.
+  const scratch = document.createElement("canvas");
+  scratch.width = T;
+  scratch.height = T;
+  const sc = scratch.getContext("2d")!;
+  // The patterns are rebuilt against the scratch context so their phase can be
+  // kept in world space through the translate below; a pattern follows the
+  // transform of whatever draws it.
+  const sWaterPat = waterImg ? blendedPattern(sc, waterImg, 6) : null;
+  const sIcePat = iceImg ? blendedPattern(sc, iceImg, 9) : null;
+
+  /**
+   * Draw one tile's material through its feather mask.
+   *
+   * `paint` is handed a context already translated so it can go on using world
+   * coordinates, which is what lets paintWater and friends stay as they are.
+   */
+  const feathered = (
+    x: number,
+    y: number,
+    same: (t: Tile) => boolean,
+    feather: number,
+    paint: (ctx: CanvasRenderingContext2D) => void,
+  ): void => {
+    const key = matchKey(map, x, y, same);
+    sc.setTransform(1, 0, 0, 1, 0, 0);
+    sc.clearRect(0, 0, T, T);
+    sc.save();
+    sc.translate(-x * T, -y * T);
+    paint(sc);
+    sc.restore();
+    // Every side matching means nothing to blend into: skip the mask entirely
+    // rather than pay for a full-strength one.
+    if ((key & 0xff) !== 0xff) {
+      sc.globalCompositeOperation = "destination-in";
+      sc.drawImage(featherMask(key, feather), 0, 0);
+      sc.globalCompositeOperation = "source-over";
+    }
+    c.drawImage(scratch, x * T, y * T, T, T);
+  };
+  const isSea = (t: Tile) => t === Tile.Water || t === Tile.Ice;
   // Thirty-five different square metres of ground, one chosen per tile from the
   // tile's own coordinates, instead of a single texture repeated. The old fill
   // was one drawImage for the whole region and this is one per tile, which is
@@ -628,6 +1009,37 @@ export function bakeRegion(
       c.drawImage(v, x * T, y * T, T + 1, T + 1);
       variants++;
     }
+  // And again, every one of them offset half a tile both ways and feathered.
+  //
+  // Thirty-five photographs of grass laid edge to edge is thirty-five slightly
+  // different greens meeting on ruler-straight lines, and what that looks like
+  // from above is a patchwork quilt -- the exact grid the variants were brought
+  // in to hide. The second pass is the same trick the sea uses on its own
+  // repeat: a copy shifted half a tile has its SOLID middle sitting over the
+  // seam, and its own edges have faded to nothing long before they reach
+  // another one.
+  //
+  // Where the offset copies all fade out, at the middle of a tile, what shows
+  // through is that tile's own variant at full strength -- so nothing is lost,
+  // and what happens along each seam is a cross-fade between the two
+  // photographs that meet there rather than a step between them.
+  if (variants > 0) {
+    const soft = document.createElement("canvas");
+    soft.width = T;
+    soft.height = T;
+    const so = soft.getContext("2d")!;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const v = spriteImage(grassVariantFor(x, y));
+        if (!v) continue;
+        so.globalCompositeOperation = "source-over";
+        so.clearRect(0, 0, T, T);
+        so.drawImage(v, 0, 0, T, T);
+        so.globalCompositeOperation = "destination-in";
+        so.drawImage(softTileMask(), 0, 0);
+        c.drawImage(soft, x * T + T / 2, y * T + T / 2, T, T);
+      }
+  }
   if (pattern && variants === 0) {
     c.fillStyle = pattern;
     c.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
@@ -636,21 +1048,32 @@ export function bakeRegion(
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
       const t = map.get(x, y);
-      if (t === Tile.Water) paintWater(c, map, x, y, seed, waterPat);
-      else if (t === Tile.Ice) paintIce(c, map, x, y, seed, icePat);
+      if (t === Tile.Water) feathered(x, y, isSea, FEATHER_SEA, (k) => paintWater(k, map, x, y, seed, sWaterPat));
+      else if (t === Tile.Ice) feathered(x, y, isSea, FEATHER_SEA, (k) => paintIce(k, map, x, y, seed, sIcePat));
       else if (!pattern) paintGround(c, map, x, y, seed, map.isHidden(x, y));
       else if (t === Tile.Dirt || t === Tile.Rock) {
         // Wash the grass rather than replacing it, so a dirt patch keeps the
-        // blade texture and reads as worn ground instead of a flat sticker.
+        // blade texture and reads as worn ground instead of a flat sticker --
+        // and feather the wash, or it is a flat sticker with a square edge,
+        // which is what it was.
         const wash = t === Tile.Dirt ? "rgba(96,74,44,0.82)" : "rgba(96,96,100,0.86)";
-        c.fillStyle = wash;
-        c.fillRect(x * T, y * T, T, T);
+        feathered(x, y, (n) => n === t, FEATHER_WASH, (k) => {
+          k.fillStyle = wash;
+          k.fillRect(x * T, y * T, T, T);
+        });
       }
     }
 
+  // `blendEdges` dithers flat palette colours along a boundary, which is the
+  // right tool when the ground is painted from that same palette and the wrong
+  // one over a photograph: its greens are brighter and flatter than the grass
+  // tiles, so every rock and dirt patch picked up a lit green halo. The feather
+  // mask does this job properly where there is a photograph to blend.
+  const painted = !pattern && variants === 0;
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
-      blendEdges(c, map, x, y, seed);
+      if (painted) blendEdges(c, map, x, y, seed);
+      paintBeach(c, map, x, y, seed);
       paintShore(c, map, x, y, seed);
     }
 
