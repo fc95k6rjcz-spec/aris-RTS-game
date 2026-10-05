@@ -1,4 +1,4 @@
-import { BUILDINGS } from "../data/buildings";
+import { BUILDINGS, buildingName } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
 import { UNITS } from "../data/units";
 import type { Building, Unit } from "../sim/entities";
@@ -22,6 +22,63 @@ import relicSword from "../assets/ui/relic_sword.jpg";
 import { darkness, lightAt } from "../sim/weather";
 import { grassReady } from "./grass";
 
+/**
+ * How tall a figure is drawn, as a multiple of what the art asks for.
+ *
+ * One number for every man, beast and machine on the field, so the roster keeps
+ * its own proportions -- a Knight stays taller than a Peasant -- while the whole
+ * cast changes size against the buildings together.
+ *
+ * It is here because the cast was too big for the architecture. A Footman was
+ * drawn one and a half tiles tall against a four-tile Town Hall, which puts his
+ * head level with its eaves: a village of giants standing among doll's houses.
+ * At 0.7 he comes up to about a fifth of the hall, which is what a man standing
+ * next to a hall actually looks like, and what makes a town read as a town
+ * rather than as a crowd with some scenery behind it.
+ */
+export const FIGURE_SCALE = 0.7;
+
+/**
+ * How wide a tree is drawn, as a multiple of its tile.
+ *
+ * Trees are placed one per tile, so this number alone decides whether a wood
+ * reads as trees or as a lawn. It was 1.5 to 1.85 -- every canopy overlapping
+ * both its neighbours -- and the result was a solid green mass with no trunks,
+ * no gaps and no floor: jungle, not forest. Just over one tile leaves daylight
+ * between the trunks, so a wood is a lot of individual trees and you can see
+ * the ground you are about to march across.
+ */
+const TREE_SPREAD = 1.04;
+
+/** Break a string into lines that fit `max` pixels at the context's font. */
+function wrapText(ctx: CanvasRenderingContext2D, text: string, max: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > max) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** A rounded rectangle path. `roundRect` is not universal; this one is. */
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
 import { goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
@@ -32,7 +89,27 @@ export interface Ghost {
   tx: number;
   ty: number;
   ok: boolean;
+  /**
+   * Why it cannot go here, if it cannot: the same sentence `placementError`
+   * would have produced on a click.
+   *
+   * Carried on the ghost so the card can say it while you are still deciding.
+   * It used to arrive only as a toast AFTER a refused click, which is the wrong
+   * order -- the player has already committed to a spot by then, and "Too close
+   * to a gold mine" is advice, not a verdict.
+   */
+  reason: string | null;
 }
+
+/**
+ * How far past the footprint the placement grid is drawn, in tiles.
+ *
+ * Two. The grid is not decoration: it is there so you can see what the ground
+ * around the site is like without having to drag the building over it and
+ * watch the colour change. One ring is too mean to read as a grid at all, and
+ * three starts to cover the thing you were looking at.
+ */
+const GRID_MARGIN = 2;
 
 const TILE_COLORS: Record<number, string> = {
   [Tile.Grass]: "#4f7d3a",
@@ -420,7 +497,7 @@ export class Renderer {
     const left = map.amount[map.idx(x, y)] ?? full;
     const wear = left >= full ? 0 : left > full * 0.5 ? 1 : left > full * 0.25 ? 2 : 3;
     const shrink = [1, 0.86, 0.71, 0.56][wear]!;
-    const w = bucket(s * (1.5 + (((h >> 8) & 15) / 15) * 0.35) * shrink);
+    const w = bucket(s * (TREE_SPREAD + (((h >> 8) & 15) / 15) * 0.26) * shrink);
     const th = Math.round((img.naturalHeight / img.naturalWidth) * w);
     const shadowH = Math.max(2, Math.round(s * 0.32));
     const pad = Math.max(0, Math.ceil(w * 0.32 - w / 2 + s * 0.1) + 2);
@@ -601,20 +678,33 @@ export class Renderer {
     const x1 = Math.min(map.width - 1, x0 + Math.ceil(this.cam.viewW / s) + 2);
     const y1 = Math.min(map.height - 1, y0 + Math.ceil(this.cam.viewH / s) + 2);
     const ctx = this.ctx;
-    // Half a tile of overlap each side, so neighbouring worn tiles run into one
-    // another and a route reads as a track rather than as a row of squares.
-    const size = bucket(s * 1.6);
+    // A little overlap, so neighbouring worn tiles run into one another and a
+    // route reads as a track rather than as a row of squares.
+    //
+    // It was 1.6 -- six tenths of a tile of spill on every side -- and that is
+    // the difference between a road and a quarry floor. Around a town hall,
+    // where every worker crosses every tile sooner or later, each stamp
+    // overlapped both its neighbours twice over and the whole base turned into
+    // one unbroken sheet of dark cobble with the buildings sitting in it. At
+    // 1.12 the spill is just enough to close the seam between two tiles on a
+    // route, and ground that is merely near a path stays grass.
+    const size = bucket(s * 1.12);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = map.idx(x, y);
         const w = map.wear[i]!;
-        if (w < 18 || map.isHidden(x, y)) continue;
+        // Eighteen is about one man walking past once. A road is somewhere
+        // people GO, so the bar is higher now and the fade below is longer:
+        // ground crossed occasionally stays green, and what you see is where
+        // the traffic actually is.
+        if (w < 46 || map.isHidden(x, y)) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
         const g = groundFor(w, map.mud[i]!, paved, rain);
         // Fade in rather than appear: ground one footfall from bare grass should
-        // not be a fully drawn path.
-        const a = Math.min(1, (w - 18) / 90) * 0.92;
+        // not be a fully drawn path. Capped below full, so even a hard-worn
+        // track is the grass showing through rather than a tile swapped out.
+        const a = Math.min(1, (w - 46) / 120) * 0.82;
         const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
         const px = Math.round(p.x - size / 2);
         const py = Math.round(p.y - size / 2);
@@ -657,7 +747,7 @@ export class Renderer {
       this.missedArt = true;
       return null;
     }
-    const h = s * sheet.height;
+    const h = s * sheet.height * FIGURE_SCALE;
     const w = (img.naturalWidth / img.naturalHeight) * h;
     const ctx = this.ctx;
     ctx.save();
@@ -1137,26 +1227,162 @@ export class Renderer {
     }
   }
 
+  /**
+   * Siting a building: the grid, the ghost standing on it, and the card.
+   *
+   * The old version drew a flat wash of green over the footprint and the
+   * building's own art UNDERNEATH it, so the thing you were placing was a pale
+   * smudge inside a green rectangle and there was no grid at all -- nothing
+   * told you the ground was made of squares, or which squares were any good.
+   *
+   * Three changes, in the order they matter:
+   *
+   *   - the lattice is drawn, cell by cell, a couple of tiles past the
+   *     footprint, so the shape of the ground around the site is visible while
+   *     you are still choosing;
+   *   - the art goes ON TOP of the tint rather than under it, and the tint is
+   *     light enough to read through. You are siting a lumber mill, so you
+   *     should be able to see a lumber mill;
+   *   - and a card says what it is, what it costs, and -- when it cannot go
+   *     here -- why not, while you can still move it.
+   */
   private drawGhost(g: Ghost): void {
     const ctx = this.ctx;
     const s = this.cam.zoom;
     const d = BUILDINGS[g.def]!;
     const p = this.cam.toScreen(g.tx * SUB, g.ty * SUB);
     const w = d.size * s;
-    ctx.globalAlpha = 0.55;
-    const faction = this.world.players.get(g.owner)!.faction;
-    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick });
-    ctx.globalAlpha = 1;
-    // Per-tile validity overlay.
-    for (let y = 0; y < d.size; y++)
-      for (let x = 0; x < d.size; x++) {
-        const ok = this.world.map.isBuildable(g.tx + x, g.ty + y);
-        ctx.fillStyle = ok ? "rgba(80,255,80,0.25)" : "rgba(255,60,60,0.45)";
+
+    ctx.save();
+    // ── the lattice ──
+    //
+    // Hairlines on a half-pixel so they come out crisp rather than as a
+    // two-pixel smear, and the whole grid under one path per colour so a 7x7
+    // region is two strokes rather than ninety-eight.
+    const lo = -GRID_MARGIN;
+    const hi = d.size + GRID_MARGIN;
+    for (let y = lo; y < hi; y++) {
+      for (let x = lo; x < hi; x++) {
+        const tx = g.tx + x;
+        const ty = g.ty + y;
+        const inside = x >= 0 && y >= 0 && x < d.size && y < d.size;
+        const free = this.world.map.inBounds(tx, ty) && this.world.map.isBuildable(tx, ty);
+        // Inside the footprint the answer matters, so it is stated plainly.
+        // Outside it this is context, and context should not shout.
+        ctx.fillStyle = inside
+          ? free ? "rgba(96,230,110,0.3)" : "rgba(255,70,60,0.42)"
+          : free ? "rgba(96,230,110,0.09)" : "rgba(255,70,60,0.14)";
         ctx.fillRect(p.x + x * s, p.y + y * s, s, s);
       }
-    ctx.strokeStyle = g.ok ? "#9cff9c" : "#ff6b6b";
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,150,70,0.5)";
+    ctx.beginPath();
+    for (let i = lo; i <= hi; i++) {
+      const gx = Math.round(p.x + i * s) + 0.5;
+      const gy = Math.round(p.y + i * s) + 0.5;
+      ctx.moveTo(gx, Math.round(p.y + lo * s));
+      ctx.lineTo(gx, Math.round(p.y + hi * s));
+      ctx.moveTo(Math.round(p.x + lo * s), gy);
+      ctx.lineTo(Math.round(p.x + hi * s), gy);
+    }
+    ctx.stroke();
+
+    // ── the building ──
+    const faction = this.world.players.get(g.owner)!.faction;
+    ctx.globalAlpha = 0.85;
+    artFor(faction, g.def)?.({ ctx, faction, def: g.def, x: p.x, y: p.y, w, color: g.ok ? "#9cff9c" : "#ff6b6b", progress: 1, tick: this.world.tick });
+    ctx.globalAlpha = 1;
+
+    // The footprint itself, picked out of the lattice.
+    ctx.strokeStyle = g.ok ? "rgba(140,255,150,0.95)" : "rgba(255,110,100,0.95)";
     ctx.lineWidth = 2;
-    ctx.strokeRect(p.x, p.y, w, w);
+    ctx.strokeRect(Math.round(p.x) + 1, Math.round(p.y) + 1, Math.round(w) - 2, Math.round(w) - 2);
+    ctx.restore();
+
+    this.drawPlacementCard(g, d, p, w);
+  }
+
+  /**
+   * The card beside the site: what it is, what it costs, and why not.
+   *
+   * Drawn on the canvas next to the building rather than parked in the bottom
+   * bar, because that is where the player is looking while they are siting it.
+   * It flips to the other side of the footprint when it would otherwise hang
+   * off the edge of the screen.
+   */
+  private drawPlacementCard(g: Ghost, d: (typeof BUILDINGS)[string], p: { x: number; y: number }, w: number): void {
+    const ctx = this.ctx;
+    const W = 232;
+    const pad = 12;
+    ctx.save();
+    ctx.font = "600 13px Cinzel, Georgia, serif";
+    const title = buildingName(g.def, this.world.players.get(g.owner)!.faction).toUpperCase();
+    ctx.font = "11px 'EB Garamond', Georgia, serif";
+    const body = wrapText(ctx, d.description, W - pad * 2);
+    const note = g.ok ? "Click to place · right-click to cancel" : (g.reason ?? "Cannot build there");
+    // Measured in the font it is DRAWN in. The note is set in the mono face,
+    // which is wider than the serif the body uses, so measuring it with the
+    // serif still in the context let it run off the end of the card.
+    ctx.font = "600 11px 'IBM Plex Mono', ui-monospace, monospace";
+    const noteLines = wrapText(ctx, note, W - pad * 2);
+    const H = pad + 18 + 20 + body.length * 15 + 10 + noteLines.length * 15 + pad;
+
+    // Beside the footprint, and on whichever side there is room for it.
+    let x = p.x + w + 14;
+    if (x + W > this.cam.viewW - 8) x = p.x - W - 14;
+    x = Math.max(8, Math.min(this.cam.viewW - W - 8, x));
+    const y = Math.max(8, Math.min(this.cam.viewH - H - 8, p.y));
+
+    roundRect(ctx, x, y, W, H, 4);
+    ctx.fillStyle = "rgba(10,10,14,0.9)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(216,179,90,0.45)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    let ty = y + pad + 12;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#f2e6c8";
+    ctx.font = "600 13px Cinzel, Georgia, serif";
+    ctx.fillText(title, x + pad, ty);
+    ty += 20;
+
+    // Cost, in the resources it actually asks for.
+    const parts: Array<[string, number, string]> = [];
+    if (d.cost.gold) parts.push(["#e8c15e", d.cost.gold, "gold"]);
+    if (d.cost.lumber) parts.push(["#9ec07a", d.cost.lumber, "lumber"]);
+    if (d.cost.oil) parts.push(["#8fa6c4", d.cost.oil, "oil"]);
+    if (d.cost.food) parts.push(["#d08a55", d.cost.food, "food"]);
+    let cx = x + pad;
+    ctx.font = "600 11px 'IBM Plex Mono', ui-monospace, monospace";
+    for (const [col, n, label] of parts) {
+      ctx.fillStyle = col;
+      ctx.fillRect(cx, ty - 7, 7, 7);
+      cx += 11;
+      const text = `${n}`;
+      ctx.fillText(text, cx, ty);
+      cx += ctx.measureText(text).width + 3;
+      ctx.fillStyle = "#7e786a";
+      ctx.fillText(label, cx, ty);
+      cx += ctx.measureText(label).width + 10;
+    }
+    ty += 16;
+
+    ctx.font = "11px 'EB Garamond', Georgia, serif";
+    ctx.fillStyle = "#9a927e";
+    for (const line of body) {
+      ctx.fillText(line, x + pad, ty);
+      ty += 15;
+    }
+    ty += 8;
+    ctx.fillStyle = g.ok ? "#8fe08f" : "#ff8a7a";
+    ctx.font = "600 11px 'IBM Plex Mono', ui-monospace, monospace";
+    for (const line of noteLines) {
+      ctx.fillText(line, x + pad, ty);
+      ty += 15;
+    }
+    ctx.restore();
   }
 
   // ───────────────────────────── units ─────────────────────────────
@@ -1215,7 +1441,7 @@ export class Renderer {
     }
     const player = this.world.players.get(u.owner)!;
     const def = UNITS[u.def]!;
-    const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1);
+    const h = s * (def.domain === "sea" ? 1.2 : def.domain === "air" ? 1.15 : 1.1) * FIGURE_SCALE;
     const moving = u.path.length > 0;
     // Walk cycle: ~0.5 s per stride, offset per unit so crowds don't march in lockstep.
     const phase = (((this.world.tick + alpha) / 10 + u.id * 0.37) % 1 + 1) % 1;
@@ -1378,7 +1604,7 @@ export class Renderer {
       // Topple in the direction it was facing, and sink as it fades.
       ctx.rotate((c.facing >= 4 ? -1 : 1) * k * (Math.PI / 2) * 0.85);
       if (view) {
-        const h = s * (UNIT_VIEW_HEIGHT[c.def] ?? 1.5);
+        const h = s * (UNIT_VIEW_HEIGHT[c.def] ?? 1.5) * FIGURE_SCALE;
         const w = (view.img.width / view.img.height) * h;
         if (view.mirror) ctx.scale(-1, 1);
         ctx.drawImage(view.img, -w / 2, -h, w, h);
@@ -1424,7 +1650,7 @@ export class Renderer {
     const view = unitViewSprite(u.def, u.facing, color);
     if (!view) return null;
     const ctx = this.ctx;
-    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? 1.5);
+    const h = s * (UNIT_VIEW_HEIGHT[u.def] ?? 1.5) * FIGURE_SCALE;
     const w = (view.img.width / view.img.height) * h;
     // Wheeled things roll rather than step, so they get the sway and no bounce.
     const heavy = UNIT_VIEW_HEIGHT[u.def] !== undefined;
@@ -1484,7 +1710,7 @@ export class Renderer {
     const back = u.facing >= 1 && u.facing <= 3 && moving;
     const sprite = peasantSprite(kind, back, color);
     if (!sprite) return null;
-    const h = s * 1.35;
+    const h = s * 1.35 * FIGURE_SCALE;
     const w = (sprite.width / sprite.height) * h;
     const ctx = this.ctx;
     const g = settings.animations ? gait(phase, moving, s) : NO_GAIT;

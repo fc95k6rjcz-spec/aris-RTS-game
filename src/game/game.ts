@@ -878,7 +878,10 @@ export class Game {
     const w = this.cam.toWorld(this.mouse.x, this.mouse.y);
     const tx = Math.floor(w.x / SUB - d.size / 2 + 0.5);
     const ty = Math.floor(w.y / SUB - d.size / 2 + 0.5);
-    return { def: this.buildMode, owner: this.player, tx, ty, ok: this.world.placementError(this.player, this.buildMode, tx, ty) === null };
+    // The reason travels with the ghost, so the card can say why while the
+    // player can still do something about it.
+    const reason = this.world.placementError(this.player, this.buildMode, tx, ty);
+    return { def: this.buildMode, owner: this.player, tx, ty, ok: reason === null, reason };
   }
 
   private tryPlace(): void {
