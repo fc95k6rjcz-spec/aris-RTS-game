@@ -348,6 +348,25 @@ export class Game {
     this.net.close();
     this.net = new Lockstep(this.transport ?? new LocalTransport());
     this.net.start();
+    // The chrome goes up BEFORE the camera is aimed, and that order is the
+    // whole point of these three lines.
+    //
+    // On the front screen the top and bottom bars are `display: none` and the
+    // canvas owns the whole window. Aiming the camera against that viewport and
+    // leaving the frame loop to put the bars back a sixtieth of a second later
+    // centred the view on a window that was about to lose two hundred and sixty
+    // pixels of height, so what you actually got was a camera a hundred and
+    // thirty pixels too high -- and then clamped into the map's corner on top of
+    // that. In the crowning opening, where the whole map is fog and the only
+    // thing to see is one man standing in his own small pool of sight, that put
+    // him off to one side underneath the objective card. It reads exactly like
+    // the game having failed to start, which is a fair reading.
+    //
+    // Reading `clientHeight` in `resize` flushes the layout, so by the time
+    // `centerOn` runs the viewport is the one the match will actually be played
+    // in.
+    this.shownMenu = false;
+    this.shell?.setPlaying(true);
     this.resize();
     const home = this.world.map.starts[this.player === 2 ? 1 : 0] ?? this.world.map.starts[0]!;
     this.cam.centerOn((home.x + 1) * SUB, (home.y + 1) * SUB);
@@ -361,6 +380,16 @@ export class Game {
     if (this.setup?.crowning ?? settings.crowning) {
       this.proclaim("BEWARE THE DEEP WOOD", "Your clan's weapon lies out past the treeline. Those who wander alone do not always come back.", 9000);
     }
+    // Hand the player whatever he opened with, already selected.
+    //
+    // Selection is local state -- it issues nothing and the simulation never
+    // reads it -- so this is courtesy rather than a rule. It is worth doing
+    // because of what the first second of a match looks like: an unexplored map
+    // is black, a man is a small figure now, and the command card reading
+    // NOTHING SELECTED over all that is the same picture as a game that failed
+    // to start. Opening with him under a selection ring, named in the card, says
+    // plainly that you are in and this is your man.
+    this.selected = new Set(this.world.units().filter((u) => u.owner === this.player).map((u) => u.id));
     this.last = performance.now();
     this.acc = 0;
   }

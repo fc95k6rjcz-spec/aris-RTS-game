@@ -153,21 +153,31 @@ export function phaseName(p: Phase): string {
  * is what makes a torch worth looking at; dawn and dusk are warm and light
  * because they are brief and should be pretty rather than punishing.
  *
+ * The top of the cycle is FIRST LIGHT, not midnight, and these keyframes used
+ * to say otherwise. `phaseAt` has always called the opening fifth of a day
+ * "sunrise" while the wash sat on its darkest blue until a third of the way
+ * through, so the top bar read DAWN over a screen painted midnight -- and,
+ * worse, every match opened at the single darkest tick the game has. A player
+ * entering the crowning opening got an unexplored map, which is black, under
+ * the heaviest night wash there is, with one unlit man somewhere in it. The two
+ * now agree: tick zero is sunrise, noon is the middle, and the night sits at
+ * the end of the day where the clock says it does.
+ *
  * Purely a wash over the picture. It does NOT touch sight ranges or anything
  * else the simulation reads -- a night that blinded you would be a real
  * mechanic and wants designing, balancing and testing rather than arriving as a
  * side effect of a paint job.
  */
 const KEYS: Array<{ at: number; r: number; g: number; b: number; a: number }> = [
-  { at: 0.0, r: 12, g: 20, b: 52, a: 0.52 },
-  { at: 0.16, r: 96, g: 62, b: 74, a: 0.34 },
-  { at: 0.24, r: 255, g: 150, b: 80, a: 0.2 },
-  { at: 0.34, r: 255, g: 214, b: 170, a: 0.06 },
-  { at: 0.6, r: 255, g: 236, b: 210, a: 0.03 },
-  { at: 0.72, r: 255, g: 140, b: 66, a: 0.2 },
-  { at: 0.82, r: 118, g: 66, b: 88, a: 0.36 },
-  { at: 0.92, r: 12, g: 20, b: 52, a: 0.52 },
-  { at: 1.0, r: 12, g: 20, b: 52, a: 0.52 },
+  { at: 0.0, r: 255, g: 150, b: 80, a: 0.18 },
+  { at: 0.1, r: 255, g: 190, b: 130, a: 0.1 },
+  { at: 0.22, r: 255, g: 214, b: 170, a: 0.05 },
+  { at: 0.45, r: 255, g: 236, b: 210, a: 0.03 },
+  { at: 0.66, r: 255, g: 200, b: 150, a: 0.08 },
+  { at: 0.74, r: 255, g: 140, b: 66, a: 0.22 },
+  { at: 0.8, r: 118, g: 66, b: 88, a: 0.36 },
+  { at: 0.9, r: 12, g: 20, b: 52, a: 0.52 },
+  { at: 1.0, r: 255, g: 150, b: 80, a: 0.18 },
 ];
 
 /**
