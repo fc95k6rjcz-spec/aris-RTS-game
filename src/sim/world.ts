@@ -224,6 +224,13 @@ export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from thi
 /** Gold left in a seam when the miners start to worry. */
 const LOW_MINE_GOLD = 1500;
 
+/** Orcs all fly the war-banner red; Humans take the realm colours, never that red. */
+const ORC_RED = "#dc2626";
+function seatColour(id: PlayerId, side: "human" | "orc"): string {
+  if (side === "orc") return ORC_RED;
+  const humans = REALM_COLOURS.filter((c) => c !== "#ef4444");
+  return humans[(id - 1) % humans.length]!;
+}
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
@@ -928,7 +935,7 @@ export class World {
    * away -- is given a fresh start: a Town Hall, four workers and a King,
    * beside a gold mine nobody has built near, well away from everyone else.
    */
-  claimSeat(peer: string): PlayerId | null {
+  claimSeat(peer: string, side: "human" | "orc" = "human"): PlayerId | null {
     const had = this.realmSeats.get(peer);
     if (had !== undefined && this.players.has(had)) {
       const alive = [...this.entities.values()].some((e) => e.owner === had && (e.kind === "building" || UNITS[e.def]!.canBuild));
@@ -940,10 +947,13 @@ export class World {
       id = 1;
       while (this.players.has(id) || id === WILD) id++;
       if (id > 60) return null;
-      this.addPlayer(id, Faction.Human, REALM_COLOURS[(id - 1) % REALM_COLOURS.length]!);
+      this.addPlayer(id, side === "orc" ? Faction.Orc : Faction.Human, seatColour(id, side));
     } else {
+      // A fresh start may be on the other side: the side is picked on the way in.
       const p = this.players.get(id)!;
       Object.assign(p, { ...START_PURSE, research: {} });
+      const f = side === "orc" ? Faction.Orc : Faction.Human;
+      if (p.faction !== f) { p.faction = f; p.color = seatColour(id, side); }
     }
     this.realmSeats.set(peer, id);
     this.seatCamp(id);
@@ -959,7 +969,7 @@ export class World {
    * buildings fall to ruin and its people scatter -- and you arrive afresh
    * somewhere else, with the same banner.
    */
-  restartSeat(id: PlayerId): void {
+  restartSeat(id: PlayerId, side?: "human" | "orc"): void {
     if (!this.realm || !this.players.has(id) || id === WILD) return;
     for (const e of [...this.entities.values()]) {
       if (e.owner !== id) continue;
@@ -971,6 +981,11 @@ export class World {
     }
     const p = this.players.get(id)!;
     Object.assign(p, { ...START_PURSE, research: {} });
+    // Starting again is the one moment a kingdom may change sides.
+    if (side) {
+      const f = side === "orc" ? Faction.Orc : Faction.Human;
+      if (p.faction !== f) { p.faction = f; p.color = seatColour(id, side); }
+    }
     this.homes.delete(id);
     this.seatCamp(id);
     this.updateVision(true);
@@ -1928,11 +1943,11 @@ export class World {
         break;
       }
       case "joinRealm": {
-        this.claimSeat(c.peer);
+        this.claimSeat(c.peer, c.faction === "orc" ? "orc" : "human");
         break;
       }
       case "restartSeat": {
-        this.restartSeat(c.player);
+        this.restartSeat(c.player, c.faction === "orc" ? "orc" : c.faction === "human" ? "human" : undefined);
         break;
       }
       case "garrison": {
