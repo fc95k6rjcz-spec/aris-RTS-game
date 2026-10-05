@@ -68,7 +68,7 @@ export interface RealmHost {
   load(packed: string, n: number): Promise<void>;
   checksum(): number;
   /** Keeper only: seat a newcomer in the local world right now, before copying it for them. */
-  claim(seat: string): void;
+  claim(seat: string, faction: "human" | "orc"): void;
   /** Something the player should know ("You are the keeper", "Connection lost"). */
   status(text: string): void;
 }
@@ -113,6 +113,8 @@ export class RealmNet {
   /** When this tab arrived, as the keeper election's tie-breaker order. */
   readonly since = Date.now();
   readonly seat = seatId();
+  /** The side this player walks in on, if they are new (or starting again). */
+  faction: "human" | "orc" = "human";
 
   private channel: RealtimeChannel | null = null;
   private db: SupabaseClient | null = null;
@@ -137,7 +139,7 @@ export class RealmNet {
   /** Keeper-in-waiting: collecting turns from peers who heard more than we did. */
   private adoptingUntil = 0;
   /** Keeper: newcomers waiting for a copy of the world. */
-  private newcomers: Array<{ tab: string; seat: string }> = [];
+  private newcomers: Array<{ tab: string; seat: string; faction?: "human" | "orc" }> = [];
   private snaps = new Map<string, { parts: string[]; got: number; n: number }>();
   private peers: Array<{ tab: string; since: number }> = [];
   /**
@@ -184,7 +186,7 @@ export class RealmNet {
     this.channel = ch;
     ch.on("broadcast", { event: "turn" }, ({ payload }) => this.onTurn(payload as RealmTurn));
     ch.on("broadcast", { event: "orders" }, ({ payload }) => this.onOrders(payload as { id: string; commands: Command[] }));
-    ch.on("broadcast", { event: "hello" }, ({ payload }) => this.onHello(payload as { tab: string; seat: string }));
+    ch.on("broadcast", { event: "hello" }, ({ payload }) => this.onHello(payload as { tab: string; seat: string; faction?: unknown }));
     ch.on("broadcast", { event: "snap" }, ({ payload }) => void this.onSnap(payload as { to: string; id: string; i: number; of: number; n: number; data: string }));
     ch.on("broadcast", { event: "need" }, ({ payload }) => this.onNeed(payload as { from: number; to?: string }));
     ch.on("broadcast", { event: "keeper" }, ({ payload }) => this.onKeeperAnnounce(payload as { tab: string; next: number }));
@@ -225,7 +227,7 @@ export class RealmNet {
     this.keeper = false;
     this.joining = true;
     this.inbox.clear();
-    this.send("hello", { tab: this.tab, seat: this.seat });
+    this.send("hello", { tab: this.tab, seat: this.seat, faction: this.faction });
     this.host.status("Entering the realm…");
   }
 
@@ -326,9 +328,10 @@ export class RealmNet {
     this.gatheredIds.push(o.id);
   }
 
-  private onHello(h: { tab: string; seat: string }): void {
+  private onHello(h: { tab: string; seat: string; faction?: unknown }): void {
     if (!this.keeper || !h || typeof h.tab !== "string" || typeof h.seat !== "string") return;
-    if (!this.newcomers.some((n) => n.tab === h.tab)) this.newcomers.push(h);
+    const faction = h.faction === "orc" ? "orc" : "human";
+    if (!this.newcomers.some((n) => n.tab === h.tab)) this.newcomers.push({ tab: h.tab, seat: h.seat, faction });
   }
 
   private async onSnap(s: { to: string; id: string; i: number; of: number; n: number; data: string }): Promise<void> {
@@ -383,7 +386,7 @@ export class RealmNet {
           this.joining = false;
           this.keeper = true;
           this.host.status("Nobody answered — you have the realm to yourself");
-        } else this.send("hello", { tab: this.tab, seat: this.seat });
+        } else this.send("hello", { tab: this.tab, seat: this.seat, faction: this.faction });
       }
     }
   }
@@ -449,8 +452,8 @@ export class RealmNet {
     // in it; the same order in the ledger seats them on every other machine
     // (and is a no-op here, and on theirs). Seating goes first in the turn so
     // every machine does it at the same moment.
-    for (const a of arriving) this.host.claim(a.seat);
-    const seating: Command[] = arriving.map((a) => ({ type: "joinRealm", player: 0, peer: a.seat }));
+    for (const a of arriving) this.host.claim(a.seat, a.faction ?? "human");
+    const seating: Command[] = arriving.map((a) => ({ type: "joinRealm", player: 0, peer: a.seat, faction: a.faction ?? "human" }));
     const turn: RealmTurn = { n: this.next, commands: [...seating, ...this.gathered], took: this.gatheredIds };
     if (sum !== undefined) turn.sum = sum;
     for (const id of this.gatheredIds) this.takenIds.add(id);
