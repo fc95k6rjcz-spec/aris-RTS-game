@@ -1,3 +1,4 @@
+import { createWarAtlas } from '../ui/warAtlas';
 import { LEVELLED, levelDef } from "../data/levels";
 import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, type SavedGame } from './saveGame';
 import { createGamePanel } from '../ui/createGamePanel';
@@ -1819,49 +1820,8 @@ export class Game {
   /** The campaign map: ten chapters of ten battles, locked until the one before is won. */
   private openWars(): void {
     this.warsBox?.remove();
-    const progress = loadWarProgress();
-    const box = document.createElement("div");
-    box.style.cssText = "position:fixed;inset:0;z-index:48;overflow:auto;background:rgba(8,8,10,0.94);color:#e9e2cf;font-family:Georgia,serif;padding:28px 16px";
-    const inner = document.createElement("div");
-    inner.style.cssText = "max-width:880px;margin:0 auto";
-    const head = document.createElement("div");
-    head.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:18px";
-    const h = document.createElement("div");
-    const total = Object.values(progress).reduce((a, n) => a + n, 0);
-    h.innerHTML = `<div style="font-size:30px;letter-spacing:.12em;color:#e8c56b">WARS</div><div style="font-size:14px;color:#a89f88">A hundred battles. ★ ${total} / ${BATTLE_COUNT * 3}</div>`;
-    const back = document.createElement("button");
-    back.textContent = "Back";
-    back.style.cssText = "padding:8px 20px;font:600 14px Georgia,serif;cursor:pointer;border:1px solid #b89a52;background:transparent;color:#e8c56b";
-    back.onclick = () => { box.remove(); this.warsBox = null; };
-    head.append(h, back);
-    inner.appendChild(head);
-    CHAPTERS.forEach((name, ci) => {
-      const row = document.createElement("div");
-      row.style.cssText = "margin:0 0 16px";
-      const t = document.createElement("div");
-      t.textContent = `Chapter ${ci + 1} · ${name} · up to level ${ci + 1}`;
-      t.style.cssText = "font-size:15px;color:#cdb77a;margin-bottom:6px;letter-spacing:.04em";
-      const grid = document.createElement("div");
-      grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px";
-      for (let k = 1; k <= 10; k++) {
-        const id = ci * 10 + k;
-        const b = battleById(id);
-        const open = !!b && battleUnlocked(id, progress);
-        const stars = progress[id] ?? 0;
-        const btn = document.createElement("button");
-        btn.innerHTML = `<div style="font-size:18px">${id}</div><div style="font-size:12px;color:${stars ? "#f3cf5a" : "#6d6656"}">${b ? (stars ? "★".repeat(stars) + "☆".repeat(3 - stars) : open ? "new" : "🔒") : "soon"}</div>`;
-        btn.title = b ? b.title : "Coming soon";
-        btn.disabled = !open;
-        btn.style.cssText = `padding:8px 4px;font-family:Georgia,serif;border:1px solid ${open ? "#b89a52" : "#3a362d"};background:${stars ? "#2a2413" : open ? "#1b1a16" : "#121210"};color:${open ? "#e9e2cf" : "#5a5446"};cursor:${open ? "pointer" : "default"}`;
-        if (open && b) btn.onclick = () => this.briefBattle(b);
-        grid.appendChild(btn);
-      }
-      row.append(t, grid);
-      inner.appendChild(row);
-    });
-    box.appendChild(inner);
-    document.body.appendChild(box);
-    this.warsBox = box;
+    this.warsBox=createWarAtlas(loadWarProgress(),b=>this.briefBattle(b),()=>{this.warsBox=null;});
+    document.body.append(this.warsBox);
   }
 
   private briefBattle(b: Battle): void {
