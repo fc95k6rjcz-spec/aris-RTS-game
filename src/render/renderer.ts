@@ -50,6 +50,20 @@ export const FIGURE_SCALE = 0.7;
  */
 const TREE_SPREAD = 1.04;
 
+/**
+ * The wear a laid road is DRAWN at, whatever wear it actually carries.
+ *
+ * A road is pinned near the top of the wear scale so that it moves people at
+ * road speed, but the top of that scale is the look of ground that has been
+ * churned by constant traffic -- dark, broken, half mud. That is the right
+ * picture for the yard outside a busy town hall and the wrong one for a road,
+ * which is a made surface: packed, even, and a lighter colour than the mess
+ * around it. Drawing it at the middle of the scale separates the two, so a road
+ * reads as something somebody built rather than as the worst-trampled ground on
+ * the map.
+ */
+const ROAD_SURFACE = 140;
+
 /** Break a string into lines that fit `max` pixels at the context's font. */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, max: number): string[] {
   const words = text.split(/\s+/);
@@ -693,18 +707,20 @@ export class Renderer {
       for (let x = x0; x <= x1; x++) {
         const i = map.idx(x, y);
         const w = map.wear[i]!;
+        const road = map.road[i] === 1;
         // Eighteen is about one man walking past once. A road is somewhere
         // people GO, so the bar is higher now and the fade below is longer:
         // ground crossed occasionally stays green, and what you see is where
-        // the traffic actually is.
-        if (w < 46 || map.isHidden(x, y)) continue;
+        // the traffic actually is. A laid road is never faded in -- it was
+        // built, so it is there from the day it was built.
+        if ((!road && w < 46) || map.isHidden(x, y)) continue;
         const t = map.get(x, y);
         if (t !== Tile.Grass && t !== Tile.Dirt) continue;
-        const g = groundFor(w, map.mud[i]!, paved, rain);
+        const g = groundFor(road ? ROAD_SURFACE : w, map.mud[i]!, paved, rain);
         // Fade in rather than appear: ground one footfall from bare grass should
         // not be a fully drawn path. Capped below full, so even a hard-worn
         // track is the grass showing through rather than a tile swapped out.
-        const a = Math.min(1, (w - 46) / 120) * 0.82;
+        const a = road ? 0.95 : Math.min(1, (w - 46) / 120) * 0.82;
         const p = this.cam.toScreen(x * SUB + SUB / 2, y * SUB + SUB / 2);
         const px = Math.round(p.x - size / 2);
         const py = Math.round(p.y - size / 2);

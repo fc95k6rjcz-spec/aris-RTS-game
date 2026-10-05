@@ -153,6 +153,25 @@ const BEAST_AGGRO = 6;
 /** How far a beast will drift from where it was born, in tiles. */
 const BEAST_RANGE = 9;
 
+/**
+ * How far a new building will look for a neighbour to connect to, in tiles.
+ *
+ * Twenty-five. Far enough to join a mill at the treeline to the town it feeds,
+ * short enough that an outpost across the valley is an outpost rather than the
+ * far end of a road nobody asked for.
+ */
+const ROAD_REACH = 25;
+
+/**
+ * The wear a laid road starts at.
+ *
+ * Near the top of the scale, so a road is drawn as hard ground from the day it
+ * is built rather than fading in over the next ten minutes of traffic -- it was
+ * made, not worn. Short of 255 so a road in daily use still darkens a little
+ * where the carts actually run.
+ */
+const ROAD_WEAR = 215;
+
 /** A farm yields this much food, this often. */
 const FARM_FOOD = 10;
 const FARM_FOOD_EVERY = 20 * 6;
@@ -569,6 +588,8 @@ export class World {
   readonly campfires: Campfire[] = [];
   /** Buildings that have already had a hearth laid beside them. */
   private readonly hearths = new Set<EntityId>();
+  /** Buildings that have already been joined to the road network. */
+  private readonly roaded = new Set<EntityId>();
   /**
    * When the next dragon comes over the hills. Negative until the first tick
    * sets it, so that "not scheduled yet" and "scheduled for tick zero" are
@@ -841,6 +862,57 @@ export class World {
       }
       if (clear) place(tx, ty, false);
     }
+  }
+
+  /**
+   * A finished building sends a road to its nearest neighbour.
+   *
+   * This is what turns a scatter of huts into a town. Left to itself the ground
+   * only ever showed where feet had happened to fall, which is a record of
+   * traffic rather than a plan -- and a base read as buildings dropped on a
+   * lawn. One road per building, laid to whichever of your own buildings is
+   * closest, is enough: each new structure hangs off the nearest existing one,
+   * so the network grows as a tree and ends up looking like somebody laid it
+   * out, without anybody having to.
+   *
+   * Pathfound rather than drawn straight, so a road goes round the lake and
+   * round the buildings already standing instead of through them. It is the
+   * same search a unit uses to walk there, which is the point: the road ends up
+   * on the route people were going to take anyway.
+   */
+  private layRoad(b: Building): void {
+    if (this.roaded.has(b.id)) return;
+    this.roaded.add(b.id);
+    const from = centerOf(b);
+    let best: Building | null = null;
+    let bestD = Infinity;
+    for (const o of this.buildings()) {
+      if (o.id === b.id || o.owner !== b.owner || !o.complete) continue;
+      const c = centerOf(o);
+      const d = Math.hypot(c.x - from.x, c.y - from.y);
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    if (!best || bestD > ROAD_REACH * SUB) return;
+    // From the doorstep of one to the doorstep of the other: a building's own
+    // tiles are occupied, so a route between two centres has nowhere to start.
+    const a = this.findSpawnTile(b, "land");
+    const z = this.findSpawnTile(best, "land");
+    if (!a || !z) return;
+    for (const [x, y] of findPath(this.map, a[0], a[1], z[0], z[1], "land")) this.pave(x, y);
+    this.pave(a[0], a[1]);
+  }
+
+  /** Lay one tile of road, where the ground will take one. */
+  private pave(x: number, y: number): void {
+    if (!this.map.inBounds(x, y)) return;
+    const t = this.map.get(x, y);
+    if (t !== Tile.Grass && t !== Tile.Dirt) return;
+    const i = this.map.idx(x, y);
+    this.map.road[i] = 1;
+    this.map.wear[i] = Math.max(this.map.wear[i]!, ROAD_WEAR);
   }
 
   /**
@@ -2801,6 +2873,9 @@ export class World {
     const slice = Math.ceil(n / DECAY_SLICE);
     const from = (this.tick % DECAY_SLICE) * slice;
     for (let i = from; i < Math.min(n, from + slice); i++) {
+      // A road was built. It does not grow over because nobody happened to
+      // walk it this minute.
+      if (this.map.road[i]) continue;
       if (this.map.wear[i]! > 0) this.map.wear[i]!--;
     }
   }
@@ -2905,6 +2980,7 @@ export class World {
     // construction finishes so that halls placed by `spawnStart` -- which never
     // pass through the build queue -- get one too.
     this.lightHearth(b);
+    this.layRoad(b);
     // A farm grows food. This is the reason an army can be fed without anybody
     // going hunting, and the reason the AI -- which builds farms for supply
     // without being told anything about food -- never starves. Hunting is the

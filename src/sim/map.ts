@@ -97,6 +97,18 @@ export class GameMap {
    * about it exactly.
    */
   readonly mud: Uint8Array;
+  /**
+   * Tiles somebody has laid a road on.
+   *
+   * A road is the deliberate version of the track feet wear into the grass, and
+   * it is deliberately built on the same machinery: laying one pins `wear` high
+   * and marks the tile here, so a road already moves people faster and already
+   * draws as hard ground without a second movement rule or a second ground
+   * layer to keep in step with the first. The only thing this flag adds is
+   * permanence -- `decayPaths` grows a track over when nobody uses it, and a
+   * road is a thing that was built, so it stays whether anyone walks it or not.
+   */
+  readonly road: Uint8Array;
   /** Bumped whenever a tile type changes, so renderers can invalidate caches. */
   version = 0;
   /**
@@ -135,6 +147,7 @@ export class GameMap {
     this.felled = new Uint8Array(width * height);
     this.wear = new Uint8Array(width * height);
     this.mud = new Uint8Array(width * height);
+    this.road = new Uint8Array(width * height);
     this.hidden = new Uint8Array(width * height);
   }
 
