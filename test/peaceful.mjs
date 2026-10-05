@@ -39,7 +39,7 @@ async function run(difficulty) {
     // No dragons. This file is about whether an opponent chooses to attack us,
     // and a dragon burning the warband on its way over is noise that shows up
     // as "the opponent never attacked".
-    w.scheduleDragon(1e9);
+    w.dragonsEnabled = false;
     let hitsOnUs = 0;
     const mine = new Set();
     for (let t = 0; t < 16000 && w.winner === null; t++) {

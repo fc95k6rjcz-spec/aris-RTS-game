@@ -35,7 +35,7 @@ const r = await page.evaluate(() => {
   g.start("none");
   const w = g.world, SUB = 64;
   w.fogEnabled = false;
-  w.scheduleDragon(1e9);
+  w.dragonsEnabled = false;
   const count = () => { let n = 0; for (const v of w.map.road) if (v) n++; return n; };
 
   // A clear patch to build on.
@@ -46,7 +46,11 @@ const r = await page.evaluate(() => {
         for (let dx = -r; dx <= r; dx++) {
           const tx = s.x + dx, ty = s.y + dy;
           let ok = true;
-          for (let j = -1; j <= 15 && ok; j++) for (let i = -1; i <= 15; i++) if (!w.map.isBuildable(tx + i, ty + j)) { ok = false; break; }
+          // The ground the test actually uses: a hall, a barracks eight tiles
+          // east of it, and the three-tile band between them it checks for
+          // road. Asking for a seventeen-square clearing was padding, and on a
+          // denser map there is no longer one.
+          for (let j = -2; j <= 8 && ok; j++) for (let i = -1; i <= 14; i++) if (!w.map.isBuildable(tx + i, ty + j)) { ok = false; break; }
           if (ok) return { tx, ty };
         }
     return null;

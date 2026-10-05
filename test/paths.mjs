@@ -22,26 +22,38 @@ const r = await page.evaluate(() => {
   g.settingsForTest.wildlife = false;
   g.settingsForTest.mapId = "lakeland-7927";
   g.start("none");
-  const w = g.world, SUB = 32;
+  const w = g.world, SUB = 64;
   const idx = (x, y) => w.map.idx(x, y);
 
   // Send a worker back and forth over a fixed lane of open ground.
   const u = [...w.entities.values()].find((e) => e.kind === "unit" && e.def === "worker");
-  const y = Math.floor(u.pos.y / SUB);
-  let x = Math.floor(u.pos.x / SUB);
-  // Find a clear run of grass to walk up and down.
-  let lane = null;
-  for (let sx = 4; sx < w.map.width - 14; sx++) {
-    let ok = true;
-    // Grass or dirt specifically: a worker is amphibious, so "walkable" also
-    // means open water, and you cannot beat a path into a lake.
-    for (let i = 0; i < 10; i++) {
-      const t = w.map.get(sx + i, y);
-      if ((t !== 0 && t !== 1) || w.map.occupant[w.map.idx(sx + i, y)] !== 0) { ok = false; break; }
+  // Find a clear run of grass to walk up and down, anywhere on the map, and
+  // put the worker on it.
+  //
+  // This used to look only along the row the worker happened to start on,
+  // which worked while the country was open and stopped working the moment the
+  // map generator got denser -- the lane is incidental to what is being tested
+  // (does walking wear a track, and is a worn track quicker), so it is found
+  // rather than assumed.
+  let lane = null, y = 0;
+  // Grass or dirt specifically: a worker is amphibious, so "walkable" also
+  // means open water, and you cannot beat a path into a lake.
+  const open = (x, yy) => {
+    const t = w.map.get(x, yy);
+    return (t === 0 || t === 1) && w.map.occupant[w.map.idx(x, yy)] === 0;
+  };
+  outer: for (let sy = 4; sy < w.map.height - 4; sy++) {
+    for (let sx = 4; sx < w.map.width - 14; sx++) {
+      let ok = true;
+      for (let i = 0; i < 10; i++) if (!open(sx + i, sy)) { ok = false; break; }
+      if (ok) { lane = sx; y = sy; break outer; }
     }
-    if (ok) { lane = sx; break; }
   }
   if (lane === null) return { error: "no clear lane" };
+  u.pos.x = (lane + 0.5) * SUB;
+  u.pos.y = (y + 0.5) * SUB;
+  u.path = [];
+  u.task = { kind: "idle" };
   // Total wear over the whole map: the worker's exact route is the pathfinder's
   // business, and sampling one tile only tests whether we guessed it right.
   const sum = () => w.map.wear.reduce((a, b) => a + b, 0);
