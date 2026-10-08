@@ -67,9 +67,9 @@ const DECAY_SLICE = 256;
  */
 const MUD_SLICE = 64;
 
-const HARVEST_TICKS = 20 * 3; // 3 s per trip at a gold mine
-/** Felling timber is slow work: ten seconds of chopping before the wood comes down. */
-const CHOP_TICKS = 20 * 10;
+const HARVEST_TICKS = 20 * 7; // 7 s per trip at a gold mine
+/** Felling timber is slow work: fifteen seconds of chopping before the wood comes down. */
+const CHOP_TICKS = 20 * 15;
 const DEPOSIT_TICKS = 10;
 const CANCEL_REFUND = 0.75;
 /** Princes alive at once. */
@@ -224,6 +224,13 @@ export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from thi
 /** Gold left in a seam when the miners start to worry. */
 const LOW_MINE_GOLD = 1500;
 
+/** Orcs all fly the war-banner red; Humans take the realm colours, never that red. */
+const ORC_RED = "#dc2626";
+function seatColour(id: PlayerId, side: "human" | "orc"): string {
+  if (side === "orc") return ORC_RED;
+  const humans = REALM_COLOURS.filter((c) => c !== "#ef4444");
+  return humans[(id - 1) % humans.length]!;
+}
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
@@ -928,7 +935,7 @@ export class World {
    * away -- is given a fresh start: a Town Hall, four workers and a King,
    * beside a gold mine nobody has built near, well away from everyone else.
    */
-  claimSeat(peer: string): PlayerId | null {
+  claimSeat(peer: string, side: "human" | "orc" = "human"): PlayerId | null {
     const had = this.realmSeats.get(peer);
     if (had !== undefined && this.players.has(had)) {
       const alive = [...this.entities.values()].some((e) => e.owner === had && (e.kind === "building" || UNITS[e.def]!.canBuild));
@@ -940,10 +947,13 @@ export class World {
       id = 1;
       while (this.players.has(id) || id === WILD) id++;
       if (id > 60) return null;
-      this.addPlayer(id, Faction.Human, REALM_COLOURS[(id - 1) % REALM_COLOURS.length]!);
+      this.addPlayer(id, side === "orc" ? Faction.Orc : Faction.Human, seatColour(id, side));
     } else {
+      // A fresh start may be on the other side: the side is picked on the way in.
       const p = this.players.get(id)!;
       Object.assign(p, { ...START_PURSE, research: {} });
+      const f = side === "orc" ? Faction.Orc : Faction.Human;
+      if (p.faction !== f) { p.faction = f; p.color = seatColour(id, side); }
     }
     this.realmSeats.set(peer, id);
     this.seatCamp(id);
@@ -959,7 +969,7 @@ export class World {
    * buildings fall to ruin and its people scatter -- and you arrive afresh
    * somewhere else, with the same banner.
    */
-  restartSeat(id: PlayerId): void {
+  restartSeat(id: PlayerId, side?: "human" | "orc"): void {
     if (!this.realm || !this.players.has(id) || id === WILD) return;
     for (const e of [...this.entities.values()]) {
       if (e.owner !== id) continue;
@@ -971,6 +981,11 @@ export class World {
     }
     const p = this.players.get(id)!;
     Object.assign(p, { ...START_PURSE, research: {} });
+    // Starting again is the one moment a kingdom may change sides.
+    if (side) {
+      const f = side === "orc" ? Faction.Orc : Faction.Human;
+      if (p.faction !== f) { p.faction = f; p.color = seatColour(id, side); }
+    }
     this.homes.delete(id);
     this.seatCamp(id);
     this.updateVision(true);
@@ -992,7 +1007,9 @@ export class World {
     const tx = spot.x + 1, ty = spot.y + 1;
     this.homes.set(id, { x: tx, y: ty });
     this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
-    this.scatterSwords(1, { x: tx, y: ty });
+    // One of each within a fair walk: the man picks his people by what he picks up.
+    this.scatterSwords(1, { x: tx, y: ty }, Faction.Human);
+    this.scatterSwords(1, { x: tx, y: ty }, Faction.Orc);
     this.clearBeastsFrom(tx + 1, ty + 1);
   }
 
@@ -1047,8 +1064,13 @@ export class World {
    * Lay swords in the realm: anywhere walkable, or (with `near`) a fair walk
    * from a spot -- far enough to be a search, close enough to be found.
    */
-  scatterSwords(count: number, near?: { x: number; y: number }): void {
+  scatterSwords(count: number, near?: { x: number; y: number }, kind?: Faction): void {
     for (let k = 0; k < count; k++) {
+      // Swords make Humans, war axes make Orcs. Unless asked for one, the realm
+      // tops up whichever there are fewer of, so both are always out there.
+      const open = this.relics.filter((r) => r.owner === 0 && !r.taken);
+      const axes = open.filter((r) => r.faction === Faction.Orc).length;
+      const faction = kind ?? (axes < open.length - axes ? Faction.Orc : Faction.Human);
       for (let attempt = 0; attempt < 300; attempt++) {
         let x: number, y: number;
         if (near) {
@@ -1062,7 +1084,7 @@ export class World {
         }
         if (!this.map.inBounds(x, y) || !this.map.isWalkable(x, y, "land") || this.map.occupant[this.map.idx(x, y)] !== 0) continue;
         if (this.relics.some((r) => !r.taken && Math.hypot(r.x - x, r.y - y) < 8)) continue;
-        this.relics.push({ owner: 0, faction: Faction.Human, x, y, taken: false });
+        this.relics.push({ owner: 0, faction, x, y, taken: false });
         break;
       }
     }
@@ -1349,9 +1371,18 @@ export class World {
         u.hp = Math.max(1, Math.round(u.maxHp * frac));
         u.task = { kind: "idle" };
         u.carrying = null;
+        // A realm weapon decides the clan's side: a sword crowns a Human King,
+        // a war axe an Orc Warchief.
+        if (r.owner === 0) {
+          const p = this.players.get(u.owner)!;
+          if (p.faction !== r.faction) {
+            p.faction = r.faction;
+            p.color = seatColour(u.owner, r.faction === Faction.Orc ? "orc" : "human");
+          }
+        }
         this.emit(u.owner, WEAPON_OF[r.faction].taken, "info");
-        // Another sword finds its way into the realm for whoever comes next.
-        if (r.owner === 0) this.scatterSwords(1);
+        // Another of the same finds its way into the realm for whoever comes next.
+        if (r.owner === 0) this.scatterSwords(1, undefined, r.faction);
         this.fx.push({ kind: "crowned", x: u.pos.x, y: u.pos.y, owner: u.owner });
         this.rally(u);
         break;
@@ -1928,11 +1959,11 @@ export class World {
         break;
       }
       case "joinRealm": {
-        this.claimSeat(c.peer);
+        this.claimSeat(c.peer, c.faction === "orc" ? "orc" : "human");
         break;
       }
       case "restartSeat": {
-        this.restartSeat(c.player);
+        this.restartSeat(c.player, c.faction === "orc" ? "orc" : c.faction === "human" ? "human" : undefined);
         break;
       }
       case "garrison": {

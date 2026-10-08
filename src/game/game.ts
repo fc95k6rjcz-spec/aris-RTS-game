@@ -1622,6 +1622,10 @@ export class Game {
         this.openWars();
         break;
       case "begin":
+        if (a.faction) {
+          settings.faction = a.faction;
+          saveSettings();
+        }
         void this.enterRealm();
         break;
       case "skirmish":
@@ -1715,9 +1719,10 @@ export class Game {
         this.installRealmWorld(saved.world, saved.map, mine);
       },
       checksum: () => this.world.checksum(),
-      claim: (seat) => { this.world.claimSeat(seat); },
+      claim: (seat, faction) => { this.world.claimSeat(seat, faction); },
       status: (text) => { this.realmNote = text; this.toast(text, "info"); },
     });
+    realm.faction = settings.faction;
     this.realm = realm;
     this.realmNote = "Looking for the realm…";
     const how = await realm.connect();
@@ -1738,7 +1743,7 @@ export class Game {
       map = this.chooseMap();
       world = this.buildRealmWorld(map);
     }
-    const mine = world.claimSeat(realm.seat) ?? undefined;
+    const mine = world.claimSeat(realm.seat, settings.faction) ?? undefined;
     this.installRealmWorld(world, map!, mine);
     if (how === "offline") this.toast("Could not reach the realm — playing your own copy for now", "info");
   }
@@ -1803,7 +1808,7 @@ export class Game {
   }
 
   private startAgain(): void {
-    this.issue({ type: "restartSeat", player: this.player });
+    this.issue({ type: "restartSeat", player: this.player, faction: settings.faction });
     this.recenterOnKing = true;
     this.selected.clear();
     this.tellSwordLegend();

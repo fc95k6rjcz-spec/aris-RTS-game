@@ -30,9 +30,9 @@ export type Command =
   /** Bring every garrisoned archer down from a tower. */
   | { type: "ungarrison"; player: PlayerId; building: EntityId }
   /** Shared realm: a traveller arrives. Gives them back their old seat, or a new one. */
-  | { type: "joinRealm"; player: PlayerId; peer: string }
+  | { type: "joinRealm"; player: PlayerId; peer: string; faction?: "human" | "orc" }
   /** Shared realm: abandon your kingdom and start again as a new camp. */
-  | { type: "restartSeat"; player: PlayerId }
+  | { type: "restartSeat"; player: PlayerId; faction?: "human" | "orc" }
   /** Mount a Dragonbane harpoon on a watch tower. */
   | { type: "dragonbane"; player: PlayerId; building: EntityId };
 

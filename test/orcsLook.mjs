@@ -1,0 +1,34 @@
+// Pick the Orcs, enter the realm (offline copy in a headless run), and photograph an Orc town.
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const html = readFileSync("dist/index.html", "utf8");
+const browser = await chromium.launch({ executablePath: process.env.CHROME || "/opt/pw-browsers/chromium" });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e) + " @ " + (e.stack || "").split("\n").slice(1, 4).join(" | ")));
+await page.setContent(html);
+await page.waitForFunction(() => !!window.game);
+await page.evaluate(() => { const g = window.game; g.runFront({ kind: "pane", pane: "menu" }); g.runFront({ kind: "pane", pane: "faction" }); });
+await page.waitForTimeout(400);
+await page.screenshot({ path: "test/shot-orc-pick.png" });
+await page.evaluate(() => window.game.runFront({ kind: "begin", faction: "orc" }));
+await page.waitForFunction(() => !window.game.menu, null, { timeout: 60000 });
+const seat = await page.evaluate(() => { const g = window.game, p = g.world.players.get(g.player); return [p.faction, p.color]; });
+await page.evaluate(() => {
+  const g = window.game, w = g.world, SUB = 64, me = g.player;
+  const p = w.players.get(me); p.gold = 99999; p.lumber = 99999;
+  const man = w.units().find((u) => u.owner === me);
+  const cx = Math.round(man.pos.x / SUB), cy = Math.round(man.pos.y / SUB);
+  for (let y = cy - 9; y < cy + 9; y++) for (let x = cx - 12; x < cx + 12; x++) w.map.set(x, y, 0);
+  const put = (def, dx, dy, lvl) => { const b = w.placeBuilding(me, def, cx + dx, cy + dy, true); if (b) b.level = lvl; return !!b; };
+  window.placed = [put("townhall", -2, -2, 6), put("barracks", 3, -5, 6), put("foundry", -8, -5, 4), put("lumbermill", 4, 2, 3), put("farm", -8, 1, 7), put("church", 8, -2, 5), put("stables", -12, -3, 4), put("golddepot", 0, 3, 5), put("refinery", -12, 2, 3), put("tower", 7, 3, 6), put("shelter", 3, 6, 4)];
+  w.updateVision(true); g.cam.zoom = 26; g.cam.centerOn(cx * SUB, cy * SUB); g.paused = true;
+});
+await page.waitForTimeout(1500);
+await page.screenshot({ path: "test/shot-orc-town.png", timeout: 180000 });
+const placed = await page.evaluate(() => window.placed);
+console.log(JSON.stringify({ seat, placed, errors }));
+await browser.close();
+const ok = seat[0] === "orc" && seat[1] === "#dc2626" && errors.length === 0;
+console.log(ok ? "PASS orcs look" : "FAIL orcs look");
+process.exit(ok ? 0 : 1);

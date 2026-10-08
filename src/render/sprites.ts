@@ -326,18 +326,77 @@ function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
  * Human set, so Orc sheets can be dropped in one building at a time rather than
  * needing the whole roster before anything renders.
  */
+const ORC_FILES = import.meta.glob<string>("../assets/orc_*_*.png", { eager: true, query: "?url", import: "default" });
+
+/** `../assets/orc_barracks_7.png` → ORC_TIERS.barracks[6]. Cut by tools/extract_dark_progression.py. */
+const ORC_TIERS: Record<string, string[]> = {};
+for (const [path, src] of Object.entries(ORC_FILES)) {
+  const m = /orc_([a-z]+)_(\d+)\.png$/.exec(path);
+  if (!m) continue;
+  (ORC_TIERS[m[1]!] ??= [])[Number(m[2]) - 1] = src;
+}
+
 const FACTION_TIERS: Record<string, Record<string, string[]>> = {
   human: TIERS,
+  orc: ORC_TIERS,
 };
+
+/**
+ * Painted Orc art carries its own colours -- red war-banners, bone, green
+ * spirit-fire -- so it is drawn as painted, never re-hued to a player colour.
+ * The one change: purple (the Shadow Hut's old colour) is turned to the
+ * war-banner red, so the whole faction reads as one side.
+ */
+const NATIVE_COLOUR = new Set<string>(Object.values(ORC_TIERS).flat());
+
+/** Which tier set a building uses: the faction's own, else the Human art. */
+function tierSet(def: string, faction: string): string[] | undefined {
+  if (faction === "human") return redesignedTiers(def) ?? TIERS[def];
+  return FACTION_TIERS[faction]?.[def] ?? redesignedTiers(def) ?? TIERS[def];
+}
+
+function orcRed(img: HTMLImageElement): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, c.width, c.height);
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3]! < 8) continue;
+    const r = d[i]! / 255;
+    const g = d[i + 1]! / 255;
+    const b = d[i + 2]! / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max - min < 0.1) continue;
+    const l = (max + min) / 2;
+    const dd = max - min;
+    const s = l > 0.5 ? dd / (2 - max - min) : dd / (max + min);
+    let h = 0;
+    if (max === r) h = ((g - b) / dd + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / dd + 2) / 6;
+    else h = ((r - g) / dd + 4) / 6;
+    // Violet through magenta: 252°–335°.
+    if (h < 0.7 || h > 0.93) continue;
+    const [nr, ng, nb] = hslToRgb(0.995, Math.min(1, s * 1.05), l * 0.95);
+    d[i] = nr;
+    d[i + 1] = ng;
+    d[i + 2] = nb;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
 
 /** Painted sprite for a levelled building at a tier, tinted to the player colour. */
 export function tierArtSource(def: string, level: number, faction = "human"): string | null {
-  const set = (faction === "human" ? redesignedTiers(def) : null) ?? FACTION_TIERS[faction]?.[def] ?? TIERS[def];
+  const set = tierSet(def, faction);
   return set?.[Math.max(0, Math.min(set.length - 1, level - 1))] ?? null;
 }
 
 export function tierSprite(def: string, level: number, color: string, faction = "human"): HTMLCanvasElement | null {
-  const set = (faction === "human" ? redesignedTiers(def) : null) ?? FACTION_TIERS[faction]?.[def] ?? TIERS[def];
+  const set = tierSet(def, faction);
   if (!set) return null;
   const src = set[Math.max(0, Math.min(set.length - 1, level - 1))]!;
   const key = src + "|" + color;
@@ -345,7 +404,7 @@ export function tierSprite(def: string, level: number, color: string, faction = 
   if (cached) return cached;
   const img = load(src);
   if (!img.complete || img.naturalWidth === 0) return null;
-  const c = tint(img, color);
+  const c = NATIVE_COLOUR.has(src) ? orcRed(img) : tint(img, color);
   tinted.set(key, c);
   return c;
 }

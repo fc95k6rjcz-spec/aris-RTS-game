@@ -1098,6 +1098,24 @@ export class Renderer {
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
       const pulse = 0.55 + 0.45 * Math.sin(t * 0.08);
 
+      if (r.faction === "orc") {
+        // A war axe: no painting yet, so the line-art weapon, in Orc red.
+        ctx.save();
+        const g0 = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s * 2);
+        g0.addColorStop(0, `rgba(255,120,90,${0.42 * pulse})`);
+        g0.addColorStop(1, "rgba(255,120,90,0)");
+        ctx.fillStyle = g0;
+        ctx.fillRect(p.x - s * 2, p.y - s * 2, s * 4, s * 4);
+        ctx.translate(p.x, p.y);
+        ctx.strokeStyle = "#2a1a12";
+        ctx.lineWidth = Math.max(3, s * 0.16);
+        drawWeapon(ctx, "axe", s * 1.4);
+        ctx.strokeStyle = "#d9c9a8";
+        ctx.lineWidth = Math.max(1.5, s * 0.08);
+        drawWeapon(ctx, "axe", s * 1.4);
+        ctx.restore();
+        continue;
+      }
       const relicImage = spriteImage(relicSword);
       if (!relicImage) { this.missedArt = true; continue; }
       const size = bucket(Math.max(72, s * 2.6));
@@ -1293,7 +1311,7 @@ export class Renderer {
         ctx.scale(swell, swell);
         ctx.translate(-(p.x + w / 2), -(p.y + w));
       }
-      if (!(faction === "human" && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
+      if (!((faction === "human" || faction === "orc") && this.drawPaintedBuilding(b, p.x, p.y, w, color))) artFor(faction, b.def)?.(art);
       if (swell !== 1) ctx.restore();
       if (lu !== null) this.drawLevelUpGlow(p.x + w / 2, p.y + w * 0.55, w, lu, false);
     }
@@ -1874,7 +1892,7 @@ export class Renderer {
       u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
     const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
-    const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
+    const peasant = framed === null && painted === null && (player.faction === "human" || player.faction === "orc") && u.def === "worker"
       ? this.drawPeasant(u, ax, ay, s, player.color, moving, phase, swimming ? false : afloat)
       : null;
     if (framed !== null) {

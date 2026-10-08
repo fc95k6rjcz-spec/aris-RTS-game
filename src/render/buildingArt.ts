@@ -576,7 +576,8 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
 };
 
 export function artFor(faction: string, def: string): Drawer | undefined {
-  const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
+  // A faction with no drawing of its own for this building uses the Human art.
+  const redesigned=faction==='human'||!FACTION_ART[faction]?.[def]?redesignedArt(def,'level',1):null;
   if(redesigned)return a=>{paintedCamp(a,redesigned,buildingDrawScale(def));};
   return (FACTION_ART[faction] ?? HUMAN_ART)[def];
 }

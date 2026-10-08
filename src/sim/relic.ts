@@ -22,6 +22,7 @@ import { Faction, type PlayerId } from "./types";
 /** What each clan is looking for. */
 export const WEAPON_OF: Record<Faction, { name: string; taken: string }> = {
   [Faction.Human]: { name: "sword", taken: "The sword is drawn. A King is born." },
+  [Faction.Orc]: { name: "war axe", taken: "The war axe is torn free. A Warchief is born." },
   [Faction.Dwarf]: { name: "axe", taken: "The axe is lifted. A King is born." },
   [Faction.Barbarian]: { name: "spiked pick", taken: "The pick is hefted. A King is born." },
   [Faction.Elf]: { name: "bow", taken: "The bow is strung. A King is born." },
