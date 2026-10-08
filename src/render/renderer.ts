@@ -1098,6 +1098,24 @@ export class Renderer {
       const p = this.cam.toScreen((r.x + 0.5) * SUB, (r.y + 0.5) * SUB);
       const pulse = 0.55 + 0.45 * Math.sin(t * 0.08);
 
+      if (r.faction === "orc") {
+        // A war axe: no painting yet, so the line-art weapon, in Orc red.
+        ctx.save();
+        const g0 = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s * 2);
+        g0.addColorStop(0, `rgba(255,120,90,${0.42 * pulse})`);
+        g0.addColorStop(1, "rgba(255,120,90,0)");
+        ctx.fillStyle = g0;
+        ctx.fillRect(p.x - s * 2, p.y - s * 2, s * 4, s * 4);
+        ctx.translate(p.x, p.y);
+        ctx.strokeStyle = "#2a1a12";
+        ctx.lineWidth = Math.max(3, s * 0.16);
+        drawWeapon(ctx, "axe", s * 1.4);
+        ctx.strokeStyle = "#d9c9a8";
+        ctx.lineWidth = Math.max(1.5, s * 0.08);
+        drawWeapon(ctx, "axe", s * 1.4);
+        ctx.restore();
+        continue;
+      }
       const relicImage = spriteImage(relicSword);
       if (!relicImage) { this.missedArt = true; continue; }
       const size = bucket(Math.max(72, s * 2.6));
