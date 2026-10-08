@@ -67,9 +67,9 @@ const DECAY_SLICE = 256;
  */
 const MUD_SLICE = 64;
 
-const HARVEST_TICKS = 20 * 3; // 3 s per trip at a gold mine
-/** Felling timber is slow work: ten seconds of chopping before the wood comes down. */
-const CHOP_TICKS = 20 * 10;
+const HARVEST_TICKS = 20 * 7; // 7 s per trip at a gold mine
+/** Felling timber is slow work: fifteen seconds of chopping before the wood comes down. */
+const CHOP_TICKS = 20 * 15;
 const DEPOSIT_TICKS = 10;
 const CANCEL_REFUND = 0.75;
 /** Princes alive at once. */
@@ -1007,7 +1007,9 @@ export class World {
     const tx = spot.x + 1, ty = spot.y + 1;
     this.homes.set(id, { x: tx, y: ty });
     this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
-    this.scatterSwords(1, { x: tx, y: ty });
+    // One of each within a fair walk: the man picks his people by what he picks up.
+    this.scatterSwords(1, { x: tx, y: ty }, Faction.Human);
+    this.scatterSwords(1, { x: tx, y: ty }, Faction.Orc);
     this.clearBeastsFrom(tx + 1, ty + 1);
   }
 
@@ -1062,8 +1064,13 @@ export class World {
    * Lay swords in the realm: anywhere walkable, or (with `near`) a fair walk
    * from a spot -- far enough to be a search, close enough to be found.
    */
-  scatterSwords(count: number, near?: { x: number; y: number }): void {
+  scatterSwords(count: number, near?: { x: number; y: number }, kind?: Faction): void {
     for (let k = 0; k < count; k++) {
+      // Swords make Humans, war axes make Orcs. Unless asked for one, the realm
+      // tops up whichever there are fewer of, so both are always out there.
+      const open = this.relics.filter((r) => r.owner === 0 && !r.taken);
+      const axes = open.filter((r) => r.faction === Faction.Orc).length;
+      const faction = kind ?? (axes < open.length - axes ? Faction.Orc : Faction.Human);
       for (let attempt = 0; attempt < 300; attempt++) {
         let x: number, y: number;
         if (near) {
@@ -1077,7 +1084,7 @@ export class World {
         }
         if (!this.map.inBounds(x, y) || !this.map.isWalkable(x, y, "land") || this.map.occupant[this.map.idx(x, y)] !== 0) continue;
         if (this.relics.some((r) => !r.taken && Math.hypot(r.x - x, r.y - y) < 8)) continue;
-        this.relics.push({ owner: 0, faction: Faction.Human, x, y, taken: false });
+        this.relics.push({ owner: 0, faction, x, y, taken: false });
         break;
       }
     }
@@ -1364,9 +1371,18 @@ export class World {
         u.hp = Math.max(1, Math.round(u.maxHp * frac));
         u.task = { kind: "idle" };
         u.carrying = null;
+        // A realm weapon decides the clan's side: a sword crowns a Human King,
+        // a war axe an Orc Warchief.
+        if (r.owner === 0) {
+          const p = this.players.get(u.owner)!;
+          if (p.faction !== r.faction) {
+            p.faction = r.faction;
+            p.color = seatColour(u.owner, r.faction === Faction.Orc ? "orc" : "human");
+          }
+        }
         this.emit(u.owner, WEAPON_OF[r.faction].taken, "info");
-        // Another sword finds its way into the realm for whoever comes next.
-        if (r.owner === 0) this.scatterSwords(1);
+        // Another of the same finds its way into the realm for whoever comes next.
+        if (r.owner === 0) this.scatterSwords(1, undefined, r.faction);
         this.fx.push({ kind: "crowned", x: u.pos.x, y: u.pos.y, owner: u.owner });
         this.rally(u);
         break;
