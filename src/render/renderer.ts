@@ -1,3 +1,4 @@
+import { blueBannerArt } from "./blueBanner";
 import { projectilePose, deathPose, drawArrow } from "./combatMotion";
 import { drawHumanDeath } from "./humanDeath";
 import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
@@ -1268,7 +1269,7 @@ export class Renderer {
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
       open: gateOpen, openAmount };
     if (!b.complete) {
-      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || !blueBannerArt(b.def) && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
       });
       // Under the site, where the eye already is -- not floating a tile above it.
@@ -2096,7 +2097,7 @@ export class Renderer {
     const sprite = tierSprite(b.def, b.level, color, faction);
     if (!sprite) return false;
     // A building with no tier table (the Gold Depot) still has painted art.
-    const scale = LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
+    const scale = blueBannerArt(b.def) ? 1 : LEVELLED[b.def] ? levelDef(b.def, b.level).scale : 1;
     const dw = w * scale * buildingDrawScale(b.def);
     const dh = (sprite.height / sprite.width) * dw;
     // Bottom of the sprite sits slightly below the footprint's bottom edge.
