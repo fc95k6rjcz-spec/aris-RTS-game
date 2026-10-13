@@ -10,6 +10,28 @@ import soldier from "../assets/motion-v2/soldier-walk.webp";
 import { spriteImage } from "./sprites";
 import type { Unit } from "../sim/entities";
 import type { AnimState } from "./anim";
+import { isolateSilhouette } from "./spriteIsolation";
+const wolfFrames = new Map<string, HTMLCanvasElement>();
+const WOLF_CELLS = [
+ [[40,310],[300,532],[520,734],[728,962],[954,1183],[1178,1408]],
+ [[40,298],[299,530],[529,756],[733,977],[966,1190],[1188,1437]],
+ [[35,299],[295,572],[532,807],[765,979],[970,1214],[1185,1428]],
+ [[60,292],[290,515],[500,736],[712,953],[946,1190],[1180,1435]],
+] as const;
+function wolfFrame(img: HTMLCanvasElement, row: number, index: number): HTMLCanvasElement {
+ const key = `${row}:${index}`;
+ const cached = wolfFrames.get(key); if (cached) return cached;
+ const [left,right] = WOLF_CELLS[row]![index]!;
+ const top = [85,342,554,817][row]!, bottom = [322,548,806,1030][row]!;
+ const c = document.createElement("canvas"); c.width = right-left; c.height = bottom-top;
+ const ctx = c.getContext("2d")!; ctx.drawImage(img,left,top,c.width,c.height,0,0,c.width,c.height);
+ // Separate the overlapping lunge paw and adjacent tail.
+ if (row === 2 && index === 2) ctx.clearRect(765-left,700-top,c.width,bottom-700);
+ if (row === 2 && index === 3) ctx.clearRect(0,0,805-left,700-top);
+ const pixels = ctx.getImageData(0,0,c.width,c.height);
+ isolateSilhouette(pixels.data,c.width,c.height); ctx.putImageData(pixels,0,0);
+ wolfFrames.set(key,c); return c;
+}
 const prepared=new Map<string,HTMLCanvasElement>();
 /** Key only neutral backdrop connected to cell borders; never erase enclosed axe metal. */
 function atlas(src:string,key:boolean,rows=3,cols=6):HTMLCanvasElement|null {
@@ -69,10 +91,15 @@ export function drawCreature(ctx:CanvasRenderingContext2D,def:string,facing:numb
  const moving=["walk","run","fly","flee"].includes(state),dead=state==="die",attacking=state==="attack"||state==="cast";
  const row=def==="cow"?(moving?(facing===6?2:1):0):dead?3:attacking?2:moving?1:0;
  const index=!enabled?0:dead?Math.min(5,Math.floor(tick/4)):attacking?Math.min(5,Math.floor(tick/4)):Math.floor((moving?phase:tick/50)%1*6);
+ if (def === "direwolf") {
+   const frame = wolfFrame(img,row,index), scale=s*1.25/220;
+   ctx.save();ctx.translate(x,y+s*.45);if(facing===0||facing===1||facing===7)ctx.scale(-1,1);
+   ctx.drawImage(frame,-frame.width*scale/2,-frame.height*scale*.97,frame.width*scale,frame.height*scale);
+   ctx.restore();return s*1.25;
+ }
  let sx=0,sy=0,sw=img.width/6,sh=img.height/3,baseline=.94;
  if(def==="dragon"){sx=110+(Math.min(5,index))*222;sy=[0,265,533,795][row]!;sw=222;sh=260;baseline=.94;}
- else if(def==="grunt"||def==="direwolf"){sx=35+Math.min(5,index)*232;sy=[85,342,564,825][row]!;sw=232;sh=[245,220,253,205][row]!;baseline=.97;
-   if(def==="direwolf"){sx=[40,305,535,770,990,1215][index]!;sw=[265,230,235,220,225,233][index]!;}
+ else if(def==="grunt"){sx=35+Math.min(5,index)*232;sy=[85,342,564,825][row]!;sw=232;sh=[245,220,253,205][row]!;baseline=.97;
  }
  else{sx=Math.min(5,index)*sw;sy=row*sh;baseline=row===0?.85:row===1?.78:.83;}
  const height=s*(def==="dragon"?2.5:def==="cow"?1.4:def==="grunt"?1.65:1.25);

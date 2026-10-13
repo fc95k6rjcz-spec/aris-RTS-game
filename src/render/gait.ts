@@ -43,7 +43,7 @@ export function gait(phase: number, moving: boolean, s: number, heavy = false): 
   if (!moving) {
     // A complete periodic cycle avoids a snap when phase wraps back to zero.
     const b = Math.sin(phase * Math.PI * 2);
-    return { lift: 0, lean: 0, sx: 1 - b * 0.006, sy: 1 + b * 0.010, shadow: 1 };
+    return { lift: 0, lean: 0, sx: 1, sy: 1 + b * 0.003, shadow: 1 };
   }
   const sway = Math.sin(phase * Math.PI * 2);
   if (heavy) return { lift: 0, lean: sway * 0.012, sx: 1, sy: 1, shadow: 1 };
@@ -51,12 +51,12 @@ export function gait(phase: number, moving: boolean, s: number, heavy = false): 
   // Two footfalls per stride: |sin| peaks twice over the cycle.
   const rise = (1 - Math.cos(phase * Math.PI * 4)) / 2;
   // Weight lands at the bottom of the rise, so squash is strongest there.
-  const land = 1 - rise;
+
   return {
     lift: rise * s * 0.023,
     lean: sway * 0.012,
-    sx: 1 + land * 0.01,
-    sy: 1 - land * 0.012,
+    sx: 1,
+    sy: 1,
     shadow: 1 - rise * 0.1,
   };
 }

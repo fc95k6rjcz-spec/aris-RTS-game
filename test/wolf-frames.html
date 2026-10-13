@@ -1,0 +1,4 @@
+<!doctype html><html><body style="margin:20px;background:#253124;color:white;font:16px system-ui"><h1>Direwolf frame check</h1><canvas id="c" width="1150" height="620"></canvas><script type="module">
+import {drawCreature} from '/src/render/directional.ts';
+const ctx=document.querySelector('canvas').getContext('2d');function draw(){ctx.fillStyle='#344431';ctx.fillRect(0,0,1150,620);['idle','walk','attack','die'].forEach((state,row)=>{ctx.fillStyle='white';ctx.fillText(state,5,row*150+25);for(let i=0;i<6;i++){drawCreature(ctx,'direwolf',3,state,100+i*180,105+row*150,70,(i+.1)/6,state==='idle'?i/6*50:i*4,true);}});requestAnimationFrame(draw)}draw();
+</script></body></html>

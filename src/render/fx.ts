@@ -21,7 +21,7 @@ const STROKE = 11;
 /** Ticks a floating damage number rises and fades for. */
 const NUMBER = 26;
 /** Ticks a body takes to fall, fade and sink. */
-const FALL = 16;
+const FALL = 100;
 /** Buildings collapse quickly but leave readable rubble for several seconds. */
 const BUILDING_RUIN = 140;
 /** Ticks the dust ring under a finished building lasts. */

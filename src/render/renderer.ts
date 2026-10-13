@@ -1,3 +1,5 @@
+import { projectilePose, deathPose, drawArrow } from "./combatMotion";
+import { drawHumanDeath } from "./humanDeath";
 import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
 import { towerRange } from "../sim/world";
 import { constructionFrame } from './constructionFrame';
@@ -160,7 +162,7 @@ export class Renderer {
       // front of the wall behind it rather than the wall cutting across it.
       .sort((a, b) => a.ty + a.size - (b.ty + b.size) || a.tx - b.tx);
     for (const b of buildings) this.drawBuilding(b, selected.has(b.id), alpha);
-    this.drawCorpses();
+    this.drawCorpses(alpha);
     const units = [...this.world.units()]
       // An enemy you cannot see is not drawn at all. Buildings are different:
       // once you have seen one you remember it, so they are drawn on explored
@@ -185,7 +187,7 @@ export class Renderer {
     // visibility filter above still hides enemies outside our actual sight.
     for (const u of units) this.drawUnit(u, alpha, selected.has(u.id));
     this.drawAttackPings();
-    this.drawProjectiles();
+    this.drawProjectiles(alpha);
     this.fx.drawMarks(ctx, this.world.tick + alpha, (x, y) => this.cam.toScreen(x, y), this.cam.zoom, settings.damageNumbers);
     if (ghost) this.drawGhost(ghost);
     if (box) {
@@ -1212,37 +1214,27 @@ export class Renderer {
   }
 
   /** Arrows, bolts and shells in flight, arcing toward their target. */
-  private drawProjectiles(): void {
+  private drawProjectiles(alpha: number): void {
     const ctx = this.ctx;
     for (const p of this.world.projectiles) {
-      const x = p.from.x + (p.to.x - p.from.x) * p.t;
-      const y = p.from.y + (p.to.y - p.from.y) * p.t;
-      // A parabolic hop, highest at the midpoint.
-      const lift = Math.sin(p.t * Math.PI) * SUB * (p.kind === "shell" ? 1.2 : 0.5);
-      const s = this.cam.toScreen(x, y - lift);
-      const scale = this.cam.zoom / SUB;
-      if (p.kind === "bolt") {
-        ctx.fillStyle = "rgba(140,200,255,0.9)";
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, 4 * scale, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(220,240,255,0.9)";
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, 2 * scale, 0, Math.PI * 2);
-        ctx.fill();
+      const pose = projectilePose(p, alpha);
+      if (!this.world.canSee(this.viewer, pose.x, pose.y)) continue;
+      const at = this.cam.toScreen(pose.x, pose.y);
+      if (p.kind === "arrow") {
+        drawArrow(ctx, at.x, at.y, pose.angle, this.cam.zoom);
       } else if (p.kind === "shell") {
-        ctx.fillStyle = "#2b2b2b";
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, 5 * scale, 0, Math.PI * 2);
-        ctx.fill();
+        const r = Math.max(1.6, this.cam.zoom * .06);
+        ctx.fillStyle = "#24282b";
+        ctx.beginPath(); ctx.arc(at.x, at.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#92948c";
+        ctx.beginPath(); ctx.arc(at.x-r*.25, at.y-r*.3, r*.3, 0, Math.PI*2); ctx.fill();
       } else {
-        const ang = Math.atan2(p.to.y - p.from.y, p.to.x - p.from.x);
-        ctx.strokeStyle = "#e8dcc4";
-        ctx.lineWidth = Math.max(1, 1.6 * scale);
-        ctx.beginPath();
-        ctx.moveTo(s.x - Math.cos(ang) * 7 * scale, s.y - Math.sin(ang) * 7 * scale);
-        ctx.lineTo(s.x, s.y);
-        ctx.stroke();
+        const r = Math.max(2, this.cam.zoom * .07);
+        const glow = ctx.createRadialGradient(at.x, at.y, 0, at.x, at.y, r*2.5);
+        glow.addColorStop(0, "rgba(226,244,255,.9)");
+        glow.addColorStop(.3, "rgba(119,187,240,.65)");
+        glow.addColorStop(1, "rgba(70,140,230,0)");
+        ctx.fillStyle=glow;ctx.fillRect(at.x-r*2.5,at.y-r*2.5,r*5,r*5);
       }
     }
   }
@@ -1954,11 +1946,15 @@ export class Renderer {
     this.ctx.save();this.ctx.globalAlpha=selected?.82:.94;this.ctx.drawImage(c,left,top);this.ctx.restore();
   }
 
-  private drawCorpses(): void {
+  private drawCorpses(alpha: number): void {
     const ctx = this.ctx;
-    const s = this.cam.zoom;
-    const now = this.world.tick;
+    const zoom = this.cam.zoom;
+    const now = this.world.tick + alpha;
     for (const c of this.fx.corpses) {
+      const def = UNITS[c.def];
+      const land = def && (def.domain === "land" || def.domain === "amphibious");
+      const person = land && !def.skittish && (def.canGather || def.royal);
+      const s = zoom * (!c.building && land ? PERSON_DRAW_SCALE : 1) * (person ? 1.18 : 1);
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);
@@ -2021,17 +2017,41 @@ export class Renderer {
         continue;
       }
 
+      if (c.def === "worker" || c.def === "footman") {
+        ctx.save(); ctx.globalAlpha = deathPose(now - c.t0).opacity;
+        if (!drawHumanDeath(ctx, c.def, c.facing, p.x, p.y, s, now - c.t0, settings.animations)) this.missedArt = true;
+        ctx.restore();
+        continue;
+      }
       if(["knight","grunt","direwolf","dragon"].includes(c.def)){
-        ctx.save();ctx.globalAlpha=1-k*k;
+        ctx.save();ctx.globalAlpha=deathPose(now-c.t0).opacity;
         const drawn=drawCreature(ctx,c.def,c.facing,"die",p.x,p.y,s,0,now-c.t0,settings.animations);ctx.restore();if(drawn!==null)continue;
       }
-      const view = unitViewSprite(c.def, c.facing, player.color);
+        const sheet = sheetFor(player.faction, c.def);
+        const death = sheet?.clips.die;
+        const frame = death?.srcs.length ? frameAt({ ...death, loop: false }, (now - c.t0) / 20, 0) : null;
+        const deathImage = frame ? spriteImage(frame) : null;
+        if (deathImage && sheet) {
+          const h = s * sheet.height;
+          const w = deathImage.naturalWidth / deathImage.naturalHeight * h;
+          ctx.save(); ctx.globalAlpha = deathPose(now - c.t0).opacity;
+          ctx.drawImage(deathImage, p.x - w / 2, p.y + s * .45 - h, w, h);
+          ctx.restore();
+          continue;
+        }
+        const view = unitViewSprite(c.def, c.facing, player.color);
       ctx.save();
-      ctx.globalAlpha = 1 - k * k;
-      ctx.translate(p.x, p.y + s * 0.45 + k * s * 0.12);
-      // Topple in the direction it was facing, and sink as it fades.
-      ctx.rotate((c.facing >= 4 ? -1 : 1) * k * (Math.PI / 2) * 0.85);
-      if (view) {
+      const pose = deathPose(now - c.t0);
+        ctx.globalAlpha = pose.opacity;
+      ctx.translate(p.x, p.y + s * 0.45);
+      // Settle onto the ground, hold the fallen pose, then fade.
+      ctx.rotate((c.facing >= 4 ? -1 : 1) * pose.fall * (Math.PI / 2));
+      const directional = hasDirectional(c.def, "idle")
+          ? drawDirectional(ctx, { def: c.def, facing: c.facing } as Unit, "idle", 0, -s * .45, s, 0, 0, false)
+          : null;
+        if (directional !== null) {
+          // Keep the same character and scale used while alive.
+        } else if (view) {
         const h = s * (UNIT_VIEW_HEIGHT[c.def] ?? 1.5);
         const w = (view.img.width / view.img.height) * h;
         if (view.mirror) ctx.scale(-1, 1);

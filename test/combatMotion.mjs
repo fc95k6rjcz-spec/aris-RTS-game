@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const out=await build({entryPoints:['src/render/combatMotion.ts'],bundle:true,write:false,platform:'node',format:'esm'});
+const {projectilePose,deathPose}=await import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));
+const arrow={from:{x:0,y:0},to:{x:400,y:0},t:.5,speed:.1,kind:'arrow'};
+assert(projectilePose({...arrow,t:.2},1).angle<0,'ascending arrow points upward');
+assert(projectilePose({...arrow,t:.8},1).angle>0,'descending arrow points down');
+assert(projectilePose(arrow,.5).x>projectilePose(arrow,0).x,'flight interpolates between ticks');
+assert.deepEqual([projectilePose({...arrow,t:1},1).x,projectilePose({...arrow,t:1},1).y],[400,0]);
+assert.equal(deathPose(30).opacity,1,'all six death frames finish at full opacity');
+assert.equal(deathPose(60).fall,1,'body stays settled during the hold');
+assert.equal(deathPose(100).opacity,0,'body fades completely');
+console.log('PASS: arrow heading, interpolation, landing and complete death/hold/fade timing');

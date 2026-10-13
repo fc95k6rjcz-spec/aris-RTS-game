@@ -46,7 +46,7 @@ export function motionFor(u: Unit, state: AnimState, seconds: number, flash = 0)
   const d = UNITS[u.def]!;
   const seed = u.id * 0.37;
   const idle = wave(seconds, seed, 2.2);
-  const breathe = 1 + idle * 0.012;
+  const breathe = 1 + idle * 0.003;
 
   if (d.domain === "air") {
     const bob = wave(seconds, seed, state === "fly" || state === "run" ? 5.2 : 2.4);
@@ -94,8 +94,8 @@ export function motionFor(u: Unit, state: AnimState, seconds: number, flash = 0)
         dx: swing * 0.035,
         dy: -swing * 0.01,
         rotate: -0.055 * swing,
-        sx: 1 + swing * 0.025,
-        sy: 1 - swing * 0.018,
+        sx: 1,
+        sy: 1,
         pulse: swing,
       };
     }
