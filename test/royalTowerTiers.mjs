@@ -1,0 +1,8 @@
+import {chromium} from 'playwright';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+const pictures=Array.from({length:10},(_,i)=>readFileSync(`src/assets/blue-banner-tiers/tower/level-${i+1}.webp`));assert.equal(new Set(pictures.map(p=>createHash('sha256').update(p).digest('hex'))).size,10);
+const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+const page=await browser.newPage({viewport:{width:1500,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));if(process.env.GAME_URL)await page.goto(process.env.GAME_URL);else await page.setContent(readFileSync('dist/index.html','utf8'));await page.waitForFunction(()=>!!window.game);
+const count=await page.evaluate(()=>{const g=window.game;g.start('none');g.paused=true;const w=g.world;w.players.get(1).faction='human';for(const b of [...w.buildings()])w.removeEntity(b.id);for(const u of [...w.units()])w.entities.delete(u.id);for(let y=4;y<60;y++)for(let x=4;x<80;x++){w.map.set(x,y,0);w.map.occupant[w.map.idx(x,y)]=0;}let count=0;for(let i=0;i<10;i++){const b=w.placeBuilding(1,'tower',8+i%5*9,10+Math.floor(i/5)*16,true);if(b){b.level=i+1;count++;}}w.vision.get(1).revealAll();g.cam.zoom=28;g.cam.centerOn(28*64,21*64);return count;});await page.waitForTimeout(1500);await page.screenshot({path:'test/watchtower-v3-in-game.png'});await browser.close();assert.equal(count,10);assert.deepEqual(errors,[]);console.log('PASS: ten unique watchtower designs render in the built game without errors.');

@@ -1,4 +1,4 @@
-import { blueBannerArt } from "./blueBanner";
+import { blueBannerArt, blueBannerHasTiers } from "./blueBanner";
 import { projectilePose, deathPose, drawArrow } from "./combatMotion";
 import { drawHumanDeath } from "./humanDeath";
 import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";

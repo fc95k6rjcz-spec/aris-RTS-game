@@ -1,7 +1,7 @@
 import { blueBannerArt } from "./blueBanner";
 const assets=import.meta.glob('../assets/redesign/*/*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>;
 export function redesignedArt(def:string,stage:'level'|'build',level:number):string|null {
- if(blueBannerArt(def))return stage==='level'?blueBannerArt(def):null;
+ if(blueBannerArt(def,level))return stage==='level'?blueBannerArt(def,level):null;
  return assets[`../assets/redesign/${def}/${stage}-${Math.max(1,Math.min(10,level))}.webp`]??null;
 }
 export function redesignedTiers(def:string):string[]|null {
