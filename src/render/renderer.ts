@@ -868,6 +868,7 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(x, y + s * 0.42, s * 0.3, s * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
+    if(["bear","deer","cow"].includes(u.def) && u.facing>=3 && u.facing<=5){ctx.translate(x*2,0);ctx.scale(-1,1);}
     ctx.drawImage(img, x - w / 2, y + s * 0.45 - h, w, h);
     ctx.restore();
     return h;

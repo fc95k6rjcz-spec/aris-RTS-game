@@ -1,3 +1,4 @@
+import { registerWildlife } from "./wildlife";
 /// <reference types="vite/client" />
 
 /**
@@ -138,6 +139,7 @@ function parse(path: string): { faction: string; def: string; state: AnimState; 
 }
 
 export function registerSheets(): void {
+  registerWildlife();
   const groups = new Map<string, Group>();
 
   for (const [path, src] of Object.entries(FRAME_MODULES)) {

@@ -1,3 +1,4 @@
+import { natureSource } from "./nature";
 /**
  * Terrain painter.
  *
@@ -234,6 +235,8 @@ function paintGoldVein(c: CanvasRenderingContext2D, x: number, y: number, seed: 
 }
 
 function paintRock(c: CanvasRenderingContext2D, x: number, y: number, seed: number): void {
+  const rock=spriteImage(natureSource("rocks-"+Math.min(5,Math.floor(hash2(x,y,seed)*6))));
+  if(rock){const w=T*1.16,h=w*rock.naturalHeight/rock.naturalWidth;c.drawImage(rock,x*T+(T-w)/2,y*T+T-h,w,h);return;}
   const cx = x * T + T / 2;
   const cy = y * T + T / 2;
   c.fillStyle = "rgba(0,0,0,0.28)";
@@ -665,7 +668,7 @@ export function bakeRegion(
     const world = (o: CanvasRenderingContext2D) => { o.setTransform(px / T, 0, 0, px / T, -tx * px, -ty * px); };
     // Worn earth and bare rock: a wash that keeps the grass texture showing through.
     const dirt = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t, x, y) => t === Tile.Dirt && !hidden(x, y), 0.32, 1);
-    put(maskedLayer(W, H, dirt, (o) => { o.fillStyle = "rgba(98,76,46,0.78)"; o.fillRect(0, 0, W, H); }));
+    put(maskedLayer(W, H, dirt, (o) => { const img=spriteImage(natureSource("dirt")); world(o); o.fillStyle = img ? blendedPattern(o,img,3)! : "#624c2e"; o.fillRect(x0*T,y0*T,(x1-x0+1)*T,(y1-y0+1)*T); }));
     const rock = softMask(map, tx, ty, px, W, H, x0, y0, x1, y1, (t, x, y) => t === Tile.Rock && !hidden(x, y), 0.3, 1);
     put(maskedLayer(W, H, rock, (o) => { o.fillStyle = "rgba(104,102,100,0.8)"; o.fillRect(0, 0, W, H); }));
     // Ice floes.
