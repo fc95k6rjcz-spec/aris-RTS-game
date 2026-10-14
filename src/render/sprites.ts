@@ -285,15 +285,15 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 /** Re-hue the blue clothing band (hue ~200°–250°) to the player colour. */
-function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
+function tint(img: HTMLImageElement | HTMLCanvasElement, color: string, building = false): HTMLCanvasElement {
   const c = document.createElement("canvas");
-  c.width = img.naturalWidth;
-  c.height = img.naturalHeight;
+  c.width = img.width;
+  c.height = img.height;
   const ctx = c.getContext("2d")!;
   ctx.drawImage(img, 0, 0);
   const [th, ts] = hexToHsl(color);
   // The source art is already blue; only re-hue for other colours.
-  if (Math.abs(th - 0.6) < 0.05) return c;
+
   const id = ctx.getImageData(0, 0, c.width, c.height);
   const d = id.data;
   for (let i = 0; i < d.length; i += 4) {
@@ -303,7 +303,13 @@ function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
     const b = d[i + 2]! / 255;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    if (max - min < 0.12) continue;
+    if (building) {
+      const lum = (r * .2126 + g * .7152 + b * .0722);
+      const rgb = hslToRgb(th, ts * .8, lum);
+      for (let j = 0; j < 3; j++) d[i+j] = d[i+j]! * .35 + rgb[j]! * .65;
+      continue;
+    }
+    if (max - min < 0.035) continue;
     const l = (max + min) / 2;
     const dd = max - min;
     const s = l > 0.5 ? dd / (2 - max - min) : dd / (max + min);
@@ -312,7 +318,7 @@ function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
     else if (max === g) h = ((b - r) / dd + 2) / 6;
     else h = ((g - b) / dd + (g < b ? 6 : 0)) / 6;
     if (h < 0.53 || h > 0.72) continue; // not the blue cloth
-    const [nr, ng, nb] = hslToRgb(th, Math.min(1, s * (0.6 + ts * 0.6)), l);
+    const [nr, ng, nb] = hslToRgb(th, Math.min(1, Math.max(s, ts * .8)), l);
     d[i] = nr;
     d[i + 1] = ng;
     d[i + 2] = nb;
@@ -326,6 +332,16 @@ function tint(img: HTMLImageElement, color: string): HTMLCanvasElement {
  * Human set, so Orc sheets can be dropped in one building at a time rather than
  * needing the whole roster before anything renders.
  */
+const teamCache = new WeakMap<HTMLImageElement | HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+/** Cached owner colouring shared by static artwork and animation sheets. */
+export function teamSprite(img: HTMLImageElement | HTMLCanvasElement, color: string, building = false): HTMLCanvasElement {
+  let cache = teamCache.get(img);
+  if (!cache) { cache = new Map(); teamCache.set(img, cache); }
+  const key = color + (building ? ':building' : ':cloth');
+  let result = cache.get(key);
+  if (!result) { result = tint(img, color, building); cache.set(key, result); }
+  return result;
+}
 const FACTION_TIERS: Record<string, Record<string, string[]>> = {
   human: TIERS,
 };
@@ -345,7 +361,7 @@ export function tierSprite(def: string, level: number, color: string, faction = 
   if (cached) return cached;
   const img = load(src);
   if (!img.complete || img.naturalWidth === 0) return null;
-  const c = tint(img, color);
+  const c = teamSprite(img, color, true);
   tinted.set(key, c);
   return c;
 }

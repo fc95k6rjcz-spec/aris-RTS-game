@@ -989,7 +989,7 @@ export class Game {
         const entity = this.world.entities.get(hit);
         const now = performance.now();
         const double = entity?.kind === "unit" && entity.owner === this.player && this.lastUnitClick?.id === hit && now - this.lastUnitClick.at < 360;
-        if (double && entity?.kind === "unit") {
+        if ((double || e.ctrlKey) && entity?.kind === "unit" && entity.owner === this.player) {
           const ids: EntityId[] = [];
           for (const u of this.world.units()) {
             if (u.owner !== this.player || u.def !== entity.def || !this.world.canSeeEntity(this.player, u)) continue;
@@ -1019,6 +1019,7 @@ export class Game {
           if (bld.owner === this.player && tx >= bld.tx && tx < bld.tx + bld.size && ty >= bld.ty && ty < bld.ty + bld.size) { ids.push(bld.id); break; }
       }
       if (!shift) this.selected.clear();
+
       for (const id of ids) this.selected.add(id);
     }
     // Mixed selections collapse to units (Warcraft behaviour).
@@ -1083,7 +1084,7 @@ export class Game {
    * commands and lockstep peers receive the exact same destinations.
    */
   private formationTargets(units: Unit[], wx: number, wy: number): Array<{ unit: Unit; x: number; y: number }> {
-    if (units.length <= 1) return units.map((unit) => ({ unit, x: Math.round(wx), y: Math.round(wy) }));
+    if (!units.length) return [];
 
     const cx = units.reduce((n, u) => n + u.pos.x, 0) / units.length;
     const cy = units.reduce((n, u) => n + u.pos.y, 0) / units.length;
@@ -1118,6 +1119,7 @@ export class Game {
     const spacing = SUB * (ordered.some((u) => UNITS[u.def]!.domain === "sea") ? 1.35 : 0.92);
     const out: Array<{ unit: Unit; x: number; y: number }> = [];
 
+    const reserved = new Set<string>();
     for (let i = 0; i < ordered.length; i++) {
       const unit = ordered[i]!;
       const row = Math.floor(i / cols);
@@ -1133,15 +1135,15 @@ export class Game {
       const domain = UNITS[unit.def]!.domain;
       let tx = Math.floor(x / SUB);
       let ty = Math.floor(y / SUB);
-      if (!this.world.map.isWalkable(tx, ty, domain)) {
+      if (!this.world.map.isWalkable(tx, ty, domain) || reserved.has(`${domain}:${tx},${ty}`)) {
         let found = false;
-        for (let ring = 1; ring <= 4 && !found; ring++) {
+        for (let ring = 1; ring <= 8 && !found; ring++) {
           for (let dy = -ring; dy <= ring && !found; dy++) {
             for (let dx = -ring; dx <= ring; dx++) {
               if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
               const nx = tx + dx;
               const ny = ty + dy;
-              if (!this.world.map.isWalkable(nx, ny, domain)) continue;
+              if (!this.world.map.isWalkable(nx, ny, domain) || reserved.has(`${domain}:${nx},${ny}`)) continue;
               tx = nx;
               ty = ny;
               x = nx * SUB + SUB / 2;
@@ -1152,6 +1154,8 @@ export class Game {
           }
         }
       }
+      if (!this.world.map.isWalkable(tx, ty, domain) || reserved.has(`${domain}:${tx},${ty}`)) { x=unit.pos.x; y=unit.pos.y; }
+      reserved.add(`${domain}:${Math.floor(x/SUB)},${Math.floor(y/SUB)}`);
       out.push({ unit, x, y });
     }
     return out;
@@ -1221,7 +1225,7 @@ export class Game {
         this.marker(wx, wy, "gather");
         return;
       }
-      const foe = this.pick(wx, wy);
+      const foe = this.pick(wx, wy, true);
       const fe = foe !== null ? this.world.entities.get(foe) : undefined;
       if (fe && !this.world.allied(fe.owner, this.player)) {
         const fighters = units.filter((u) => UNITS[u.def]!.damage > 0).map((u) => u.id);

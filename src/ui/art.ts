@@ -1,3 +1,8 @@
+import roadArt from "../assets/terrain/stone_1.jpg";
+import bladeArt from "../assets/ui/relic_sword.jpg";
+import arrowArt from "../assets/archer_front.png";
+import siegeArt from "../assets/cannon_front.png";
+import navalArt from "../assets/ship_battleship.png";
 /**
  * Illustrations for the command bar and the selection panel.
  *
@@ -59,6 +64,10 @@ function buildingArt(def: string): string | null {
 /** The picture for a command tile, or null for the ones not yet painted. */
 export function commandArt(a: HudButton["action"], building?: Building, faction = "human"): string | null {
   switch (a.type) {
+    case "research":
+      return researchArt(a.id);
+    case "cancelResearch":
+      return building?.research ? researchArt(building.research.id) : null;
     case "upgrade":
     case "cancelUpgrade":
       return building ? tierArtSource(building.def, building.upgrade?.toLevel ?? building.level + 1, faction) ?? buildingArt(building.def) : null;
@@ -92,3 +101,13 @@ export function portraitArt(def: string): string | null {
 }
 
 export const bannerHuman = bannerHumanSrc;
+
+function researchArt(id: string): string | null {
+  const pictures: Record<string, string | null> = {
+    paving: roadArt, barding: buildingArt('stables'), blades: bladeArt,
+    fletching: arrowArt, sacredRites: buildingArt('church'), arcaneFocus: buildingArt('magetower'),
+    siegecraft: siegeArt, navalGunnery: navalArt, aeronautics: buildingArt('airfactory'),
+    gryphonBarding: buildingArt('gryphonaviary'),
+  };
+  return pictures[id] ?? null;
+}

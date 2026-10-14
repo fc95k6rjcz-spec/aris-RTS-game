@@ -17,7 +17,7 @@ import outpost from '../assets/towers/tower-1.webp';
 import {drawJoinedWall} from './walls';
 import {drawGate} from './gateArt';
 import shelterArt from "../assets/motion-v2/shelter-v2.webp";
-import { spriteImage } from "./sprites";
+import { spriteImage, teamSprite } from "./sprites";
 import { redesignedArt } from "./redesign";
 import { BUILDING_STYLE } from "../data/styleChoice";
 import { STYLED_BUILDINGS, STYLES, STYLE_BY_ID } from "./buildingStyles";
@@ -46,7 +46,7 @@ type Drawer = (a: ArtCtx) => void;
 function paintedCamp(a:ArtCtx,src:string,scale:number):boolean {
  const img=spriteImage(src);if(!img)return false;
  const w=a.w*scale,h=w*img.naturalHeight/img.naturalWidth;
- a.ctx.drawImage(img,a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
+ a.ctx.drawImage(teamSprite(img,a.color,true),a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
 }
 
 // ───────────────────────────── helpers ─────────────────────────────
@@ -554,7 +554,7 @@ const HUMAN_ART: Record<string, Drawer> = {
   townhall: a => {if(!paintedCamp(a,grandHall,buildingDrawScale('townhall')))townhall(a);},
   tower: a => {paintedCamp(a,outpost,1.05);},
   wall: (a) => {
-    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10))return;
+    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10,a.color))return;
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
     for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
   },

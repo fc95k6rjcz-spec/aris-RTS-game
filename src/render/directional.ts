@@ -7,7 +7,7 @@ import cow from "../assets/motion-v2/cow.webp";
 import walk from "../assets/motion-v2/worker-natural.webp";
 import chop from "../assets/motion-v2/worker-chop.webp";
 import soldier from "../assets/motion-v2/soldier-walk.webp";
-import { spriteImage } from "./sprites";
+import { spriteImage, teamSprite } from "./sprites";
 import type { Unit } from "../sim/entities";
 import type { AnimState } from "./anim";
 import { isolateSilhouette } from "./spriteIsolation";
@@ -54,7 +54,7 @@ export function hasDirectional(def:string,state:AnimState):boolean {
  return def==="worker" ? ["idle","walk","run","carry","flee","chop","attack"].includes(state)
  : ["king","prince","footman"].includes(def)&&["idle","walk","run"].includes(state);
 }
-export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimState,x:number,y:number,s:number,phase:number,tick:number,enabled:boolean):number|null {
+export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimState,x:number,y:number,s:number,phase:number,tick:number,enabled:boolean,color?:string):number|null {
  if(!hasDirectional(u.def,state))return null;
  if(u.def==='scout'||u.def==='bomber') {
    const img=atlas(planes,false);if(!img)return null;
@@ -65,7 +65,8 @@ export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimSt
  if(["knight","grunt","direwolf","dragon"].includes(u.def))return drawCreature(ctx,u.def,u.facing,state,x,y,s,phase,tick,enabled);
  const cutting=state==="chop"||(u.def==="worker"&&state==="attack"),worker=u.def==="worker",src=worker?(cutting?chop:walk):soldier;
  const natural=worker&&!cutting;
- const img=atlas(src,worker,3,natural?7:6);if(!img)return null;
+ const source=atlas(src,worker,3,natural?7:6);if(!source)return null;
+ const img=color?teamSprite(source,color):source;
  const {row,mirror}=directionRow(u.facing),sw=img.width/(natural?7:6),sh=img.height/3;
  const cycle=state==="attack" ? Math.min(.999,Math.max(0,tick)/18) : cutting ? ((tick%20)+20)%20/20 : phase;
  const index=!enabled||state==="idle"?0:(natural?1:0)+Math.min(5,Math.floor(cycle*6));

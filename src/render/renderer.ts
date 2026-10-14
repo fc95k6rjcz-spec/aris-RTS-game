@@ -35,7 +35,7 @@ import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
-import { goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
+import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
 
 export interface Ghost {
   def: string;
@@ -869,7 +869,8 @@ export class Renderer {
     ctx.ellipse(x, y + s * 0.42, s * 0.3, s * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
     if(["bear","deer","cow"].includes(u.def) && u.facing>=3 && u.facing<=5){ctx.translate(x*2,0);ctx.scale(-1,1);}
-    ctx.drawImage(img, x - w / 2, y + s * 0.45 - h, w, h);
+    ctx.drawImage(teamSprite(img, this.world.players.get(u.owner)!.color), x - w / 2, y + s * 0.45 - h, w, h);
+
     ctx.restore();
     return h;
   }
@@ -1270,7 +1271,8 @@ export class Renderer {
     const art = { ctx, faction, def: b.def, x: p.x, y: p.y, w, color, progress: b.progress / d.buildTime, tick: this.world.tick + alpha, level: b.level, wallMask: b.def==='wall'||b.def==='gate'?this.wallConnections(b.tx,b.ty,b.owner):undefined,
       open: gateOpen, openAmount };
     if (!b.complete) {
-      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress) || !blueBannerArt(b.def) && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+      if (!(faction === "human" && (this.drawRedesignedConstruction(b.def,p.x,p.y,w,art.progress,color) || !blueBannerArt(b.def) && b.def === "townhall" && drawFoundingHall(ctx, p.x, p.y, w, art.progress, settings.animations && b.builders > 0 ? art.tick : 0)))) drawConstruction({ ...art, tick: settings.animations && b.builders > 0 ? art.tick : 0 }, () => {
+
         if (!this.drawPaintedBuilding(b, p.x, p.y, w, color)) artFor(faction, b.def)?.({ ...art, progress: 1 });
       });
       // Under the site, where the eye already is -- not floating a tile above it.
@@ -1758,7 +1760,8 @@ export class Renderer {
     const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
       && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
     const land = UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious";
-    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? 1.18 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
+    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? .78 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
+
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
       if (selected) {
@@ -1865,7 +1868,8 @@ export class Renderer {
     }
     const swimPhase=settings.animations?((seconds*.55+u.id*.13)%1+1)%1:0;
     const direct = drawDirectional(ctx,u,swimming?"walk":state,ax,ay,s,swimming?swimPhase:phase,
-      u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations);
+      u.task.kind === "gather" && u.task.phase === "harvest" ? 20-u.task.timer : state === "attack" || state === "cast" ? elapsed*20 : this.world.tick+alpha,settings.animations,player.color);
+
     const framed = direct ?? (anySheets() ? this.drawUnitFrames(u, ax, ay, s, player.faction, state, elapsed) : null);
     const painted = framed === null ? this.drawUnitSprite(u, ax, ay, s, player.color, moving, phase) : null;
     const peasant = framed === null && painted === null && player.faction === "human" && u.def === "worker"
@@ -1971,7 +1975,7 @@ export class Renderer {
       const def = UNITS[c.def];
       const land = def && (def.domain === "land" || def.domain === "amphibious");
       const person = land && !def.skittish && (def.canGather || def.royal);
-      const s = zoom * (!c.building && land ? PERSON_DRAW_SCALE : 1) * (person ? 1.18 : 1);
+      const s = zoom * (!c.building && land ? PERSON_DRAW_SCALE : 1) * (person ? .78 : 1);
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);
@@ -2097,11 +2101,12 @@ export class Renderer {
    * footprint, so it is anchored to the FRONT-BOTTOM of the footprint and allowed
    * to overhang upward — higher Town Hall tiers visibly sprawl past their base.
    */
-  private drawRedesignedConstruction(def:string,x:number,y:number,w:number,progress:number):boolean {
+  private drawRedesignedConstruction(def:string,x:number,y:number,w:number,progress:number,color:string):boolean {
     const p=Math.max(0,Math.min(1,progress))*9,stage=Math.floor(p)+1;
     const src=redesignedArt(def,'build',stage);if(!src)return false;
     const image=spriteImage(src);if(!image)return false;
-    const draw=(img:HTMLImageElement)=>{const width=w*buildingDrawScale(def),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(constructionFrame(img),x+(w-width)/2,y+w*1.06-height,width,height);};
+    const draw=(img:HTMLImageElement)=>{const width=w*buildingDrawScale(def),height=width*img.naturalHeight/img.naturalWidth;this.ctx.drawImage(teamSprite(constructionFrame(img),color,true),x+(w-width)/2,y+w*1.06-height,width,height);};
+
     draw(image);
     const nextSrc=redesignedArt(def,'build',Math.min(10,stage+1));const next=nextSrc?spriteImage(nextSrc):null;
     if(next&&p%1>0){this.ctx.save();this.ctx.globalAlpha=p%1;draw(next);this.ctx.restore();}
