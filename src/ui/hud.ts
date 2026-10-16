@@ -1,3 +1,4 @@
+import { eraStartingAt } from "../data/eras";
 import { BUILDINGS, BUILD_ADVANCED, BUILD_BASIC, BUILD_MENU, buildingName } from "../data/buildings";
 import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
@@ -161,8 +162,9 @@ export function layoutButtons(world: World, player: PlayerId, selUnits: Unit[], 
         const missing = royal && ROYAL_LICENCE.has(id) ? undefined : d.requires.find((r) => !world.hasBuilding(player, r));
       const afford = world.canAfford(player, d.cost);
       const nm = buildingName(id, world.players.get(player)!.faction);
-      const tip = `${nm} — ${cost(d.cost)} · ${d.description}${missing ? ` (requires ${buildingName(missing, world.players.get(player)!.faction)})` : ""}`;
-      put(i, nm, d.hotkey, !missing && afford, tip, { type: "build", def: id });
+      const era = world.eraBlock(player, id);
+      const tip = `${nm} — ${cost(d.cost)} · ${d.description}${era ? ` (${era})` : missing ? ` (requires ${buildingName(missing, world.players.get(player)!.faction)})` : ""}`;
+      put(i, nm, d.hotkey, !era && !missing && afford, tip, { type: "build", def: id });
     });
     // Bottom row is fixed on both pages, so the controls never move under the
     // cursor when the page flips.
@@ -196,8 +198,9 @@ export function layoutButtons(world: World, player: PlayerId, selUnits: Unit[], 
         const s = world.supply(player);
         const afford = world.canAfford(player, ud.cost);
         const nm = unitName(uid, world.players.get(player)!.faction);
-        const tip = `${nm} — ${cost(ud.cost)} · ${ud.supply} supply · ${ud.description}${s.used + ud.supply > s.max ? " (need supply)" : ""}`;
-        put(i, nm, ud.hotkey, afford, tip, { type: "train", def: uid });
+        const era = world.eraBlock(player, uid);
+        const tip = `${nm} — ${cost(ud.cost)} · ${ud.supply} supply · ${ud.description}${era ? ` (${era})` : s.used + ud.supply > s.max ? " (need supply)" : ""}`;
+        put(i, nm, ud.hotkey, !era && afford, tip, { type: "train", def: uid });
       });
       // Levelled buildings get an Upgrade / Cancel Upgrade button.
       const table = LEVELLED[b.def];
@@ -619,8 +622,11 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         const price = world.buildCost(player, id);
         const afford = world.canAfford(player, price);
         const nm = buildingName(id, faction);
-        const need = missing ? undefined : shortfall(world, player, price);
-        const why = missing
+        const era = world.eraBlock(player, id);
+        const need = era || missing ? undefined : shortfall(world, player, price);
+        const why = era
+          ? `${era}.`
+          : missing
           ? `Requires ${buildingName(missing, faction)}.`
           : need
             ? `${need} more to build this.`
@@ -630,7 +636,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
           cost: price.gold === 0 && price.lumber === 0 && d.cost.gold > 0 ? "FREE" : costLine(price),
           need,
           hotkey: d.hotkey,
-          enabled: !missing && afford,
+          enabled: !era && !missing && afford,
           description: `${d.description}${why ? " " + why : ""}`,
           action: { type: "build", def: id } as HudButton["action"],
         };
@@ -667,6 +673,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
           if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
           if((next.oilPerSecond??0)>(cur.oilPerSecond??0))gains.push("more oil");
           if((next.trainSpeed??0)>(cur.trainSpeed??0))gains.push("faster training");
+          {const era=b.def==="townhall"&&!world.allowed?eraStartingAt(next.level):undefined;if(era)gains.unshift(`begins the ${era.name} (${[...era.buildings.map((id)=>buildingName(id,faction)),...era.units.map((id)=>unitName(id,faction))].join(", ")})`);}
           const blocked=world.upgradeBlocked(player,b);
           out.push({label:"Upgrade to "+next.name,cost:costLine(next.cost),need:blocked?undefined:shortfall(world,player,next.cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,next.cost)&&!b.research,description:`${blocked?blocked+". ":""}Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
         }
@@ -692,13 +699,14 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
       }
       for (const uid of d.trains) {
         const u = UNITS[uid]!;
+        const era = world.eraBlock(player, uid);
         out.push({
           label: unitName(uid, faction),
           cost: costLine(u.cost),
-          need: shortfall(world, player, u.cost),
+          need: era ? undefined : shortfall(world, player, u.cost),
           hotkey: u.hotkey,
-          enabled: world.canAfford(player, u.cost),
-          description: u.description + (shortfall(world, player, u.cost) ? ` ${shortfall(world, player, u.cost)} more.` : ""),
+          enabled: !era && world.canAfford(player, u.cost),
+          description: u.description + (era ? ` ${era}.` : shortfall(world, player, u.cost) ? ` ${shortfall(world, player, u.cost)} more.` : ""),
           action: { type: "train", def: uid },
         });
       }

@@ -1,3 +1,4 @@
+import { eraStartingAt } from "../data/eras";
 import { createWarAtlas } from '../ui/warAtlas';
 import { LEVELLED, levelDef } from "../data/levels";
 import { encodeSave, packSave, unpackSave, hasSavedGame, storeSave, readSave, type SavedGame } from './saveGame';
@@ -561,7 +562,12 @@ export class Game {
     for (const e of this.world.fx) {
       if (e.kind !== "levelUp" || e.owner !== this.player) continue;
       const lv = levelDef(e.def, e.level);
-      this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
+      // A Town Hall that crosses into a new era is the bigger news: say so.
+      const era = e.def === "townhall" && !this.world.allowed ? eraStartingAt(e.level) : undefined;
+      if (era) {
+        const opens = [...era.buildings.map((id) => BUILDINGS[id]?.name), ...era.units.map((id) => UNITS[id]?.name)].filter(Boolean).join(", ");
+        this.proclaim(`THE ${era.name.toUpperCase()}`, `${era.blurb} Now open: ${opens}.`, 7000);
+      } else this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
       this.audio.play("crown", 0.8);
     }
     this.renderer.noteAttacks(this.world.fx);
