@@ -33,6 +33,8 @@ export type Command =
   | { type: "joinRealm"; player: PlayerId; peer: string }
   /** Shared realm: abandon your kingdom and start again as a new camp. */
   | { type: "restartSeat"; player: PlayerId }
+  /** Name this player's King. Goes through the ledger so every machine shows the same name. */
+  | { type: "nameKing"; player: PlayerId; name: string }
   /** Mount a Dragonbane harpoon on a watch tower. */
   | { type: "dragonbane"; player: PlayerId; building: EntityId };
 

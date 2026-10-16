@@ -76,4 +76,6 @@ export interface Player {
   hunger?: number;
   /** Food eaten but not yet taken off the whole-number store. */
   appetite?: number;
+  /** The name this clan's King goes by, as chosen by his player. Everyone in the realm sees it. */
+  kingName?: string;
 }
