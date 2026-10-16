@@ -15,13 +15,19 @@ from PIL import Image, ImageFilter
 from scipy import ndimage
 import numpy as np
 
-SRC = "/root/.claude/uploads/c924b6f0-4b5e-51e7-8fe9-f91c13054c13/912b884e-image.png"
-VIEWS = {"front": (470, 86, 665, 445), "side": (715, 86, 885, 445), "back": (910, 86, 1065, 445)}
+import sys
+# The sheet is "human_footman.png" in the Desktop folder "Ari's fun game".
+SRC = sys.argv[1] if len(sys.argv) > 1 else "human_footman.png"
+# Generous boxes: the first cut was tight enough to take off the boots and the
+# tip of the sword. Each box stops short of its neighbour's figure and of the
+# FRONT/SIDE/BACK captions above and the in-game panel below. The front box
+# starts just right of the big portrait's glow, which keys as figure.
+VIEWS = {"front": (474, 78, 692, 500), "side": (700, 78, 892, 500), "back": (896, 78, 1096, 500)}
 OUT_H = 180
 
 im = Image.open(SRC).convert("RGB")
 whole = np.asarray(im).astype(np.int16)
-ref = np.median(whole[80:440, 460:1100].reshape(-1, 3), axis=0)
+ref = np.median(whole[80:500, 455:1096].reshape(-1, 3), axis=0)
 
 
 # Where the shield sits in each finished sprite, as a fraction of its width and
@@ -72,7 +78,6 @@ def strip_crest(img, name):
 for name, box in VIEWS.items():
     cell = im.crop(box)
     a = np.asarray(cell).astype(np.int16)
-
     fg = np.abs(a - ref).max(axis=2) > 26
     # Close pinholes where dark armour matches the backdrop, then drop specks.
     fg = ndimage.binary_closing(fg, np.ones((5, 5)))
