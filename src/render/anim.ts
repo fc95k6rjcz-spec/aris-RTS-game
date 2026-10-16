@@ -211,7 +211,9 @@ export function registerSheet(faction: string, def: string, sheet: SheetDef): vo
 }
 
 export function sheetFor(faction: string, def: string): SheetDef | null {
-  return SHEETS.get(`${faction}|${def}`) ?? SHEETS.get(`*|${def}`) ?? null;
+  // A faction with no frames of its own yet borrows the Human ones rather than
+  // dropping to the still, so a new faction moves from its first match.
+  return SHEETS.get(`${faction}|${def}`) ?? SHEETS.get(`*|${def}`) ?? SHEETS.get(`human|${def}`) ?? null;
 }
 
 /** Whether any sheet at all has been registered, so the renderer can skip the lookup. */

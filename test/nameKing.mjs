@@ -1,0 +1,26 @@
+// Click the King's name, type a new one, and it sticks.
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const html = readFileSync("dist/index.html", "utf8");
+const browser = await chromium.launch({ executablePath: process.env.CHROME || "/opt/pw-browsers/chromium" });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
+await page.setContent(html);
+await page.waitForFunction(() => !!window.game);
+await page.evaluate(() => window.game.runFront({ kind: "begin", faction: "human" }));
+await page.waitForFunction(() => !window.game.menu, null, { timeout: 60000 });
+await page.evaluate(() => { const g = window.game, w = g.world; const man = w.units().find((u) => u.owner === g.player); man.def = "king"; g.select([man.id]); });
+await page.waitForTimeout(800);
+await page.click(".rv-sel .nm");
+await page.keyboard.press("Control+A");
+await page.keyboard.type("Ari the Bold");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(800);
+const shown = await page.textContent(".rv-sel div.nm");
+const stored = await page.evaluate(() => { const g = window.game; return g.world.units().find((u) => u.owner === g.player).name; });
+console.log(JSON.stringify({ shown, stored, errors }));
+await browser.close();
+const ok = stored === "Ari the Bold" && /ARI THE BOLD/.test(shown) && !errors.length;
+console.log(ok ? "PASS name king" : "FAIL name king");
+process.exit(ok ? 0 : 1);

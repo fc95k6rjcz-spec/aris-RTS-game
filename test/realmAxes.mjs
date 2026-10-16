@@ -1,0 +1,21 @@
+// The realm: swords and war axes both lie in the ground; what you pick up is your side.
+import assert from 'node:assert/strict';import {build} from 'esbuild';
+const out=await build({entryPoints:['src/sim/world.ts'],bundle:true,write:false,platform:'node',format:'esm',logLevel:'error'});
+const {World,WILD}=await import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));
+const w=new World(96,96,42,'plains',1,false);w.realm=true;w.addPlayer(WILD,'human','#863');
+w.scatterSwords(6);
+const a=w.claimSeat('A');
+const open=()=>w.relics.filter(r=>r.owner===0&&!r.taken);
+assert(open().some(r=>r.faction==='orc')&&open().some(r=>r.faction==='human'),'both weapons are out');
+const man=w.units().find(u=>u.owner===a);const home=w.homes.get(a);
+const near=r=>Math.hypot(r.x-home.x,r.y-home.y);
+const axe=open().filter(r=>r.faction==='orc').sort((p,q)=>near(p)-near(q))[0];
+assert(near(axe)<30,'an axe within a fair walk');
+assert.equal(w.players.get(a).faction,'human');
+man.pos={x:(axe.x+.5)*64,y:(axe.y+.5)*64};
+for(let i=0;i<10;i++)w.step([]);
+assert.equal(man.def,'king','crowned');
+assert.equal(w.players.get(a).faction,'orc','the axe makes an Orc');
+assert.equal(w.players.get(a).color,'#dc2626');
+const n=open();assert.equal(n.filter(r=>r.faction==='orc').length,open().filter(r=>r.faction==='orc').length);
+console.log('PASS realm axes');

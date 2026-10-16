@@ -16,6 +16,8 @@ export interface Unit {
   id: EntityId;
   owner: PlayerId;
   def: string;
+  /** A name the player gave this person (their King, say). Unset means the generated one. */
+  name?: string;
   pos: Vec; // sub-tile units, centre of unit
   /** Fixed-point movement carried between ticks, in 1/1024 sub-units. */
   moveRemainder?: Vec;

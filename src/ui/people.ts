@@ -5,6 +5,7 @@ const FAMILY = ["Ashford", "Brook", "Hale", "Reed", "Fenwick", "Oakley", "Moss",
 
 /** Identity follows the entity, including the peasant who becomes king. */
 export function personName(u: Unit): string {
+  if (u.name) return u.name;
   const seed = (Math.imul(u.id, 2654435761) + Math.imul(u.owner, 1013904223)) >>> 0;
   return `${GIVEN[seed % GIVEN.length]} ${FAMILY[Math.floor(seed / GIVEN.length) % FAMILY.length]}`;
 }
