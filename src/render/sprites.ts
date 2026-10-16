@@ -19,7 +19,7 @@ import cartB from "../assets/peasant_cartpusher_back.png";
 
 import shipLongboat from "../assets/ship_longboat.png";
 import shipTanker from "../assets/ship_tanker.png";
-import shipTransport from "../assets/ship_longboat.png";
+import shipTransport from "../assets/ship_transport.png";
 import shipSubmarine from "../assets/ship_submarine.png";
 import shipBattleship from "../assets/ship_battleship.png";
 import shipIcebreaker from "../assets/ship_icebreaker.png";
