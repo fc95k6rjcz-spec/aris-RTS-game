@@ -57,6 +57,8 @@ export interface ShellState {
   clock: string;
   selection: {
     name: string;
+    /** The unit that can be renamed by clicking its name, if any. */
+    renamable?: { id: number; current: string } | null;
     sub: string;
     hp: number;
     maxHp: number;
@@ -106,6 +108,8 @@ export interface Shell {
   onPause(cb: () => void): void;
   onSettings(cb: () => void): void;
   onSave(cb: () => void): void;
+  /** Clicking the selected person's name lets the player type a new one. */
+  onRename(cb: (id: number, name: string) => void): void;
   destroy(): void;
 }
 
@@ -504,6 +508,40 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   let pauseCb: () => void = () => {};
   let gearCb: () => void = () => {};
   let saveCb: () => void = () => {};
+  let renameCb: (id: number, name: string) => void = () => {};
+  // Naming: the name line becomes a text box while you type.
+  let renameTarget: { id: number; current: string } | null = null;
+  let editing = false;
+  const nameBox = document.createElement("input");
+  nameBox.className = "nm";
+  nameBox.maxLength = 20;
+  nameBox.hidden = true;
+  nameBox.style.cssText = "background:rgba(0,0,0,.35);border:1px solid var(--gold,#d8b35a);color:inherit;font:inherit;width:100%;padding:0 4px;";
+  selName.after(nameBox);
+  selName.title = "";
+  const finish = (save: boolean) => {
+    if (!editing) return;
+    editing = false;
+    nameBox.hidden = true;
+    selName.hidden = false;
+    if (save && renameTarget) renameCb(renameTarget.id, nameBox.value);
+  };
+  selName.addEventListener("click", () => {
+    if (!renameTarget) return;
+    editing = true;
+    nameBox.value = renameTarget.current;
+    selName.hidden = true;
+    nameBox.hidden = false;
+    nameBox.focus();
+    nameBox.select();
+  });
+  // Typing a name must not also fire the game's hotkeys.
+  nameBox.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") finish(true);
+    else if (e.key === "Escape") finish(false);
+  });
+  nameBox.addEventListener("blur", () => finish(true));
   saveBtn.addEventListener('click',()=>saveCb());
 
   // Rebuilding the grid every frame would throw away hover and focus sixty
@@ -598,6 +636,9 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
 
       if (s.selection) {
         selName.textContent = s.selection.name;
+        renameTarget = s.selection.renamable ?? null;
+        selName.style.cursor = renameTarget ? "text" : "";
+        selName.title = renameTarget ? "Click to rename" : "";
         selSub.textContent = s.selection.sub;
         hp.hidden = false;
         hpFill.style.width = `${Math.max(0, Math.min(100, (s.selection.hp / Math.max(1, s.selection.maxHp)) * 100))}%`;
@@ -631,6 +672,8 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
         }
       } else {
         selName.textContent = "—";
+        renameTarget = null;
+        finish(false);
         selSub.textContent = "Nothing selected";
         hp.hidden = true;
         roster.hidden = true;
@@ -712,6 +755,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
       pauseCb = cb;
     },
     onSave(cb) { saveCb=cb; },
+    onRename(cb) { renameCb = cb; },
     onSettings(cb) {
       gearCb = cb;
     },
