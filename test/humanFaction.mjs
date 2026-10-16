@@ -68,6 +68,9 @@ const result = await page.evaluate(() => {
   // Ensure supply headroom.
   const farm = w.placeBuilding(1, "farm", 48, 44, true);
   farm.level = 10;
+  // Gryphons come with the Kingdom Era: give player 1 a Town Hall at level 6.
+  const hall = w.placeBuilding(1, "townhall", 52, 40, true) ?? w.placeBuilding(1, "townhall", 36, 52, true);
+  hall.level = 6;
   g.issue({ type: "train", player: 1, building: aviary.id, unit: "gryphon" });
   g.tick();
   const gryphonQueued = aviary.queue.some((q) => q.unit === "gryphon");

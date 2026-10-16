@@ -1,3 +1,4 @@
+import { eraOf } from "../data/eras";
 import { BUILDINGS } from "../data/buildings";
 import { LEVELLED, levelDef } from "../data/levels";
 import { UNITS } from "../data/units";
@@ -227,17 +228,22 @@ const LOW_MINE_GOLD = 1500;
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
-/** What must be standing before a Town Hall can reach each level. */
+/**
+ * What must be standing before a Town Hall can reach each level. Each level
+ * only asks for things its current era already allows (see data/eras.ts), so
+ * the climb can never lock itself: Village buildings to reach the Castle Era,
+ * Castle buildings to reach the Kingdom Era, Kingdom buildings for Flight.
+ */
 const HALL_NEEDS: Record<number, string[]> = {
   2: ["farm", "barracks"],
   3: ["lumbermill", "tower"],
   4: ["church", "stables"],
-  5: ["foundry", "magetower"],
-  6: ["shipyard", "golddepot"],
-  7: ["gryphonaviary"],
+  5: ["shipyard", "golddepot"],
+  6: [],
+  7: ["foundry", "magetower"],
   8: ["oilrig", "refinery"],
-  9: ["airfactory"],
-  10: [],
+  9: ["gryphonaviary"],
+  10: ["airfactory"],
 };
 
 export class World {
@@ -909,6 +915,25 @@ export class World {
    * Timber Hall, and so on). Every other building can rise no higher than the
    * Town Hall itself -- a village does not get a cathedral.
    */
+  /** This player's Town Hall level: their best finished hall, or 0 with none. */
+  hallLevel(player: PlayerId): number {
+    let best = 0;
+    for (const h of this.buildings()) if (h.owner === player && h.def === "townhall" && h.complete && h.level > best) best = h.level;
+    return best;
+  }
+
+  /**
+   * Why a building or unit is not yet available in this player's era, or null
+   * if it is. Battles in the Wars campaign set their own roster and skip eras.
+   */
+  eraBlock(player: PlayerId, id: string): string | null {
+    if (this.allowed) return null;
+    const era = eraOf(id);
+    if (!era || era.n === 1 || this.hallLevel(player) >= era.hall) return null;
+    const name = BUILDINGS[id]?.name ?? UNITS[id]?.name ?? id;
+    return `${name} comes with the ${era.name}: raise your Town Hall to level ${era.hall}`;
+  }
+
   upgradeBlocked(player: PlayerId, b: Building): string | null {
     const to = b.level + 1;
     if (this.levelCap !== null && to > this.levelCap) return `This battle allows level ${this.levelCap} at most`;
@@ -1741,6 +1766,8 @@ export class World {
     const d = BUILDINGS[def];
     if (!d) return "Unknown building";
     if (this.allowed && !this.allowed.includes(def)) return `${d.name} is not available in this battle`;
+    const era = this.eraBlock(player, def);
+    if (era) return era;
     // A King may raise a watchtower wherever he stands, without a barracks
     // behind him to justify it. He is walking his own country with no army yet,
     // and putting a tower on the ground he means to keep is exactly what a man
@@ -2107,6 +2134,8 @@ export class World {
         const d = UNITS[c.unit];
         if (!b || b.kind !== "building" || b.owner !== c.player || !b.complete || !d) break;
         if (!BUILDINGS[b.def]!.trains.includes(c.unit)) break;
+        const era = this.eraBlock(c.player, c.unit);
+        if (era) { this.emit(c.player, era); break; }
         if (b.queue.length >= MAX_TRAIN_QUEUE) {
           this.emit(c.player, `Only ${MAX_TRAIN_QUEUE} can wait in line`);
           break;
