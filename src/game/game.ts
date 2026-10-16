@@ -265,6 +265,7 @@ export class Game {
       this.shell.onPause(() => this.setPaused(!this.paused));
       this.shell.onSettings(() => this.settingsPanel?.toggle());
       this.shell.onSave(() => void this.saveGame());
+      this.shell.onRename((id, name) => this.issue({ type: "rename", player: this.player, unit: id, name }));
       this.bindMinimap(this.shell.minimap);
       // The game opens on the front screen, which wants the whole window. The
       // frame loop only toggles this on a change, so the opening state has to
@@ -1465,6 +1466,11 @@ export class Game {
       else if (k === "enter" || k === " ") {
         const a = frontRowAction(this.front, this.difficulty, settings.mapId, this.front.cursor);
         if (a) this.runFront(a);
+      } else if (/^[1-9]$/.test(k) && this.front.pane !== "join") {
+        // Quick keys: 1-6 pick the rows numbered I-VI.
+        const i = Number(k) - 1;
+        const a = frontRowAction(this.front, this.difficulty, settings.mapId, i);
+        if (a) { this.front.cursor = i; this.runFront(a); }
       } else if (k === "escape") {
         if (this.front.pane === "host") this.runFront({ kind: "leaveRoom" });
         else if (this.front.pane === "join") this.runFront({ kind: "pane", pane: "multiplayer" });
@@ -2193,7 +2199,7 @@ export class Game {
     if (selUnits.length > 0) {
       const u = selUnits[0]!;
       const def = UNITS[u.def]!;
-      const personal = p.faction === "human" && (u.def === "worker" || def.royal);
+      const personal = (p.faction === "human" || p.faction === "orc") && (u.def === "worker" || def.royal);
       const name = selUnits.length > 1 ? `${selUnits.length} selected` : personal
         ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${personName(u)}`.toUpperCase()
         : unitName(u.def, p.faction).toUpperCase();
@@ -2207,11 +2213,14 @@ export class Game {
               portrait: portraitArt(m.def),
               hp: m.hp,
               maxHp: m.maxHp,
-              name: p.faction === "human" && (m.def === "worker" || UNITS[m.def]!.royal)
+              name: (p.faction === "human" || p.faction === "orc") && (m.def === "worker" || UNITS[m.def]!.royal)
                 ? `${personName(m)} · ${unitName(m.def, p.faction)}` : unitName(m.def, p.faction),
             }))
           : [];
-      selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members };
+      // Your own King (or any one of your named people) can be renamed by
+      // clicking the name.
+      const renamable = selUnits.length === 1 && u.owner === this.player && personal ? { id: u.id, current: personName(u) } : null;
+      selection = { name, sub, hp: u.hp, maxHp: u.maxHp, portrait: portraitArt(u.def), members, renamable };
     } else if (b) {
       const d = BUILDINGS[b.def]!;
       selection = {
