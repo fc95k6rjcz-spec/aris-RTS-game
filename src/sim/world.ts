@@ -1935,6 +1935,14 @@ export class World {
         this.restartSeat(c.player);
         break;
       }
+      case "nameKing": {
+        const p = this.players.get(c.player);
+        if (!p || typeof c.name !== "string") break;
+        const name = cleanKingName(c.name);
+        if (name) p.kingName = name;
+        else delete p.kingName;
+        break;
+      }
       case "garrison": {
         const b = this.entities.get(c.building);
         if (!b || b.kind !== "building" || !b.complete || b.owner !== c.player) break;
@@ -3673,3 +3681,11 @@ export class World {
 }
 
 export { Faction };
+
+/** Longest King's name, so it fits above his head and in the panel. */
+export const KING_NAME_MAX = 20;
+
+/** A King's name as typed, made safe to show: single spaces, no control characters, a sensible length. */
+export function cleanKingName(raw: string): string {
+  return raw.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, KING_NAME_MAX).trim();
+}

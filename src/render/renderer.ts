@@ -1915,6 +1915,21 @@ export class Renderer {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+      // His name, chosen by his player, so anyone who meets him knows whose King it is.
+      const named = king ? this.world.players.get(u.owner)?.kingName : undefined;
+      if (named && s >= 18) {
+        ctx.save();
+        ctx.font = `600 ${Math.round(Math.max(10, Math.min(15, s * 0.28)))}px Georgia, serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        const ty = cy - s * 0.46;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(10,8,4,0.85)";
+        ctx.strokeText(`King ${named}`, ax, ty);
+        ctx.fillStyle = "#f2d78a";
+        ctx.fillText(`King ${named}`, ax, ty);
+        ctx.restore();
+      }
     }
     if (this.wantsBar(u.hp / u.maxHp, selected)) {
       // Above the head of whatever was drawn, and above the crown if there is

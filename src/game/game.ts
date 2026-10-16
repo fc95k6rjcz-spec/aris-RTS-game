@@ -11,7 +11,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { WALL_TIERS, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap } from "../sim/world";
+import { WALL_TIERS, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap, cleanKingName, KING_NAME_MAX } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -49,6 +49,8 @@ const TICK_MS = 1000 / TICKS_PER_SECOND;
  * the slider is ignored and everyone runs at this speed instead.
  */
 const REALM_SPEED = 0.75;
+/** Where this computer remembers the last King's name typed. */
+const KING_NAME_KEY = "rov-king-name";
 /** How long the crowning plays for, in milliseconds. */
 const CROWNING_MS = 2600;
 
@@ -90,6 +92,10 @@ export class Game {
   private realm: RealmNet | null = null;
   private realmNote = "";
   private choiceBox: HTMLDivElement | null = null;
+  /** The "Name your King" box, while it is open. */
+  private nameBox: HTMLDivElement | null = null;
+  /** What this player calls their King, chosen on the way into the realm. */
+  private kingName = "";
   /** The Wars battle being fought, if any. */
   private war: { b: Battle; startTick: number; sent: Set<number>; over: boolean } | null = null;
   private warsBox: HTMLDivElement | null = null;
@@ -545,7 +551,8 @@ export class Game {
           this.crowningAt = { x: e.x, y: e.y, at: performance.now() };
           // The banner waits for the pull: shouting "a King is born" over a man
           // still bending down gives the moment away before it happens.
-          window.setTimeout(() => this.proclaim("A KING IS BORN", "Raise your hall. The valley is yours to take.", 6000), CROWNING_MS * 0.72);
+          const named = this.world.players.get(this.player)?.kingName;
+          window.setTimeout(() => this.proclaim("A KING IS BORN", named ? `Long live King ${named}! Raise your hall. The valley is yours to take.` : "Raise your hall. The valley is yours to take.", 6000), CROWNING_MS * 0.72);
           break;
         }
       }
@@ -1434,7 +1441,7 @@ export class Game {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (this.createPanel?.visible) return;
+    if (this.createPanel?.visible || this.nameBox) return;
     const k = e.key.toLowerCase();
     if (this.menu) {
       // Any key at all opens the gate; after that the keyboard drives the column.
@@ -1622,7 +1629,8 @@ export class Game {
         this.openWars();
         break;
       case "begin":
-        void this.enterRealm();
+        // Name the King first, then walk into the realm.
+        this.askKingName(() => void this.enterRealm());
         break;
       case "skirmish":
         this.start(this.difficulty);
@@ -1773,6 +1781,10 @@ export class Game {
     this.player = player ?? this.player;
     this.pendingSave = { version: 1, world, map, player: -1, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] };
     this.start("none");
+    // Tell the whole realm what our King is called (through the ledger, so every copy agrees).
+    if (this.kingName && this.world.players.get(this.player)?.kingName !== cleanKingName(this.kingName)) {
+      this.issue({ type: "nameKing", player: this.player, name: this.kingName });
+    }
     this.realmSavedAt = performance.now();
     const hall = this.world.buildings().find((b) => b.owner === this.player && b.def === "townhall");
     const king = this.world.units().find((u) => u.owner === this.player && UNITS[u.def]!.royal) ?? this.world.units().find((u) => u.owner === this.player);
@@ -1902,6 +1914,65 @@ export class Game {
     this.buildMode = null; this.wallStart = null;
     this.menu = true;
     if (toMap) this.openWars();
+  }
+
+  /**
+   * "Name your King": the box that comes up the moment you press Enter the
+   * Realm. Remembers the last name on this computer so it is one keypress next time.
+   */
+  private askKingName(then: () => void): void {
+    if (this.nameBox) return;
+    let last = "";
+    try { last = localStorage.getItem(KING_NAME_KEY) ?? ""; } catch { /* storage blocked */ }
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:60;width:min(420px,calc(100vw - 32px));box-sizing:border-box;padding:26px 30px 22px;background:rgba(12,12,14,0.97);border:1px solid #b89a52;box-shadow:0 12px 40px rgba(0,0,0,.7);color:#e9e2cf;font-family:Georgia,serif;text-align:center";
+    const h = document.createElement("div");
+    h.textContent = "NAME YOUR KING";
+    h.style.cssText = "font-size:24px;letter-spacing:.08em;color:#e8c56b;margin-bottom:8px";
+    const p = document.createElement("div");
+    p.textContent = "Everyone in the realm will know him by it.";
+    p.style.cssText = "font-size:15px;color:#cfc6b0;margin-bottom:16px;font-style:italic";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = KING_NAME_MAX;
+    input.value = last;
+    input.placeholder = "e.g. Ari the Bold";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", "Your King's name");
+    input.style.cssText = "width:100%;box-sizing:border-box;padding:10px 12px;font:18px Georgia,serif;text-align:center;background:#1b1a17;color:#f2e8cf;border:1px solid #6f5d33;outline:none;margin-bottom:18px";
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;justify-content:center";
+    const close = () => { box.remove(); if (this.nameBox === box) this.nameBox = null; };
+    const go = () => {
+      const name = cleanKingName(input.value);
+      if (!name) { input.focus(); input.style.borderColor = "#c0563a"; return; }
+      this.kingName = name;
+      try { localStorage.setItem(KING_NAME_KEY, name); } catch { /* storage blocked */ }
+      close();
+      then();
+    };
+    const ok = document.createElement("button");
+    ok.textContent = "Enter the Realm";
+    ok.style.cssText = "padding:9px 22px;font:600 14px Georgia,serif;letter-spacing:.06em;cursor:pointer;border:1px solid #b89a52;background:#b89a52;color:#15120c";
+    ok.onclick = go;
+    const back = document.createElement("button");
+    back.textContent = "Back";
+    back.style.cssText = "padding:9px 22px;font:600 14px Georgia,serif;letter-spacing:.06em;cursor:pointer;border:1px solid #b89a52;background:transparent;color:#e8c56b";
+    back.onclick = close;
+    // Typing belongs to the box, not the menu behind it.
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      input.style.borderColor = "#6f5d33";
+      if (e.key === "Enter") { e.preventDefault(); go(); }
+      else if (e.key === "Escape") { e.preventDefault(); close(); }
+    });
+    row.append(back, ok);
+    box.append(h, p, input, row);
+    document.body.appendChild(box);
+    this.nameBox = box;
+    input.focus();
+    input.select();
   }
 
   /** A small centred choice over the map: a title, a line, and a few buttons. */
@@ -2202,7 +2273,7 @@ export class Game {
       const def = UNITS[u.def]!;
       const personal = p.faction === "human" && (u.def === "worker" || def.royal);
       const name = selUnits.length > 1 ? `${selUnits.length} selected` : personal
-        ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${personName(u)}`.toUpperCase()
+        ? `${def.royal ? unitName(u.def, p.faction) + " " : ""}${(u.def === "king" && this.world.players.get(u.owner)?.kingName) || personName(u)}`.toUpperCase()
         : unitName(u.def, p.faction).toUpperCase();
       const sub = selUnits.length > 1 ? `${unitName(u.def, p.faction)} and others`
         : `${unitName(u.def, p.faction)} · ${u.hp < u.maxHp * 0.35 ? "Badly wounded · " : ""}${describeTask(u)}`;
