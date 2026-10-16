@@ -30,13 +30,13 @@ export const ERAS: readonly EraDef[] = [
     n: 2, name: "Castle Era", hall: 3,
     blurb: "Knights ride out, priests heal, and the first ships take to the water.",
     buildings: ["stables", "church", "shipyard", "golddepot"],
-    units: ["knight", "priest", "ballista", "longboat", "transport", "icebreaker"],
+    units: ["knight", "priest", "ballista", "longboat", "icebreaker"],
   },
   {
     n: 3, name: "Kingdom Era", hall: 6,
-    blurb: "Mages and cannon, oil from the ground, and gryphons in the sky.",
+    blurb: "Mages and cannon, oil from the ground, steel ships, and gryphons in the sky.",
     buildings: ["magetower", "foundry", "oilrig", "refinery", "gryphonaviary"],
-    units: ["mage", "cannon", "gryphon", "tanker", "battleship"],
+    units: ["mage", "cannon", "gryphon", "transport", "tanker", "battleship"],
   },
   {
     n: 4, name: "Age of Flight", hall: 9,
