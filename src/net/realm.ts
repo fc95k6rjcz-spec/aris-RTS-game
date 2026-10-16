@@ -71,7 +71,16 @@ export interface RealmHost {
   claim(seat: string): void;
   /** Something the player should know ("You are the keeper", "Connection lost"). */
   status(text: string): void;
+  /**
+   * Nobody handed us a copy of the realm in time, so we keep it ourselves now.
+   * Called only while we were joining; the game should put its own copy on
+   * screen if it has not got one up yet.
+   */
+  alone?(): void;
 }
+
+/** How long a newcomer waits for a copy of the realm before keeping its own. */
+const JOIN_PATIENCE = 12000;
 
 export type RealmState =
   | { kind: "running" }
@@ -134,6 +143,10 @@ export class RealmNet {
   private lastNeed = 0;
   private failure: string | null = null;
   private joining = false;
+  /** When the current wait for a copy of the realm began. */
+  private joinStartedAt = 0;
+  /** Presence counts as "alive" only until heartbeats have had time to arrive. */
+  private presenceGrace = true;
   /** Keeper-in-waiting: collecting turns from peers who heard more than we did. */
   private adoptingUntil = 0;
   /** Keeper: newcomers waiting for a copy of the world. */
@@ -211,6 +224,8 @@ export class RealmNet {
     await new Promise((r) => setTimeout(r, 2200));
     this.peers = this.readPresence();
     const elder = this.eldestAlive(true);
+    // From here on only computers that are actually answering count.
+    this.presenceGrace = false;
     this.timer = setInterval(() => this.housekeeping(), 400);
     if (!elder || elder === this.tab) {
       this.keeper = true;
@@ -223,6 +238,7 @@ export class RealmNet {
 
   private askToJoin(): void {
     this.keeper = false;
+    if (!this.joining) this.joinStartedAt = Date.now();
     this.joining = true;
     this.inbox.clear();
     this.send("hello", { tab: this.tab, seat: this.seat });
@@ -250,6 +266,9 @@ export class RealmNet {
 
   private beat(): void {
     this.lastBeat = Date.now();
+    // A tab in the background has its game loop paused by the browser: it
+    // cannot write turns or hand out copies, so it must not claim to be here.
+    if (typeof document !== "undefined" && document.hidden) return;
     this.send("beat", { tab: this.tab, since: this.since, next: this.joining ? -1 : this.next });
   }
 
@@ -262,7 +281,7 @@ export class RealmNet {
     const alive: Array<{ tab: string; since: number; next: number }> = [{ tab: this.tab, since: this.since, next: this.joining ? -1 : this.next }];
     for (const [tab, h] of this.heard) if (tab !== this.tab && now - h.at < 4000) alive.push({ tab, since: h.since, next: h.next });
     // Presence counts too while heartbeats are still arriving for the first time.
-    if (this.heard.size === 0) for (const p of this.peers) if (p.tab !== this.tab) alive.push({ ...p, next: 0 });
+    if (this.heard.size === 0 && this.presenceGrace) for (const p of this.peers) if (p.tab !== this.tab) alive.push({ ...p, next: 0 });
     // The realm that has run furthest wins -- a computer waking from sleep with
     // an old copy must not drag everyone back to it -- then the eldest.
     alive.sort((a, b) => (Math.abs(a.next - b.next) > 20 ? b.next - a.next : a.since - b.since || (a.tab < b.tab ? -1 : 1)));
@@ -379,10 +398,13 @@ export class RealmNet {
       if (this.joining && now - this.lastNeed > 6000) {
         // No copy arrived: ask again (the keeper may have changed hands).
         this.lastNeed = now;
-        if (this.eldestAlive(true) === null) {
+        if (this.eldestAlive(true) === null || now - this.joinStartedAt > JOIN_PATIENCE) {
+          // Nobody is answering (or whoever is never sends a copy): stop
+          // waiting and keep the realm ourselves rather than hang forever.
           this.joining = false;
           this.keeper = true;
           this.host.status("Nobody answered — you have the realm to yourself");
+          this.host.alone?.();
         } else this.send("hello", { tab: this.tab, seat: this.seat });
       }
     }

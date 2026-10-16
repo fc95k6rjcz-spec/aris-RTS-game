@@ -614,7 +614,7 @@ export function drawFrontScreen(
 
   // ── the line under the column ──
   const shown = hovered ?? cursored;
-  const blurb = lobby && state.net.status ? state.net.status : shown?.note ?? note;
+  const blurb = (lobby || state.net.busy) && state.net.status ? state.net.status : shown?.note ?? note;
   if (blurb) {
     const by = top + perPage * rowH + 20;
     ctx.font = `italic ${Math.round(Math.max(13, Math.min(16, H * 0.021)))}px Georgia, serif`;

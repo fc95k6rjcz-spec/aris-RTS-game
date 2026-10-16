@@ -1699,7 +1699,12 @@ export class Game {
   private async enterRealm(): Promise<void> {
     this.war = null;
     this.warsBox?.remove(); this.warsBox = null;
-    if (this.realm) return;
+    if (this.realm) {
+      // Still looking for the realm: keep waiting, the status line says so.
+      if (this.realm.state(performance.now()).kind === "joining" || !this.world?.realm) return;
+      // Came back to the menu from the realm: put that connection away and walk in fresh.
+      void this.storeLedger(); this.realm.close(); this.realm = null;
+    }
     this.closeRoom();
     this.transport = null;
     this.setup = null;
@@ -1716,7 +1721,9 @@ export class Game {
       },
       checksum: () => this.world.checksum(),
       claim: (seat) => { this.world.claimSeat(seat); },
-      status: (text) => { this.realmNote = text; this.toast(text, "info"); },
+      status: (text) => { this.realmNote = text; this.front.net.status = text; this.toast(text, "info"); },
+      // Waited for a copy and none came: play our own copy instead of hanging on the menu.
+      alone: () => { if (this.realm === realm && this.menu) void this.playOwnRealm(realm); },
     });
     this.realm = realm;
     this.realmNote = "Looking for the realm…";
@@ -1727,7 +1734,12 @@ export class Game {
       this.front.net.status = "Entering the realm…";
       return;
     }
-    // Alone: our own copy of the realm, or a brand new one.
+    await this.playOwnRealm(realm);
+    if (how === "offline") this.toast("Could not reach the realm — playing your own copy for now", "info");
+  }
+
+  /** Alone in the realm: put our own saved copy on screen, or found a new one. */
+  private async playOwnRealm(realm: RealmNet): Promise<void> {
     let world: World | null = null;
     let map: MapDef | null = null;
     try {
@@ -1738,9 +1750,9 @@ export class Game {
       map = this.chooseMap();
       world = this.buildRealmWorld(map);
     }
+    if (this.realm !== realm || !this.menu) return;
     const mine = world.claimSeat(realm.seat) ?? undefined;
     this.installRealmWorld(world, map!, mine);
-    if (how === "offline") this.toast("Could not reach the realm — playing your own copy for now", "info");
   }
 
   /** A fresh realm: a big map, its wildlife, and nobody in it yet. */
