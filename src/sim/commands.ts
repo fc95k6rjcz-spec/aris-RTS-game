@@ -34,5 +34,6 @@ export type Command =
   /** Shared realm: abandon your kingdom and start again as a new camp. */
   | { type: "restartSeat"; player: PlayerId; faction?: "human" | "orc" }
   /** Mount a Dragonbane harpoon on a watch tower. */
-  | { type: "dragonbane"; player: PlayerId; building: EntityId };
+  | { type: "dragonbane"; player: PlayerId; building: EntityId }
+  | { type: "rename"; player: PlayerId; unit: EntityId; name: string };
 

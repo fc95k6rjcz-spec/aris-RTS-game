@@ -1949,6 +1949,15 @@ export class World {
         }
         break;
       }
+      case "rename": {
+        // Name one of your own people. Letters, spaces, ' and - only, up to 20.
+        const u = this.entities.get(c.unit);
+        if (!u || u.kind !== "unit" || u.owner !== c.player) break;
+        const name = String(c.name ?? "").replace(/[^\p{L}\p{M} '\-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 20);
+        if (name) u.name = name;
+        else delete u.name;
+        break;
+      }
       case "dragonbane": {
         const b = this.entities.get(c.building);
         if (!b || b.kind !== "building" || b.def !== "tower" || !b.complete || b.owner !== c.player || b.dragonbane) break;
