@@ -26,4 +26,4 @@ const b7=M.battle(7);const w7=M.buildBattleWorld(b7,1);w7.summonHorde(1,'raid',b
 assert(w7.units().some(u=>u.horde),'orcs arrive');
 for(const u of w7.units().filter(u=>u.horde))w7.removeEntity(u.id);
 assert(M.goalState(w7,1,b7.goals[0],200,0).done,'cleared');
-console.log('PASS: 10 Wars battles build, start unwon, and can be won; caps and unlocks hold');
+console.log('PASS: every Wars battle builds, start unwon, and can be won; caps and unlocks hold');

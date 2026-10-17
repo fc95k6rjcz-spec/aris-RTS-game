@@ -26,7 +26,7 @@ export function starsFor(b: Battle, seconds: number): number {
 /** A small map, your hall, your people, and whatever the battle sets against you. */
 export function buildBattleWorld(b: Battle, pace: number): World {
   const n = b.size ?? 64;
-  const w = new World(n, n, b.seed, "plains", pace, false);
+  const w = new World(n, n, b.seed, b.kind ?? "plains", pace, false);
   w.war = true;
   w.hordeEnabled = false;
   w.dragonsEnabled = false;
