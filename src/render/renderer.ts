@@ -3,6 +3,7 @@ import { projectilePose, deathPose, drawArrow } from "./combatMotion";
 import { drawHumanDeath } from "./humanDeath";
 import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
 import { towerRange } from "../sim/world";
+import { LEVELLED as LEVEL_TABLES } from "../data/levels";
 import { constructionFrame } from './constructionFrame';
 import { BUILDINGS } from "../data/buildings";
 import { levelDef, LEVELLED } from "../data/levels";
@@ -1341,6 +1342,16 @@ export class Renderer {
         ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        // And where the next upgrade would reach: a fainter ring, so the
+        // reward for upgrading is visible before you pay for it.
+        if (b.level < (LEVEL_TABLES.tower?.length ?? 0)) {
+          ctx.setLineDash([4, 8]);
+          ctx.strokeStyle = "rgba(255,215,120,0.55)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, towerRange(b.level + 1) * s, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         ctx.restore();
       } else if (lv?.radius) {
         const c = { x: p.x + w / 2, y: p.y + w / 2 };
@@ -1936,6 +1947,31 @@ export class Renderer {
       // one, rather than across the chest of a tall sprite.
       const barY = ay + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12);
       this.bar(ax - drawnH * 0.22, barY, drawnH * 0.44, u.hp / u.maxHp, "#4ce04c");
+    }
+    // Rank: gold chevrons for a unit trained in an upgraded building, one per
+    // level above the first (up to three, then a star with the number).
+    if ((u.rank ?? 1) > 1) {
+      const rank = u.rank!;
+      const bx = ax + drawnH * 0.28, by = ay + s * 0.45 - drawnH - (def.royal ? s * 0.3 : s * 0.12) + 2;
+      const k = Math.max(4, s * 0.15);
+      ctx.save();
+      ctx.lineWidth = Math.max(1.5, k * 0.45);
+      ctx.strokeStyle = "rgba(20,14,4,0.9)";
+      ctx.fillStyle = "#f2c94c";
+      if (rank <= 4) {
+        for (let i = 0; i < rank - 1; i++) {
+          const y = by + i * k * 0.8;
+          ctx.beginPath(); ctx.moveTo(bx - k, y); ctx.lineTo(bx, y + k * 0.7); ctx.lineTo(bx + k, y);
+          ctx.stroke(); ctx.strokeStyle = "#f2c94c"; ctx.lineWidth = Math.max(1, k * 0.28); ctx.stroke();
+          ctx.strokeStyle = "rgba(20,14,4,0.9)"; ctx.lineWidth = Math.max(1.5, k * 0.45);
+        }
+      } else {
+        ctx.font = `bold ${Math.round(k * 2.2)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.strokeText(`★${rank}`, bx, by + k * 1.6);
+        ctx.fillText(`★${rank}`, bx, by + k * 1.6);
+      }
+      ctx.restore();
     }
   }
 
