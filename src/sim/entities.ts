@@ -21,6 +21,8 @@ export interface Unit {
   moveRemainder?: Vec;
   hp: number;
   maxHp: number;
+  /** Level of the building that trained it: each level above 1 adds RANK_BONUS to health and damage. */
+  rank?: number;
   task: UnitTask;
   /** Remaining A* waypoints in tile coords for the active order. */
   path: Array<[number, number]>;

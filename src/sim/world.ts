@@ -210,7 +210,61 @@ export const WALL_ARCHER_TIER = 5;
 export function wallGarrisonCap(level: number): number { return level >= WALL_ARCHER_TIER ? (level >= 8 ? 2 : 1) : 0; }
 /** How many orders a building will hold in its training line. */
 export const MAX_TRAIN_QUEUE = 10;
-export function towerRange(level: number): number { return 8 + (Math.max(1, level) - 1) * 1.25; }
+export function towerRange(level: number): number { return 10 + (Math.max(1, level) - 1) * 2; }
+/**
+ * Upgrading a building that trains units has to be felt. Every level above the
+ * first makes the units trained there this much tougher and harder-hitting
+ * (a level 10 Barracks turns out soldiers nearly twice as strong as a level 1)...
+ */
+export const RANK_BONUS = 0.1;
+export function rankMultiplier(rank = 1): number { return 1 + RANK_BONUS * (Math.max(1, rank) - 1); }
+/** ...and trains them 15% faster per level. */
+export function trainRate(level: number): number { return 1 + 0.15 * (Math.max(1, level) - 1); }
+/** Whether a building's level makes the units it trains stronger. */
+export function ranksUnits(def: string): boolean { return !!LEVELLED[def] && (BUILDINGS[def]?.trains.length ?? 0) > 0; }
+
+/** What going from one level to the next brings, in plain words, for the tooltip and the fanfare. */
+export function levelGains(def: string, from: number, to: number): string[] {
+  const table = LEVELLED[def];
+  if (!table) return [];
+  const cur = table[from - 1], next = table[to - 1];
+  if (!cur || !next) return [];
+  const gains: string[] = [];
+  if (ranksUnits(def)) {
+    const names = BUILDINGS[def]!.trains.map((id) => UNITS[id]?.name).filter(Boolean).join(", ");
+    gains.push(`new ${names}: +${Math.round(RANK_BONUS * (to - 1) * 100)}% health and damage`);
+    gains.push(`trains ${Math.round((trainRate(to) - 1) * 100)}% faster`);
+  }
+  if (def === "tower") {
+    gains.push(`range ${towerRange(from)} → ${towerRange(to)} tiles`);
+    if (towerArchers(to) > towerArchers(from)) gains.push(`${towerArchers(to)} archers on top`);
+  }
+  if (next.hp > cur.hp) gains.push(`+${next.hp - cur.hp} building health`);
+  if (next.supply > cur.supply) gains.push(`+${next.supply - cur.supply} supply`);
+  if ((next.heal ?? 0) > (cur.heal ?? 0)) gains.push("stronger healing");
+  if ((next.radius ?? 0) > (cur.radius ?? 0) && def !== "tower") gains.push("wider reach");
+  if ((next.bonusCarry ?? 0) > (cur.bonusCarry ?? 0)) gains.push(`+${(next.bonusCarry ?? 0) - (cur.bonusCarry ?? 0)} per load delivered`);
+  if ((next.oilPerSecond ?? 0) > (cur.oilPerSecond ?? 0)) gains.push("more oil");
+  if ((next.armour ?? 0) > (cur.armour ?? 0)) gains.push("tougher units everywhere");
+  if ((next.spellPower ?? 0) > (cur.spellPower ?? 0)) gains.push("stronger spells");
+  return gains;
+}
+
+/** What one level of a research brings, in plain words. */
+export function researchGains(id: string, level: number): string {
+  const up = UPGRADES[id];
+  const lv = up?.levels[level - 1];
+  if (!up || !lv) return "";
+  const who = up.units.map((u) => UNITS[u]?.name).filter(Boolean).join(", ");
+  const bits: string[] = [];
+  if (lv.damage) bits.push(`+${lv.damage} damage`);
+  if (lv.armour) bits.push(`+${lv.armour} armour`);
+  if (lv.range) bits.push(`+${lv.range} range`);
+  if (lv.heal) bits.push(`+${lv.heal} healing`);
+  if (lv.healRange) bits.push(`+${lv.healRange} heal range`);
+  if (!bits.length) return "";
+  return who ? `${who}: ${bits.join(", ")}` : bits.join(", ");
+}
 /** How many of your own archers a tower can take on top of its crew. */
 export function towerGarrisonCap(level: number): number { return 2 + Math.floor(Math.max(1, level) / 2); }
 /** Ticks between one tower archer's shots. */
@@ -407,6 +461,7 @@ export class World {
         mix(e.moveRemainder?.x ?? 0);
         mix(e.moveRemainder?.y ?? 0);
         mix(e.hp);
+        mix(e.rank ?? 1);
         mix(e.def.length * 131 + e.def.charCodeAt(0));
         mix(e.task.kind.length);
         mix(e.guardOrigin?.x ?? -1);
@@ -1700,7 +1755,7 @@ export class World {
     for (const u of this.units()) {
       if (u.owner !== player) continue;
       const base = UNITS[u.def]!.hp;
-      const target = Math.round(base * (1 + bonus));
+      const target = Math.round(base * (1 + bonus) * rankMultiplier(u.rank));
       if (target === u.maxHp) continue;
       const frac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
       u.maxHp = target;
@@ -2580,6 +2635,7 @@ export class World {
       damage *= 1 + power;
       range += power * 0.45;
     }
+    damage *= rankMultiplier(u.rank);
     const rallied=(u.ralliedUntil??0)>this.tick;
     if (rallied) damage *= 1.5;
     return { damage, range, armour: d.armour + b.armour + (rallied?3:0) };
@@ -2589,7 +2645,7 @@ export class World {
   private healingStats(u: Unit): { heal: number; range: number } {
     const d = UNITS[u.def]!;
     const b = researchBonus(u.def, this.players.get(u.owner)?.research ?? {});
-    return { heal: (d.heal ?? 0) + b.heal, range: (d.healRange ?? 0) + b.healRange };
+    return { heal: ((d.heal ?? 0) + b.heal) * rankMultiplier(u.rank), range: (d.healRange ?? 0) + b.healRange };
   }
 
   /** Heal the most wounded ally in reach. Returns true if a heal was cast. */
@@ -3644,7 +3700,8 @@ export class World {
         const up = UPGRADES[b.research.id]!;
         const p = this.players.get(b.owner)!;
         p.research[up.id] = Math.max(p.research[up.id] ?? 0, b.research.toLevel);
-        this.emit(b.owner, `${up.name} ${b.research.toLevel} complete`, "info");
+        const what = researchGains(up.id, b.research.toLevel);
+        this.emit(b.owner, `${up.name} ${b.research.toLevel} complete${what ? " — " + what : ""}`, "info");
         b.research = null;
       }
       return; // researching halts training, as upgrading does
@@ -3681,7 +3738,7 @@ export class World {
       return;
     }
     // A levelled workshop trains faster.
-    const speed = LEVELLED[b.def] ? (levelDef(b.def, b.level).trainSpeed ?? 1) : 1;
+    const speed = LEVELLED[b.def] ? Math.max(levelDef(b.def, b.level).trainSpeed ?? 1, trainRate(b.level)) : 1;
     job.remaining -= speed;
     if (job.remaining > 0) return;
     const spawn = this.findSpawnTile(b, d.domain);
@@ -3692,6 +3749,12 @@ export class World {
     }
     b.queue.shift();
     const u = this.spawnUnit(b.owner, job.unit, { x: spawn[0] * SUB + SUB / 2, y: spawn[1] * SUB + SUB / 2 });
+    // Trained in a better building, and it shows.
+    if (ranksUnits(b.def) && b.level > 1) {
+      u.rank = b.level;
+      u.maxHp = Math.round(d.hp * (1 + this.armourBonus(b.owner)) * rankMultiplier(u.rank));
+      u.hp = u.maxHp;
+    }
     if (b.rally) {
       u.task = { kind: "move", target: b.rally };
       this.pathTo(u, Math.floor(b.rally.x / SUB), Math.floor(b.rally.y / SUB));
