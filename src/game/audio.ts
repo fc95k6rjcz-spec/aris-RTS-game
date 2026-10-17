@@ -23,10 +23,15 @@ import { musicGain, sfxGain, settings } from "./settings";
 import type { FxEvent } from "../sim/world";
 import { SUB } from "../sim/types";
 
-export type SoundName = "dragon" | "orcScouts" | "noStore" | "swordLegend" | "warning" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
+export type SoundName = "dragon" | "orcScouts" | "noStore" | "swordLegend" | "warning" | "buildingDone" | "needGold" | "newEra" | "defeat" | "sword" | "bow" | "boom" | "impact" | "death" | "collapse" | "coin" | "chop" | "build" | "workstart" | "crown" | "magic" | "heal" | "timber" | "command";
 
 /** Shortest gap between two plays of the same sound, in milliseconds. */
 const CROWD_MS: Record<SoundName, number> = {
+  // Ari's lines: often enough to be heard, never so often they nag.
+  buildingDone: 6000,
+  needGold: 20000,
+  newEra: 5000,
+  defeat: 10000,
   warning: 15000,
   dragon: 15000,
   orcScouts: 15000,
@@ -69,6 +74,15 @@ const SAMPLES = {
   orcScoutsLine: "/sfx/orc-scouts.mp3",
   needTownHall: "/sfx/need-town-hall.mp3",
   swordLegendLine: "/sfx/sword-legend.mp3",
+  // Ari's voice.
+  archerSelect: "/sfx/archer-select.mp3",
+  knightSelect: "/sfx/knight-select.mp3",
+  mageSelect: "/sfx/mage-select.mp3",
+  orderAttack: "/sfx/order-attack.mp3",
+  buildingDoneLine: "/sfx/building-done.mp3",
+  needGoldLine: "/sfx/need-gold.mp3",
+  newEraLine: "/sfx/new-era.mp3",
+  defeatLine: "/sfx/defeat.mp3",
 } as const;
 
 /**
@@ -80,8 +94,12 @@ const VOICE_LINES: Record<VoiceKind, SampleName[]> = {
   king: ["kingSelect"],
   footman: ["footmanSelect"],
   build: ["workerBuild"],
+  archer: ["archerSelect"],
+  knight: ["knightSelect"],
+  mage: ["mageSelect"],
+  attack: ["orderAttack"],
 };
-export type VoiceKind = "select" | "king" | "footman" | "build";
+export type VoiceKind = "select" | "king" | "footman" | "build" | "archer" | "knight" | "mage" | "attack";
 /** Shortest gap between two unit replies, so rapid clicking is not a chorus. */
 const VOICE_GAP_MS = 2500;
 type SampleName = keyof typeof SAMPLES;
@@ -282,6 +300,24 @@ export class Audio {
       case "swordLegend":
         // Justin's voice: "There is a great legend of a sword in this area".
         this.sample("swordLegendLine");
+        break;
+      // Ari's voice for the moments that matter. None of them talks over a
+      // line already playing; each just stays quiet that time.
+      case "buildingDone":
+        if (performance.now() < this.speakingUntil) break;
+        this.sample("buildingDoneLine");
+        break;
+      case "needGold":
+        if (performance.now() < this.speakingUntil) break;
+        this.sample("needGoldLine");
+        break;
+      case "newEra":
+        // The big one: it waits for nothing but a line already mid-sentence.
+        if (performance.now() < this.speakingUntil) break;
+        this.sample("newEraLine");
+        break;
+      case "defeat":
+        this.sample("defeatLine");
         break;
       case "noStore":
         // Justin's voice: "We need to build a town hall".

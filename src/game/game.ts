@@ -50,6 +50,8 @@ const TICK_MS = 1000 / TICKS_PER_SECOND;
  * the slider is ignored and everyone runs at this speed instead.
  */
 const REALM_SPEED = 0.75;
+/** "Barracks complete" and the like: the lines that mean one of your buildings has just gone up. */
+const BUILDING_DONE_LINES = new Set(Object.values(BUILDINGS).map((d) => `${d.name} complete`));
 /** Where this computer remembers the last King's name typed. */
 const KING_NAME_KEY = "rov-king-name";
 /** How long the crowning plays for, in milliseconds. */
@@ -101,6 +103,8 @@ export class Game {
   private war: { b: Battle; startTick: number; sent: Set<number>; over: boolean } | null = null;
   private warsBox: HTMLDivElement | null = null;
   private fallenShown = false;
+  /** Ari's "We've been defeated" has been said for this match. */
+  private defeatSaid = false;
   private recenterOnKing = false;
   private realmSavedAt = 0;
   private pending: Command[] = [];
@@ -403,6 +407,7 @@ export class Game {
   /** Start the match against the chosen opponent, on a freshly built map. */
   start(difficulty: Difficulty = "normal"): void {
     this.menu = false;
+    this.defeatSaid = false;
     // Rebuild the world so the map choice takes effect and a second game is not
     // played on the wreckage of the first.
     const saved = this.pendingSave; this.pendingSave = null;
@@ -567,6 +572,7 @@ export class Game {
       if (era) {
         const opens = [...era.buildings.map((id) => BUILDINGS[id]?.name), ...era.units.map((id) => UNITS[id]?.name)].filter(Boolean).join(", ");
         this.proclaim(`THE ${era.name.toUpperCase()}`, `${era.blurb} Now open: ${opens}.`, 7000);
+        this.audio.play("newEra");
       } else this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
       this.audio.play("crown", 0.8);
     }
@@ -589,6 +595,13 @@ export class Game {
       this.toast(ev.text, ev.level);
       if (ev.text === NO_STORE_LINE) this.audio.play("noStore");
       else if (ev.text === LOW_MINE_LINE) this.callouts.say(ev.text);
+      else if (BUILDING_DONE_LINES.has(ev.text)) this.audio.play("buildingDone");
+      else if (/more gold/.test(ev.text)) this.audio.play("needGold");
+    }
+    // A match lost (not in the Wars campaign, which says it on its own screen).
+    if (!this.defeatSaid && !this.war && this.world.winner !== null && !this.world.allied(this.world.winner, this.player)) {
+      this.defeatSaid = true;
+      this.audio.play("defeat");
     }
     const line = this.callouts.update(this.world, this.player, this.world.units().filter(u => {
       if(u.owner !== this.player) return false;
@@ -642,6 +655,8 @@ export class Game {
   }
 
   issue(c: Command): void {
+    // "Charge!" -- whenever this player sends men to fight.
+    if ((c.type === "attack" || c.type === "attackMove") && c.player === this.player) this.audio.say("attack");
     if (this.realm) this.realm.issue(c);
     else this.net.issue(c);
   }
@@ -921,7 +936,10 @@ export class Game {
     const fresh = [...this.selected].map((id) => before.has(id) ? undefined : this.world.entities.get(id)).filter((e) => e?.kind === "unit" && e.owner === this.player);
     // The King answers for himself.
     if (fresh.some((e) => e!.def === "king")) this.audio.say("king");
+    else if (fresh.some((e) => e!.def === "knight")) this.audio.say("knight");
+    else if (fresh.some((e) => e!.def === "mage")) this.audio.say("mage");
     else if (fresh.some((e) => e!.def === "footman")) this.audio.say("footman");
+    else if (fresh.some((e) => e!.def === "archer")) this.audio.say("archer");
     else if (fresh.length) this.audio.say("select");
   }
 
@@ -1827,6 +1845,7 @@ export class Game {
     if (alive) { this.fallenShown = false; return; }
     if (this.fallenShown) return;
     this.fallenShown = true;
+    this.audio.play("defeat");
     this.showChoice("YOUR KINGDOM HAS FALLEN", "Nothing of yours still stands. Gather what you can and start again as a new camp somewhere in the realm.", [
       { label: "Start again", primary: true, act: () => this.startAgain() },
     ]);
@@ -1907,6 +1926,7 @@ export class Game {
         ...(next ? [{ label: `Battle ${next.id}`, primary: true, act: () => this.startBattle(next) }] : []),
       ]);
     } else {
+      this.audio.play("defeat");
       this.showChoice("DEFEAT", w.b.timeLimit !== undefined && secs > w.b.timeLimit ? "Out of time." : "Your town has fallen.", [
         { label: "Wars", act: () => this.leaveBattle(true) },
         { label: "Try Again", primary: true, act: () => this.startBattle(b) },
