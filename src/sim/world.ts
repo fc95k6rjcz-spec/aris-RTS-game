@@ -234,7 +234,7 @@ const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#
  * the climb can never lock itself: Village buildings to reach the Castle Era,
  * Castle buildings to reach the Kingdom Era, Kingdom buildings for Flight.
  */
-const HALL_NEEDS: Record<number, string[]> = {
+export const HALL_NEEDS: Record<number, string[]> = {
   2: ["farm", "barracks"],
   3: ["lumbermill", "tower"],
   4: ["church", "stables"],
