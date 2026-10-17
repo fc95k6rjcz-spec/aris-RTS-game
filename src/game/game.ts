@@ -1018,8 +1018,7 @@ export class Game {
         for (const bld of this.world.buildings())
           if (bld.owner === this.player && tx >= bld.tx && tx < bld.tx + bld.size && ty >= bld.ty && ty < bld.ty + bld.size) { ids.push(bld.id); break; }
       }
-      if (!shift) this.selected.clear();
-
+      if (ids.length > 0 && !shift) this.selected.clear();
       for (const id of ids) this.selected.add(id);
     }
     // Mixed selections collapse to units (Warcraft behaviour).

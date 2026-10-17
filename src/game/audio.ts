@@ -475,46 +475,41 @@ export class Audio {
     wet.connect(delay).connect(damp).connect(feedback).connect(delay);
     damp.connect(gain);
 
-    const nodes: AudioScheduledSourceNode[] = [];
-    const droneOut = ctx.createBiquadFilter();
-    droneOut.type = "lowpass";
-    droneOut.frequency.value = 240;
-    droneOut.Q.value = 0.9;
-    droneOut.connect(gain);
-
-    // Sines only. Root, root a third of a hertz sharp, and the fifth below.
-    for (const [hz, level] of [
-      [73.42, 0.5],
-      [73.75, 0.44],
-      [48.99, 0.42],
-    ] as const) {
-      const o = ctx.createOscillator();
-      o.type = "sine";
-      o.frequency.value = hz;
-      const g = ctx.createGain();
-      g.gain.value = level * 0.3;
-      o.connect(g).connect(droneOut);
-      o.start();
-      nodes.push(o);
-    }
-
-    // A very slow open and close on the drone's filter.
-    const lfo = ctx.createOscillator();
-    lfo.type = "sine";
-    lfo.frequency.value = 0.035;
-    const lfoAmt = ctx.createGain();
-    lfoAmt.gain.value = 70;
-    lfo.connect(lfoAmt).connect(droneOut.frequency);
-    lfo.start();
-    nodes.push(lfo);
-
-    this.music = { gain, wet, nodes, timer: 0, lcg: 99991 };
-    const step = (): void => {
-      if (!this.music) return;
-      this.voice();
-      this.music.timer = window.setTimeout(step, 5000 + this.mrand() * 8000);
+    // Original instrumental tunes: melody, plucked harmony and a soft bass pulse.
+    const tunes = [
+      { name: "Village Lanterns", beat: .52, root: 62, melody: [0,4,7,9,7,4,2,0,4,7,11,9,7,4,2,-1,0,2,4,7,9,7,4,2,4,2,0,2,4,2,0,-1], chords: [0,5,7,0] },
+      { name: "Beyond the Pines", beat: .64, root: 57, melody: [0,3,7,10,7,5,3,-1,2,5,7,8,7,5,2,-1,0,3,5,7,10,12,10,7,5,3,2,3,2,0,0,-1], chords: [0,8,5,7] },
+      { name: "Banners at Dawn", beat: .43, root: 60, melody: [0,0,7,7,9,7,4,-1,5,5,9,9,7,5,4,2,0,4,7,12,11,9,7,4,5,9,7,4,2,7,0,-1], chords: [0,5,9,7] },
+    ];
+    const music = this.music = { gain, wet, nodes: [] as AudioScheduledSourceNode[], timer: 0, lcg: 99991 };
+    let tuneIndex = 0, beatIndex = 0, next = ctx.currentTime + .15;
+    const note = (midi: number, at: number, duration: number, level: number, type: OscillatorType): void => {
+      const osc = ctx.createOscillator(), envelope = ctx.createGain();
+      osc.type = type; osc.frequency.value = 440 * 2 ** ((midi - 69) / 12);
+      envelope.gain.setValueAtTime(0, at);
+      envelope.gain.linearRampToValueAtTime(level, at + .025);
+      envelope.gain.exponentialRampToValueAtTime(.0001, at + duration);
+      osc.connect(envelope); envelope.connect(gain); envelope.connect(wet);
+      music.nodes.push(osc);
+      osc.onended = () => { osc.disconnect(); envelope.disconnect(); const i=music.nodes.indexOf(osc); if(i>=0)music.nodes.splice(i,1); };
+      osc.start(at); osc.stop(at + duration + .03);
     };
-    this.music.timer = window.setTimeout(step, 3000);
+    const step = (): void => {
+      if (this.music !== music) return;
+      // Background-tab throttling must not replay a backlog of missed notes.
+      if (next < ctx.currentTime) next = ctx.currentTime + .05;
+      while (next < ctx.currentTime + .3) {
+        const tune=tunes[tuneIndex]!, melody=tune.melody[beatIndex % tune.melody.length]!;
+        const chord=tune.root+tune.chords[Math.floor(beatIndex/8)%4]!;
+        if(melody>=0)note(tune.root+12+melody,next,tune.beat*.9,.075,'triangle');
+        note(chord+[0,7,12,7][beatIndex%4]!,next,tune.beat*1.6,.035,'sine');
+        if(beatIndex%2===0)note(chord-12,next,tune.beat*1.8,.065,'sine');
+        next+=tune.beat; beatIndex++;
+        if(beatIndex===64){beatIndex=0;tuneIndex=(tuneIndex+1)%tunes.length;next+=1.5;}
+      }
+      music.timer=window.setTimeout(step,100);
+    };
+    step();
   }
 
   stopMusic(): void {
