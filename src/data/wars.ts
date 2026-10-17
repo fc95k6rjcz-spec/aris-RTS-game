@@ -83,8 +83,8 @@ const OPEN: Record<number, string[]> = {
   2: ["golddepot", "shelter", "torch"],
   3: ["church", "stables"],
   4: ["foundry", "magetower"],
-  5: [],
-  6: ["shipyard"],
+  5: ["shipyard"],
+  6: [],
   7: ["gryphonaviary"],
   8: [],
   9: ["oilrig", "refinery", "airfactory"],
@@ -119,9 +119,13 @@ function many(def: string, n: number): string[] { return Array.from({ length: n 
 
 type Draft = Omit<Battle, "id" | "chapter" | "seed" | "cap" | "allowed" | "purse"> & { purse?: Battle["purse"] };
 
+/** A Castle (hall 5) needs a shipyard, so any battle that climbs that high is fought by water. */
+const needsShore = (d: Draft): boolean => d.goals.some((g) => g.kind === "hallLevel" && g.level >= 5);
+
 function chapter(ch: number, drafts: Draft[]): Battle[] {
   return drafts.map((d, i) => ({
     ...d,
+    kind: d.kind ?? (needsShore(d) ? "lakeland" : undefined),
     id: (ch - 1) * 10 + i + 1,
     chapter: ch,
     seed: 1000 + ch * 100 + i + 1,
@@ -261,7 +265,7 @@ function CHAPTERS_2_TO_10(): Battle[] {
 
     ...chapter(5, [
       { title: "A Castle at Last", par: 900, purse: hallPurse(5, 5),
-        story: "Foundry and mage tower: the town is ready for a castle. Raise it.",
+        story: "A harbour and a gold depot: the town is ready for a castle. Raise it.",
         goals: [{ kind: "hallLevel", level: 5 }] },
       { title: "Ring of Stone", par: 720,
         story: "Close the circle. Walls, gates and towers all the way round.",
@@ -312,7 +316,7 @@ function CHAPTERS_2_TO_10(): Battle[] {
         story: "The town has reached the water. Build a shipyard and launch your first boats.",
         goals: [{ kind: "build", def: "shipyard", count: 1 }, { kind: "train", def: "longboat", count: 2 }] },
       { title: "Stronghold", par: 1080, kind: "lakeland", purse: hallPurse(6, 6),
-        story: "A harbour and a gold depot: the castle can become a Stronghold.",
+        story: "The castle walls are up. Now make it a Stronghold.",
         goals: [{ kind: "hallLevel", level: 6 }] },
       { title: "The Ferrymen", par: 720, kind: "lakeland",
         story: "Knights who can cross water win wars. Mount them and build the boats to carry them.",
@@ -352,7 +356,7 @@ function CHAPTERS_2_TO_10(): Battle[] {
 
     ...chapter(7, [
       { title: "Wings over the Keep", par: 1260, purse: hallPurse(7, 7),
-        story: "Build the gryphon aviary and raise your Stronghold into a Keep.",
+        story: "A foundry and a mage tower: raise your Stronghold into a Keep.",
         goals: [{ kind: "hallLevel", level: 7 }] },
       { title: "Gryphon Riders", par: 780,
         story: "Gryphons hatched in the high crags. Raise the aviary and train riders.",
@@ -482,7 +486,7 @@ function CHAPTERS_2_TO_10(): Battle[] {
         story: "Planes that drop fire. Build four.",
         goals: [{ kind: "train", def: "bomber", count: 4 }] },
       { title: "The Fortress", par: 1800, purse: hallPurse(9, 9),
-        story: "Oil, aeroplanes and every other trade the realm knows. Raise the Fortress.",
+        story: "Oil flows and gryphons fly. Raise the Fortress.",
         goals: [{ kind: "hallLevel", level: 9 }] },
       { title: "Oil Barons", par: 1080,
         story: "Every seep on the map should be pumping for you.",
