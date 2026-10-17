@@ -3,7 +3,7 @@ import { BUILDINGS, BUILD_ADVANCED, BUILD_BASIC, BUILD_MENU, buildingName } from
 import { UNITS, unitName } from "../data/units";
 import { upgradesFor, UPGRADES } from "../data/upgrades";
 import { LEVELLED, levelDef } from "../data/levels";
-import { DRAGONBANE_COST, WALL_ARCHER_TIER, WALL_TIERS, wallTierCost } from "../sim/world";
+import { DRAGONBANE_COST, WALL_ARCHER_TIER, WALL_TIERS, levelGains, wallTierCost } from "../sim/world";
 import type { Building, Unit } from "../sim/entities";
 import { ROYAL_LICENCE, type World } from "../sim/world";
 import type { PlayerId } from "../sim/types";
@@ -664,15 +664,7 @@ export function commandSets(world: World, player: PlayerId, selUnits: Unit[], se
         else if(next) {
           // Sell the next tier: its name on the tile, its picture behind it, and
           // exactly what it brings in the description.
-          const cur=table[b.level-1]!;const gains:string[]=[];
-          if(next.hp>cur.hp)gains.push(`+${next.hp-cur.hp} health`);
-          if(next.supply>cur.supply)gains.push(`+${next.supply-cur.supply} supply`);
-          if(b.def==="tower")gains.push("+1 archer on the platform","longer range");
-          if((next.heal??0)>(cur.heal??0))gains.push("stronger healing");
-          if((next.radius??0)>(cur.radius??0)&&b.def!=="tower")gains.push("wider reach");
-          if((next.bonusCarry??0)>(cur.bonusCarry??0))gains.push(`+${(next.bonusCarry??0)-(cur.bonusCarry??0)} per load delivered`);
-          if((next.oilPerSecond??0)>(cur.oilPerSecond??0))gains.push("more oil");
-          if((next.trainSpeed??0)>(cur.trainSpeed??0))gains.push("faster training");
+          const gains:string[]=levelGains(b.def,b.level,next.level);
           {const era=b.def==="townhall"&&!world.allowed?eraStartingAt(next.level):undefined;if(era)gains.unshift(`begins the ${era.name} (${[...era.buildings.map((id)=>buildingName(id,faction)),...era.units.map((id)=>unitName(id,faction))].join(", ")})`);}
           const blocked=world.upgradeBlocked(player,b);
           out.push({label:"Upgrade to "+next.name,cost:costLine(next.cost),need:blocked?undefined:shortfall(world,player,next.cost),hotkey:"U",enabled:!blocked&&world.canAfford(player,next.cost)&&!b.research,description:`${blocked?blocked+". ":""}Upgrade to ${next.name} (Level ${next.level}) — ${next.blurb}${gains.length?" Gains: "+gains.join(", ")+".":""}`,action:{type:"upgrade"}});
