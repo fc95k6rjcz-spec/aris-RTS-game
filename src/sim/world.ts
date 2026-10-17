@@ -224,6 +224,10 @@ export const NO_STORE_LINE = "We need to build a Town Hall — there is nowhere 
 export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from this mine.";
 /** Gold left in a seam when the miners start to worry. */
 const LOW_MINE_GOLD = 1500;
+/** How far from a new camp its gold may be and still count as "at the camp", in tiles. */
+const GOLD_NEAR_RADIUS = 11;
+/** Gold in each of the nine tiles of a mine laid for a new camp (the same as a map's own starting mines). */
+const SPAWN_MINE_GOLD = 2000;
 
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
@@ -1016,9 +1020,53 @@ export class World {
     for (let i = this.relics.length - 1; i >= 0; i--) if (this.relics[i]!.owner === id && !this.relics[i]!.taken) this.relics.splice(i, 1);
     const tx = spot.x + 1, ty = spot.y + 1;
     this.homes.set(id, { x: tx, y: ty });
+    // Wherever you start, there is gold to dig within a short walk.
+    this.ensureGoldNear(spot.x + 2, spot.y + 2);
     this.spawnUnit(id, "worker", { x: (tx + 1) * SUB, y: (ty + 1) * SUB });
     this.scatterSwords(1, { x: tx, y: ty });
     this.clearBeastsFrom(tx + 1, ty + 1);
+  }
+
+  /**
+   * Make sure a camp has a working gold mine within a short walk of where its
+   * Town Hall will stand. Most camps are already placed beside a seam, but a
+   * crowded realm falls back to a cleared patch with none, and a seam that has
+   * been nearly dug out is no start at all. In either case a fresh 3x3 mine is
+   * laid 6-8 tiles from the camp, on open ground, in a fixed order of
+   * directions -- no dice, so every computer in the realm lays the same mine.
+   */
+  ensureGoldNear(cx: number, cy: number, radius = GOLD_NEAR_RADIUS): void {
+    const map = this.map;
+    let gold = 0;
+    for (let y = Math.floor(cy - radius); y <= cy + radius; y++)
+      for (let x = Math.floor(cx - radius); x <= cx + radius; x++) {
+        if (!map.inBounds(x, y) || map.get(x, y) !== Tile.Gold || map.isHidden(x, y)) continue;
+        if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > radius) continue;
+        gold += map.amount[map.idx(x, y)]!;
+      }
+    if (gold >= LOW_MINE_GOLD) return;
+    // Open land for the mine and a one-tile ring round it: trees may be felled
+    // for it, but not water, rock, other gold, or anything standing there.
+    const fits = (mx: number, my: number): boolean => {
+      for (let y = my - 1; y <= my + 3; y++)
+        for (let x = mx - 1; x <= mx + 3; x++) {
+          if (!map.inBounds(x, y)) return false;
+          const t = map.get(x, y);
+          if (t !== Tile.Grass && t !== Tile.Dirt && t !== Tile.Tree) return false;
+          if (map.occupant[map.idx(x, y)] !== 0) return false;
+        }
+      return true;
+    };
+    for (const d of [7, 6, 8]) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k * Math.PI) / 8;
+        const mx = Math.round(cx + Math.cos(a) * d) - 1, my = Math.round(cy + Math.sin(a) * d) - 1;
+        if (!fits(mx, my)) continue;
+        for (let y = my - 1; y <= my + 3; y++) for (let x = mx - 1; x <= mx + 3; x++) { map.set(x, y, Tile.Grass); map.amount[map.idx(x, y)] = 0; }
+        for (let y = my; y < my + 3; y++) for (let x = mx; x < mx + 3; x++) { map.set(x, y, Tile.Gold); map.amount[map.idx(x, y)] = SPAWN_MINE_GOLD; map.hidden[map.idx(x, y)] = 0; }
+        return;
+      }
+    }
   }
 
   /**
