@@ -276,6 +276,7 @@ export class Game {
       this.shell.onPause(() => this.setPaused(!this.paused));
       this.shell.onSettings(() => this.settingsPanel?.toggle());
       this.shell.onSave(() => void this.saveGame());
+      this.shell.onExit(() => this.askExit());
       this.bindMinimap(this.shell.minimap);
       // The game opens on the front screen, which wants the whole window. The
       // frame loop only toggles this on a change, so the opening state has to
@@ -1594,9 +1595,9 @@ export class Game {
 
   // ───────────────────────────── menu ─────────────────────────────
 
-  private async saveGame(): Promise<void> {
-    if (this.realm) { await this.storeLedger(); this.toast("The realm is saved on this computer too", "info"); return; }
-    if (this.menu || this.saving) return;
+  private async saveGame(): Promise<boolean> {
+    if (this.realm) { await this.storeLedger(); this.toast("The realm is saved on this computer too", "info"); return true; }
+    if (this.menu || this.saving) return false;
     this.saving=true;
     try {
       const setup=this.setup ? {...this.setup} : null;
@@ -1607,9 +1608,43 @@ export class Game {
       storeSave(packed);
       this.front.saveAvailable=true;
       this.toast('Game saved in this browser. Use Load Saved Game on the main menu.','info');
+      return true;
     } catch (error) {
       this.toast(error instanceof Error ? 'Could not save: '+error.message : 'Could not save. Browser storage may be full or unavailable.');
+      return false;
     } finally { this.saving=false; }
+  }
+
+  /** The Exit button: say what leaving will do, then do it. */
+  askExit(): void {
+    if (this.menu) return;
+    const line = this.realm
+      ? "Your town stays in the realm. The realm is saved on this computer."
+      : this.war
+        ? "Back to the campaign map. A battle can't be saved part-way — you'll start it fresh next time."
+        : "Your game will be saved. Pick it up again with Load Saved Game on the main menu.";
+    this.showChoice("LEAVE THE GAME?", line, [
+      { label: "Stay", act: () => {} },
+      { label: this.war ? "Exit" : "Save & Exit", primary: true, act: () => void this.saveAndExit() },
+    ]);
+  }
+
+  /** Save what can be saved, hang up anything online, and go back to the menu. */
+  async saveAndExit(): Promise<void> {
+    if (this.menu) return;
+    if (this.war) { this.setPaused(false); this.leaveBattle(true); return; }
+    if (this.realm) {
+      await this.storeLedger();
+      this.realm.close(); this.realm = null;
+    } else {
+      if (!(await this.saveGame())) return; // save failed: stay in the game rather than lose it
+      if (this.transport) this.net.close();
+    }
+    this.setPaused(false);
+    this.surrenderRect = null;
+    this.selected.clear();
+    this.buildMode = null; this.wallStart = null;
+    this.menu = true;
   }
 
   private async loadGame(): Promise<void> {

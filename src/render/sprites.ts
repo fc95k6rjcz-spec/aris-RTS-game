@@ -429,6 +429,21 @@ export function oreCartSprite(): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
+/**
+ * The horse and ore wagon that run the road from a mine to its Gold Depot.
+ *
+ * Optional painted art: drop `horsewagon.png` (loaded wagon, horse on the
+ * right, facing right) into src/assets and it is used automatically. Until
+ * then the renderer draws a stand-in horse in front of the ore cart.
+ */
+const HORSE_WAGON = import.meta.glob<string>("../assets/horsewagon.png", { eager: true, import: "default" });
+export function horseWagonSprite(): HTMLImageElement | null {
+  const src = Object.values(HORSE_WAGON)[0];
+  if (!src) return null;
+  const img = load(src);
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
 /** The painted gold mine, laid over a whole seam. */
 export function goldMineSprite(): HTMLImageElement | null {
   const img = load(goldmineSrc);

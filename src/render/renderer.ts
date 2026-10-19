@@ -35,7 +35,7 @@ import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
-import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
+import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, horseWagonSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
 
 export interface Ghost {
   def: string;
@@ -963,13 +963,43 @@ export class Renderer {
 
 
   /**
-   * Rail lines and ore carts, drawn for any seam a player is currently mining.
+   * The cart road and its horse-drawn ore wagons, drawn for any seam a player is
+   * currently mining.
    *
-   * Purely cosmetic: nothing here touches the simulation, and the carts carry no
-   * gold — the workers still do that. It exists because a mine with a cart running
-   * out of it reads as a working mine, where a mine with people walking past it
-   * reads as scenery.
+   * Purely cosmetic: nothing here touches the simulation, and the wagons carry no
+   * gold — the workers still do that. It exists because a mine with a wagon
+   * rolling out of it reads as a working mine, where a mine with people walking
+   * past it reads as scenery.
    */
+  /** A simple brown horse facing right, centred on (x, y), for the wagon road. */
+  private drawStandInHorse(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, phase: number): void {
+    const u = s * 0.22;
+    const swing = Math.sin(phase) * u * 0.35;
+    ctx.save();
+    ctx.translate(x, y);
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.beginPath(); ctx.ellipse(0, u * 1.55, u * 1.5, u * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+    // legs
+    ctx.strokeStyle = "#4a2f1c"; ctx.lineWidth = Math.max(1, u * 0.28); ctx.lineCap = "round";
+    for (const [lx, sw] of [[-u * 0.9, swing], [-u * 0.6, -swing], [u * 0.65, -swing], [u * 0.95, swing]] as const) {
+      ctx.beginPath(); ctx.moveTo(lx, u * 0.3); ctx.lineTo(lx + sw, u * 1.45); ctx.stroke();
+    }
+    // body, neck, head
+    ctx.fillStyle = "#7a4a2a";
+    ctx.beginPath(); ctx.ellipse(0, 0, u * 1.35, u * 0.62, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(u * 0.8, -u * 0.35); ctx.lineTo(u * 1.45, -u * 1.25); ctx.lineTo(u * 1.85, -u * 1.05); ctx.lineTo(u * 1.25, -u * 0.05); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(u * 1.85, -u * 1.05, u * 0.48, u * 0.24, 0.5, 0, Math.PI * 2); ctx.fill();
+    // mane and tail
+    ctx.strokeStyle = "#2b1a10"; ctx.lineWidth = Math.max(1, u * 0.2);
+    ctx.beginPath(); ctx.moveTo(u * 0.85, -u * 0.5); ctx.lineTo(u * 1.4, -u * 1.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-u * 1.3, -u * 0.15); ctx.quadraticCurveTo(-u * 1.75, u * 0.2, -u * 1.6, u * 0.85); ctx.stroke();
+    // harness
+    ctx.strokeStyle = "#c9a14a"; ctx.lineWidth = Math.max(1, u * 0.12);
+    ctx.beginPath(); ctx.moveTo(u * 0.55, -u * 0.55); ctx.lineTo(u * 0.55, u * 0.55); ctx.stroke();
+    ctx.restore();
+  }
+
   private drawOreCarts(alpha: number): void {
     const img = oreCartSprite();
     if (!img) return;
@@ -1020,36 +1050,34 @@ export class Renderer {
       const uy = dy / len;
       const px = -uy;
       const py = ux;
-      const gauge = s * 0.16;
-
-      // Sleepers, then the two rails over them.
-      ctx.strokeStyle = "rgba(74,51,32,0.85)";
-      ctx.lineWidth = Math.max(1, s * 0.07);
-      const step = s * 0.34;
-      ctx.beginPath();
-      for (let d = step; d < len; d += step) {
-        const mx = a.x + ux * d;
-        const my = a.y + uy * d;
-        ctx.moveTo(mx - px * gauge * 1.7, my - py * gauge * 1.7);
-        ctx.lineTo(mx + px * gauge * 1.7, my + py * gauge * 1.7);
-      }
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(120,124,130,0.9)";
-      ctx.lineWidth = Math.max(1, s * 0.045);
+      // A beaten dirt cart road with two wheel ruts down it.
+      const half = s * 0.3;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "rgba(92,70,44,0.55)";
+      ctx.lineWidth = half * 2 + Math.max(1, s * 0.06);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+      ctx.strokeStyle = "rgba(156,124,82,0.75)";
+      ctx.lineWidth = half * 2;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+      ctx.strokeStyle = "rgba(100,76,48,0.55)";
+      ctx.lineWidth = Math.max(1, s * 0.05);
       for (const side of [-1, 1]) {
         ctx.beginPath();
-        ctx.moveTo(a.x + px * gauge * side, a.y + py * gauge * side);
-        ctx.lineTo(b2.x + px * gauge * side, b2.y + py * gauge * side);
+        ctx.moveTo(a.x + px * half * 0.5 * side, a.y + py * half * 0.5 * side);
+        ctx.lineTo(b2.x + px * half * 0.5 * side, b2.y + py * half * 0.5 * side);
         ctx.stroke();
       }
+      ctx.lineCap = "butt";
 
-      // Two carts running mine → drop-off, half a cycle apart. The return trip is
-      // left off deliberately: there is only a loaded cart in the art, and an
+      // Two wagons running mine → drop-off, half a cycle apart. The return trip is
+      // left off deliberately: there is only a loaded wagon in the art, and an
       // empty one drawn from the same sprite would read as gold going backwards.
-      const period = 20 * 9; // ticks for one run
+      // Slower than the old rail carts: it's a horse, not a train.
+      const period = 20 * 14; // ticks for one run
       const t0 = ((this.world.tick + alpha) % period) / period;
-      const cw = s * 1.1;
-      const ch = (img.naturalHeight / img.naturalWidth) * cw;
+      const painted = horseWagonSprite();
+      const cw = painted ? s * 1.9 : s * 1.1;
+      const ch = painted ? (painted.naturalHeight / painted.naturalWidth) * cw : (img.naturalHeight / img.naturalWidth) * cw;
       for (const offset of [0, 0.5]) {
         const t = (t0 + offset) % 1;
         const cx = a.x + dx * t;
@@ -1063,7 +1091,15 @@ export class Renderer {
         ctx.translate(cx, cy);
         // The art faces right; mirror it when the route runs leftward.
         if (ux < 0) ctx.scale(-1, 1);
-        ctx.drawImage(img, -cw / 2, -ch * 0.72, cw, ch);
+        if (painted) ctx.drawImage(painted, -cw / 2, -ch * 0.72, cw, ch);
+        else {
+          // Stand-in until the painted horse and wagon arrive: a horse in front
+          // of the ore cart, legs swinging as it walks.
+          this.drawStandInHorse(ctx, cw * 0.62, -ch * 0.05, s, ((this.world.tick + alpha) / 6 + offset * 7) % (Math.PI * 2));
+          ctx.strokeStyle = "rgba(60,40,24,0.9)"; ctx.lineWidth = Math.max(1, s * 0.03);
+          ctx.beginPath(); ctx.moveTo(cw * 0.42, -ch * 0.12); ctx.lineTo(cw * 0.22, -ch * 0.18); ctx.stroke();
+          ctx.drawImage(img, -cw / 2, -ch * 0.72, cw, ch);
+        }
         ctx.restore();
       }
     }
