@@ -25,6 +25,12 @@ try{
   await exit.click();await page.getByRole('button',{name:'Exit',exact:true}).click();
   await page.getByRole('dialog',{name:'Campaign atlas'}).waitFor();
   assert.equal(await page.evaluate(()=>window.game.menu),true);
+  // Esc: with nothing selected it opens the Leave box; Esc again closes it.
+  await page.getByRole('button',{name:'To Battle',exact:true}).count();
+  await page.evaluate(()=>{const g=window.game;g.warsBox?.remove();g.warsBox=null;g.start('normal');g.selected.clear();});
+  await page.keyboard.press('Escape');await page.getByText('LEAVE THE GAME?').waitFor();
+  await page.keyboard.press('Escape');assert.equal(await page.getByText('LEAVE THE GAME?').count(),0,'Esc closes the Leave box');
+  assert.equal(await page.evaluate(()=>window.game.menu),false,'still playing');
   assert.deepEqual(errors,[]);
-  console.log('PASS: Exit asks first, Save & Exit saves and returns to the menu, Wars exits to the campaign map');
+  console.log('PASS: Exit asks first, Save & Exit saves and returns to the menu, Wars exits to the campaign map, Esc opens and closes it');
 }finally{await browser.close();}
