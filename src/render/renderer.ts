@@ -2114,6 +2114,7 @@ export class Renderer {
   }
 
   private drawPaintedBuilding(b: Building, x: number, y: number, w: number, color: string): boolean {
+    if (b.def === "wall") return false;
     const faction = this.world.players.get(b.owner)!.faction;
     const sprite = tierSprite(b.def, b.level, color, faction);
     if (!sprite) return false;
@@ -2126,7 +2127,7 @@ export class Renderer {
     if(b.upgrade){
       const next=tierSprite(b.def,b.upgrade.toLevel,color,faction);
       if(next){const progress=1-b.upgrade.remaining/b.upgrade.total;
-        const nextW=w*levelDef(b.def,b.upgrade.toLevel).scale*buildingDrawScale(b.def),nextH=next.height/next.width*nextW;
+        const nextW=w*(blueBannerArt(b.def,b.upgrade.toLevel)?1:levelDef(b.def,b.upgrade.toLevel).scale)*buildingDrawScale(b.def),nextH=next.height/next.width*nextW;
         this.ctx.save();this.ctx.beginPath();this.ctx.rect(x+(w-nextW)/2,y+w*1.06-nextH*progress,nextW,nextH*progress);this.ctx.clip();
         this.ctx.drawImage(next,x+(w-nextW)/2,y+w*1.06-nextH,nextW,nextH);this.ctx.restore();
       }

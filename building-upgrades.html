@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Building Upgrades · Realms of Valor</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#111a24;color:#e7eaf0;font-family:system-ui,sans-serif}
+    main{max-width:1440px;margin:auto;padding:36px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:1px solid #304257;padding-bottom:26px}
+    .eyebrow{font-size:12px;letter-spacing:.22em;color:#a7bbd2;text-transform:uppercase}h1{font:clamp(30px,4vw,48px) Georgia,serif;color:#e9d3a1;margin:10px 0}p{color:#abb8c8;line-height:1.6;margin:8px 0}
+    a{color:#b9d8ff;text-decoration:none}a:hover{text-decoration:underline}.controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:26px 0}label{font-size:14px;color:#b5c2d2}select{font:inherit;color:#ecf2fc;background:#1e2e42;border:1px solid #526c8b;border-radius:8px;padding:11px 36px 11px 14px}
+    section{margin-bottom:40px}h2{font:27px Georgia,serif;color:#e8d5ad;margin:16px 0 20px}.tiers{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+    article{background:radial-gradient(ellipse at 50% 62%,#304156,#182330 70%);border:1px solid #354960;border-radius:12px;padding:14px;text-align:center;transition:border-color .2s,transform .2s}article:hover{border-color:#d0ac60;transform:translateY(-3px)}article:last-child{border-color:#977e48}
+    img{width:100%;height:220px;object-fit:contain;filter:drop-shadow(0 12px 10px #0005)}.level{color:#c0a771;font-size:12px;letter-spacing:.13em;text-transform:uppercase}.name{margin:8px 0 6px;font:19px Georgia,serif;color:#f0e0bd}.stats{color:#99acc2;font-size:12px;line-height:1.6}footer{border-top:1px solid #304257;padding-top:20px;margin-top:30px;color:#94a5bb;font-size:13px}
+    @media(max-width:1000px){.tiers{grid-template-columns:repeat(3,minmax(0,1fr))}img{height:190px}}@media(max-width:600px){main{padding:24px 14px}header{align-items:flex-start;flex-direction:column}.tiers{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}article{padding:10px}img{height:165px}.name{font-size:17px}}
+  </style>
+</head>
+<body>
+  <main>
+    <header><div><div class="eyebrow">Realms of Valor</div><h1>Royal Building Upgrades</h1><p>19 buildings. Ten designs each. From your first timber settlement to a royal stronghold.</p></div><a href="/">← Play the game</a></header>
+    <div class="controls"><label for="building">Choose a building</label><select id="building"></select><p>Every level has its own artwork.</p></div>
+    <div id="gallery"></div>
+    <footer>Upgrades are researched at each building. Higher tiers unlock as your Town Hall grows.</footer>
+  </main>
+  <script type="module" src="/src/ui/buildingGallery.ts"></script>
+</body>
+</html>
