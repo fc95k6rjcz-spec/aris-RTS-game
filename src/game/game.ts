@@ -95,6 +95,8 @@ export class Game {
   private realm: RealmNet | null = null;
   private realmNote = "";
   private choiceBox: HTMLDivElement | null = null;
+  /** The open choice box is the Leave-the-game question (so Esc can close it). */
+  private exitAsked = false;
   /** The "Name your King" box, while it is open. */
   private nameBox: HTMLDivElement | null = null;
   /** What this player calls their King, chosen on the way into the realm. */
@@ -1553,13 +1555,17 @@ export class Game {
       return;
     }
     if (k === "escape") {
+      // The Leave box is open: Esc means Stay.
+      if (this.exitAsked && this.choiceBox) { this.choiceBox.remove(); this.choiceBox = null; this.exitAsked = false; return; }
       if (this.attackMoveMode) this.attackMoveMode = false;
       else if (this.buildMode) { this.buildMode = null; this.wallStart = null; }
       else {
         const b = this.selectedBuildings()[0];
         if (b && !b.complete) this.issue({ type: "cancelBuild", player: this.player, building: b.id });
         else if (b?.research && b.owner === this.player) this.issue({ type: "cancelResearch", player: this.player, building: b.id });
-        else this.selected.clear();
+        else if (this.selected.size) this.selected.clear();
+        // Nothing left to back out of: Esc offers the way out of the game.
+        else if (!this.choiceBox) this.askExit();
       }
       return;
     }
@@ -1624,9 +1630,10 @@ export class Game {
         ? "Back to the campaign map. A battle can't be saved part-way — you'll start it fresh next time."
         : "Your game will be saved. Pick it up again with Load Saved Game on the main menu.";
     this.showChoice("LEAVE THE GAME?", line, [
-      { label: "Stay", act: () => {} },
-      { label: this.war ? "Exit" : "Save & Exit", primary: true, act: () => void this.saveAndExit() },
+      { label: "Stay", act: () => { this.exitAsked = false; } },
+      { label: this.war ? "Exit" : "Save & Exit", primary: true, act: () => { this.exitAsked = false; void this.saveAndExit(); } },
     ]);
+    this.exitAsked = true;
   }
 
   /** Save what can be saved, hang up anything online, and go back to the menu. */
@@ -2042,6 +2049,7 @@ export class Game {
   /** A small centred choice over the map: a title, a line, and a few buttons. */
   private showChoice(title: string, line: string, buttons: Array<{ label: string; primary?: boolean; act: () => void }>): void {
     this.choiceBox?.remove();
+    this.exitAsked = false;
     const box = document.createElement("div");
     box.style.cssText = "position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:50;min-width:340px;max-width:520px;padding:26px 30px 22px;background:rgba(12,12,14,0.96);border:1px solid #b89a52;box-shadow:0 12px 40px rgba(0,0,0,.7);color:#e9e2cf;font-family:Georgia,serif;text-align:center";
     const h = document.createElement("div");
