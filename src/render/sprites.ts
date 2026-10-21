@@ -444,6 +444,15 @@ export function horseWagonSprite(): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
+/** Optional `horsewagon_empty.png`: the same horse heading home with an empty wagon. */
+const HORSE_WAGON_EMPTY = import.meta.glob<string>("../assets/horsewagon_empty.png", { eager: true, import: "default" });
+export function horseWagonEmptySprite(): HTMLImageElement | null {
+  const src = Object.values(HORSE_WAGON_EMPTY)[0];
+  if (!src) return null;
+  const img = load(src);
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
 /** The painted gold mine, laid over a whole seam. */
 export function goldMineSprite(): HTMLImageElement | null {
   const img = load(goldmineSrc);

@@ -10,7 +10,13 @@ loaded ore wagon along it. Until it is painted, the game draws a plain stand-in.
 - **The horse on the right, facing right.** The game flips it for roads that run left.
 - Transparent background, about 600 × 300 px, nothing cut off at the edges.
 
+## Optional second picture
+
+The same horse with the wagon **empty**, for the trip back to the mine. Same
+size and facing. Until it exists the stand-in makes the trip home; if only the
+loaded picture is painted, wagons skip the trip home so the two styles don't mix.
+
 ## Where it goes
 
-Save it as `src/assets/horsewagon.png`. The game picks it up on its own;
+Save it as `src/assets/horsewagon.png` (and the empty one as `src/assets/horsewagon_empty.png`). The game picks it up on its own;
 there is no code to change.

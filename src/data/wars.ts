@@ -71,6 +71,20 @@ export const CHAPTERS = [
   "The Seat of Kings",
 ];
 
+/** One line under each chapter's title in the campaign atlas. */
+export const CHAPTER_INTROS = [
+  "An empty field, a shack and a handful of people. Feed them, guard them, and see off the first raiders.",
+  "The shack becomes a lodge. Wall the village, light the dark, and put bows on the treeline.",
+  "Caravans, chapels and the first warhorses. Keep the road open and the lord at its end honest.",
+  "Smiths and mages come to a growing town. Cast cannon, heal the wounded, and break the Iron Baron.",
+  "Stone walls, a harbour and a castle at last. Hold the siege season and storm another king's gates.",
+  "Ships on the lake and knights in the saddle. Rule the water, then cross it.",
+  "The Orc clans unite. Gryphons take to the sky, and the Horde comes in waves that do not stop.",
+  "The arcane towers rise. Spellfire, battle priests and the Archmage who bound the Horde.",
+  "Black gold seeps from the ground. Oil, engines and the first aeroplanes over the realm.",
+  "Everything you have built, for the last war. Raise the Seat of Kings and claim the realm.",
+];
+
 const CH1_ALLOWED = ["townhall", "farm", "barracks", "lumbermill", "tower", "wall", "gate"];
 const START = { gold: 1200, lumber: 800, food: 400 };
 

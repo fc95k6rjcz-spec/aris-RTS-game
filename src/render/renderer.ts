@@ -35,7 +35,7 @@ import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
-import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, horseWagonSprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
+import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, horseWagonSprite, horseWagonEmptySprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
 
 export interface Ghost {
   def: string;
@@ -1069,40 +1069,81 @@ export class Renderer {
       }
       ctx.lineCap = "butt";
 
-      // Two wagons running mine → drop-off, half a cycle apart. The return trip is
-      // left off deliberately: there is only a loaded wagon in the art, and an
-      // empty one drawn from the same sprite would read as gold going backwards.
-      // Slower than the old rail carts: it's a horse, not a train.
-      const period = 20 * 14; // ticks for one run
+      // Two wagons on a round trip, half a cycle apart: out of the mine loaded,
+      // then back from the depot empty. Slower than the old rail carts: it's a
+      // horse, not a train.
+      const period = 20 * 28; // ticks for one round trip
       const t0 = ((this.world.tick + alpha) % period) / period;
       const painted = horseWagonSprite();
-      const cw = painted ? s * 1.9 : s * 1.1;
-      const ch = painted ? (painted.naturalHeight / painted.naturalWidth) * cw : (img.naturalHeight / img.naturalWidth) * cw;
+      const paintedEmpty = horseWagonEmptySprite();
+      const phase = ((this.world.tick + alpha) / 6) % (Math.PI * 2);
       for (const offset of [0, 0.5]) {
-        const t = (t0 + offset) % 1;
+        const round = (t0 + offset) % 1;
+        const loaded = round < 0.5;
+        const t = loaded ? round * 2 : 2 - round * 2; // 0 = mine, 1 = depot
+        // Painted loaded wagon but no painted empty one: skip the trip home
+        // rather than mix a painted horse with the stand-in.
+        if (!loaded && painted && !paintedEmpty) continue;
+        const art = loaded ? painted : paintedEmpty;
+        const cw = art ? s * 1.9 : s * 1.1;
+        const ch = art ? (art.naturalHeight / art.naturalWidth) * cw : (img.naturalHeight / img.naturalWidth) * cw;
         const cx = a.x + dx * t;
         const cy = a.y + dy * t;
-        if (cx < -cw || cy < -ch || cx > this.cam.viewW + cw || cy > this.cam.viewH + ch) continue;
-        // Fade in and out at the ends so carts appear at the mine mouth rather
-        // than popping into existence mid-track.
+        if (cx < -cw * 2 || cy < -ch * 2 || cx > this.cam.viewW + cw * 2 || cy > this.cam.viewH + ch * 2) continue;
+        // Fade in and out at the ends so wagons come out of the mine mouth and
+        // the depot yard rather than popping into existence mid-road.
         const fade = Math.min(1, Math.min(t, 1 - t) * 8);
+        // Which way it is heading on screen.
+        const right = loaded ? ux >= 0 : ux < 0;
+        this.drawRoadDust(ctx, cx, cy, right ? -1 : 1, s, this.world.tick + alpha + offset * 97, fade);
         ctx.save();
         ctx.globalAlpha = fade;
         ctx.translate(cx, cy);
-        // The art faces right; mirror it when the route runs leftward.
-        if (ux < 0) ctx.scale(-1, 1);
-        if (painted) ctx.drawImage(painted, -cw / 2, -ch * 0.72, cw, ch);
+        // The art faces right; mirror it when heading left.
+        if (!right) ctx.scale(-1, 1);
+        if (art) ctx.drawImage(art, -cw / 2, -ch * 0.72, cw, ch);
         else {
           // Stand-in until the painted horse and wagon arrive: a horse in front
-          // of the ore cart, legs swinging as it walks.
-          this.drawStandInHorse(ctx, cw * 0.62, -ch * 0.05, s, ((this.world.tick + alpha) / 6 + offset * 7) % (Math.PI * 2));
+          // of the wagon, legs swinging as it walks.
+          this.drawStandInHorse(ctx, cw * 0.62, -ch * 0.05, s, (phase + offset * 7) % (Math.PI * 2));
           ctx.strokeStyle = "rgba(60,40,24,0.9)"; ctx.lineWidth = Math.max(1, s * 0.03);
           ctx.beginPath(); ctx.moveTo(cw * 0.42, -ch * 0.12); ctx.lineTo(cw * 0.22, -ch * 0.18); ctx.stroke();
-          ctx.drawImage(img, -cw / 2, -ch * 0.72, cw, ch);
+          if (loaded) ctx.drawImage(img, -cw / 2, -ch * 0.72, cw, ch);
+          else this.drawEmptyWagon(ctx, cw, ch, s);
         }
         ctx.restore();
       }
     }
+  }
+
+  /** An empty wooden ore wagon, the same size as the loaded cart art. */
+  private drawEmptyWagon(ctx: CanvasRenderingContext2D, cw: number, ch: number, s: number): void {
+    const w = cw * 0.78, h = ch * 0.42, x = -w / 2, y = -ch * 0.42;
+    ctx.fillStyle = "#6b4426";
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w * 0.9, y + h); ctx.lineTo(x + w * 0.1, y + h); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#3a2414";
+    ctx.fillRect(x + w * 0.06, y, w * 0.88, h * 0.22); // dark empty bed
+    ctx.strokeStyle = "#2e1c10"; ctx.lineWidth = Math.max(1, s * 0.025);
+    for (const f of [0.33, 0.66]) { ctx.beginPath(); ctx.moveTo(x + w * f, y); ctx.lineTo(x + w * f, y + h); ctx.stroke(); }
+    ctx.fillStyle = "#2a1a0e";
+    for (const f of [0.22, 0.78]) { ctx.beginPath(); ctx.arc(x + w * f, y + h + ch * 0.06, ch * 0.13, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = "#8a8f96";
+    for (const f of [0.22, 0.78]) { ctx.beginPath(); ctx.arc(x + w * f, y + h + ch * 0.06, ch * 0.04, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  /** A few puffs of road dust kicked up behind a wagon. `back` is -1 or 1 on screen x. */
+  private drawRoadDust(ctx: CanvasRenderingContext2D, x: number, y: number, back: number, s: number, time: number, fade: number): void {
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const age = ((time / 18 + i / 4) % 1); // 0 = just kicked up
+      const r = s * (0.08 + age * 0.22);
+      ctx.globalAlpha = fade * (1 - age) * 0.35;
+      ctx.fillStyle = "#c8ad80";
+      ctx.beginPath();
+      ctx.ellipse(x + back * s * (0.45 + age * 0.5), y + s * 0.08 - age * s * 0.12 + (i % 2) * s * 0.05, r, r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /** Painted mines, one per gold seam, anchored to the bottom of the deposit. */
