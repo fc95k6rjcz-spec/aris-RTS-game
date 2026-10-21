@@ -1959,7 +1959,7 @@ export class Renderer {
     } else if (peasant !== null) {
       drawnH = peasant;
     } else if (draw) {
-      draw({ ctx, x: ax, y: ay, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id });
+      draw({ ctx, x: ax, y: ay, h, color: player.color, facing: u.facing, phase, moving, carrying: u.carrying?.resource ?? null, seed: u.id, time: seconds });
     } else {
       ctx.fillStyle = player.color;
       ctx.beginPath();
