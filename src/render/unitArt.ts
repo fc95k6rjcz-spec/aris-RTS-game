@@ -22,6 +22,8 @@ export interface UnitArtCtx {
   seed: number;
   /** Seconds of game time, for idle motion such as a hovering wingbeat. */
   time?: number;
+  /** Skip the ground shadow (a body falling out of the sky casts its own). */
+  noShadow?: boolean;
 }
 
 type UnitDrawer = (a: UnitArtCtx) => void;
@@ -562,6 +564,7 @@ const gryphon: UnitDrawer = (a) => {
   const left = a.facing === 7 || a.facing === 0 || a.facing === 1;
 
   // Ground shadow, well below: he is flying.
+  if (!a.noShadow) {
   c.save();
   c.fillStyle = "rgba(0,0,0,0.26)";
   c.beginPath();
@@ -569,6 +572,7 @@ const gryphon: UnitDrawer = (a) => {
   c.ellipse(a.x, a.y + a.h * 0.45, sw, sw * 0.32, 0, 0, Math.PI * 2);
   c.fill();
   c.restore();
+  }
 
   c.save();
   c.translate(a.x, a.y + lift);

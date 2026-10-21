@@ -17,7 +17,7 @@ import { unitArtFor } from "./unitArt";
 import { bakeRegion, CHUNK, T as TERRAIN_T, T_FAR } from "./terrain";
 import { bucket, stamp } from "./stamp";
 import { settings } from "../game/settings";
-import { Fx } from "./fx";
+import { Fx, type Corpse } from "./fx";
 import { drawWalk, gait, swingLean, LEG_SWING, type Gait } from "./gait";
 import { drawFire } from "./fire";
 import { EXPLORED, UNEXPLORED, VISIBLE } from "../sim/vision";
@@ -1919,7 +1919,10 @@ export class Renderer {
     const pose = settings.animations && !hasClip
       ? motionFor(u, state, seconds, flash)
       : { dx: 0, dy: 0, rotate: 0, sx: 1, sy: 1, pulse: 0 };
-    const ax = p.x + pose.dx * h;
+    // A struck unit jolts for a moment, so a blow lands visibly even on art
+    // that has its own animation clips.
+    const jolt = flash > 0 ? Math.sin(flash * Math.PI * 3) * s * 0.035 : 0;
+    const ax = p.x + pose.dx * h + jolt;
     const ay = p.y + pose.dy * h;
 
     if (flash > 0) {
@@ -2115,6 +2118,10 @@ export class Renderer {
         continue;
       }
 
+      if (def && def.domain === "air" && c.def !== "dragon") {
+        this.drawAirFall(c, p.x, p.y, s, now - c.t0, player.color, player.faction);
+        continue;
+      }
       if (c.def === "worker" || c.def === "footman") {
         ctx.save(); ctx.globalAlpha = deathPose(now - c.t0).opacity;
         if (!drawHumanDeath(ctx, c.def, c.facing, p.x, p.y, s, now - c.t0, settings.animations)) this.missedArt = true;
@@ -2155,15 +2162,81 @@ export class Renderer {
         if (view.mirror) ctx.scale(-1, 1);
         ctx.drawImage(view.img, -w / 2, -h, w, h);
       } else {
-        // No painted view for this unit: a fading disc still marks the loss.
-        ctx.fillStyle = player.color;
-        ctx.beginPath();
-        ctx.ellipse(0, -s * 0.2, s * 0.3, s * 0.18, 0, 0, Math.PI * 2);
-        ctx.fill();
+        // No painted view: lay down the drawn figure itself, so a fallen Mage
+        // or Priest still looks like one rather than a coloured disc.
+        const art = unitArtFor(player.faction, c.def);
+        if (art) art({ ctx, x: 0, y: -s * 0.45, h: s * 1.1, color: player.color, facing: c.facing, phase: 0, moving: false, carrying: null, seed: c.t0, time: 0 });
+        else {
+          ctx.fillStyle = player.color;
+          ctx.beginPath();
+          ctx.ellipse(0, -s * 0.2, s * 0.3, s * 0.18, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       ctx.restore();
     }
     ctx.globalAlpha = 1;
+  }
+
+  /**
+   * A flyer that is shot down: it tips over and drops out of the sky trailing
+   * smoke, hits the ground with a burst of fire and dust, and leaves a dark
+   * wreck that fades with the other dead.
+   */
+  private drawAirFall(c: Corpse, x: number, y: number, s: number, age: number, color: string, faction: string): void {
+    const ctx = this.ctx;
+    const FALL_T = 22;
+    const f = Math.min(1, age / FALL_T);
+    const drop = f * f * s * 0.75;
+    const plane = c.def === "scout" || c.def === "bomber";
+    const dir = c.facing >= 3 && c.facing <= 5 ? 1 : -1;
+    const spin = plane ? dir * f * 0.9 : dir * f * Math.PI * 2.5;
+    const opacity = deathPose(age).opacity;
+    if (opacity <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    // Smoke trail, thickest near the falling body.
+    if (f < 1 || age < FALL_T + 20) {
+      for (let i = 0; i < 6; i++) {
+        const tf = Math.max(0, f - i * 0.08);
+        const ty = y - s * 0.2 + tf * tf * s * 0.75 - i * s * 0.08;
+        const fade = (1 - i / 6) * (f < 1 ? 0.5 : Math.max(0, 0.5 - (age - FALL_T) / 40));
+        ctx.fillStyle = `rgba(52,48,46,${fade})`;
+        ctx.beginPath();
+        ctx.arc(x - dir * i * s * 0.07, ty, s * (0.08 + i * 0.025), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // The body itself, darkening as it burns.
+    ctx.save();
+    ctx.translate(x, y + drop);
+    ctx.rotate(spin);
+    ctx.scale(1, f < 1 ? 1 : 0.85);
+    ctx.filter = `brightness(${1 - f * 0.45})`;
+    const unit = { def: c.def, facing: c.facing } as Unit;
+    const drawn = plane ? drawDirectional(ctx, unit, "idle", 0, 0, s, 0, 0, false, color) : null;
+    if (drawn === null) {
+      const art = unitArtFor(faction, c.def);
+      art?.({ ctx, x: 0, y: 0, h: s * 1.15, color, facing: c.facing, phase: 0, moving: false, carrying: null, seed: c.t0, time: f < 1 ? age / 20 : 0, noShadow: true });
+    }
+    ctx.filter = "none";
+    ctx.restore();
+    // Impact: a flash of fire and a ring of dust.
+    const since = age - FALL_T;
+    if (since >= 0 && since < 18) {
+      const k = since / 18;
+      ctx.globalAlpha = opacity * (1 - k);
+      ctx.fillStyle = "#ffb447";
+      ctx.beginPath();
+      ctx.arc(x, y + s * 0.6, s * (0.12 + k * 0.25), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#c9bda8";
+      ctx.lineWidth = Math.max(1.5, s * 0.05);
+      ctx.beginPath();
+      ctx.ellipse(x, y + s * 0.65, s * (0.2 + k * 0.6), s * (0.08 + k * 0.22), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Whether to draw a health bar for something at this fraction of full health. */

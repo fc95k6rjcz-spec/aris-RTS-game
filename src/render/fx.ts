@@ -83,7 +83,7 @@ export class Fx {
   private levelUps = new Map<EntityId, number>();
   private slashes: Slash[] = [];
   private puffs: Puff[] = [];
-  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; heal: boolean; t0: number; drift: number }> = [];
+  private numbers: Array<{ x: number; y: number; text: string; crit: boolean; heal: boolean; t0: number; drift: number; amount: number; id?: EntityId }> = [];
   corpses: Corpse[] = [];
 
   /** Absorb one tick's worth of events. `tick` is the sim tick they happened on. */
@@ -114,19 +114,31 @@ export class Fx {
           if (!e.ranged) this.lungeAt(e, dx / len, dy / len, tick);
           break;
         }
-        case "hit":
+        case "hit": {
           this.flashes.set(e.id, tick);
-          this.numbers.push({
-            x: e.x,
-            y: e.y,
-            text: e.crit ? `CRIT ${e.amount}` : String(e.amount),
-            crit: e.crit,
-            heal: false,
-            // Deterministic sideways drift, so simultaneous hits on one target
-            // do not stack into an unreadable pile.
-            drift: ((this.numbers.length * 37) % 21) - 10,
-            t0: tick,
-          });
+          // Blows landing on one target in quick succession roll into one
+          // number rather than a pile of them: a volley of arrows reads as "34",
+          // not "6 6 7 5 6 4". A crit keeps its own number so it still pops.
+          const recent = e.crit ? undefined : this.numbers.find((n) => n.id === e.id && !n.heal && !n.crit && tick - n.t0 < 8);
+          if (recent) {
+            recent.amount += e.amount;
+            recent.text = String(recent.amount);
+            recent.t0 = Math.max(recent.t0, tick - 3);
+          } else {
+            this.numbers.push({
+              x: e.x,
+              y: e.y,
+              id: e.id,
+              amount: e.amount,
+              text: e.crit ? `${e.amount}!` : String(e.amount),
+              crit: e.crit,
+              heal: false,
+              // Deterministic sideways drift, so simultaneous hits on one target
+              // do not stack into an unreadable pile.
+              drift: ((this.numbers.length * 37) % 21) - 10,
+              t0: tick,
+            });
+          }
           // Sparks, not blood: small, bright and quick. Big soft motes here read
           // as a red blob painted over the sprite rather than a blow landing.
           this.puffs.push({
@@ -140,11 +152,13 @@ export class Fx {
             spread: 0.34,
           });
           break;
+        }
         case "heal":
           this.numbers.push({
             x: e.x,
             y: e.y,
             text: `+${e.amount}`,
+            amount: e.amount,
             crit: false,
             heal: true,
             drift: ((this.numbers.length * 37) % 21) - 10,
@@ -154,6 +168,8 @@ export class Fx {
           break;
         case "death":
           this.corpses.push({ ...e, t0: tick });
+          // A puff of dust where the body lands, just as the fall finishes.
+          if (!e.building) this.puffs.push({ x: e.x, y: e.y + 20, t0: tick + 14, life: 16, color: "#b9ab8e", n: 8, size: 0.045, spread: 0.45 });
           break;
         case "built":
           this.puffs.push({ x: e.x, y: e.y, t0: tick, life: DUST, color: "#cbbfa6", n: 14, size: 0.075, spread: 0.7 });
@@ -321,16 +337,16 @@ export class Fx {
       if (k < 0 || k > 1) continue;
       const o = toScreen(n.x, n.y);
       // Up fast, then slowing: the number pops off the blow and settles.
-      const rise = (1 - (1 - k) ** 2) * scale * 0.95;
+      const rise = (1 - (1 - k) ** 2) * scale * 0.6;
       ctx.globalAlpha = k > 0.65 ? (1 - k) / 0.35 : 1;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const size = Math.max(9, scale * (n.crit ? 0.42 : 0.3)) * (n.crit ? 1 + (1 - k) * 0.25 : 1);
+      const size = Math.max(9, scale * (n.crit ? 0.33 : 0.23)) * (n.crit ? 1 + (1 - k) * 0.3 : 1);
       ctx.font = `${n.crit ? "800" : "700"} ${size}px system-ui, sans-serif`;
-      ctx.lineWidth = Math.max(2, size * 0.28);
+      ctx.lineWidth = Math.max(2, size * 0.24);
       ctx.strokeStyle = "rgba(0,0,0,0.75)";
       ctx.strokeText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
-      ctx.fillStyle = n.heal ? "#8ff0ad" : n.crit ? "#ffd75e" : "#fff1f1";
+      ctx.fillStyle = n.heal ? "#8ff0ad" : n.crit ? "#ffcf4a" : "#f4ece0";
       ctx.fillText(n.text, o.x + n.drift, o.y - scale * 0.55 - rise);
     }
     ctx.globalAlpha = 1;
