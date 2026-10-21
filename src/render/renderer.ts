@@ -1,7 +1,7 @@
 import { blueBannerArt, blueBannerHasTiers } from "./blueBanner";
 import { projectilePose, deathPose, drawArrow } from "./combatMotion";
 import { drawHumanDeath } from "./humanDeath";
-import { buildingDrawScale, PERSON_DRAW_SCALE } from "./proportions";
+import { buildingDrawScale, PERSON_DRAW_SCALE, personShrink } from "./proportions";
 import { towerRange } from "../sim/world";
 import { constructionFrame } from './constructionFrame';
 import { BUILDINGS } from "../data/buildings";
@@ -1837,7 +1837,7 @@ export class Renderer {
     const person = (UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious") && !UNITS[u.def]!.skittish
       && (UNITS[u.def]!.canGather || UNITS[u.def]!.royal);
     const land = UNITS[u.def]!.domain === "land" || UNITS[u.def]!.domain === "amphibious";
-    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? .78 : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
+    const s = this.cam.zoom * (land ? PERSON_DRAW_SCALE : 1) * (person ? personShrink(u.def, !!UNITS[u.def]!.canGather, !!UNITS[u.def]!.royal) : 1) * ((u.ralliedUntil ?? 0) > this.world.tick ? 1.2 : 1);
 
     if (this.indoors(u)) {
       // A ring stays where he went in, so a selected worker is not simply lost.
@@ -1978,19 +1978,19 @@ export class Renderer {
     // the King, a thinner silver circlet for an heir.
     if (def.royal) {
       const king = u.def === "king";
-      const cy = ay + s * 0.45 - drawnH - s * 0.1;
-      const cw = s * (king ? 0.26 : 0.2);
+      const cy = ay + s * 0.45 - drawnH + s * 0.1;
+      const cw = s * (king ? 0.32 : 0.24);
       ctx.save();
       ctx.strokeStyle = "rgba(20,14,4,0.85)";
       ctx.lineWidth = Math.max(1, s * 0.025);
       ctx.fillStyle = king ? "#f2c14e" : "#cfd6e0";
       ctx.beginPath();
       ctx.moveTo(ax - cw, cy);
-      ctx.lineTo(ax - cw, cy - s * 0.1);
+      ctx.lineTo(ax - cw, cy - s * (king ? 0.15 : 0.12));
       ctx.lineTo(ax - cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(ax, cy - s * (king ? 0.14 : 0.11));
+      ctx.lineTo(ax, cy - s * (king ? 0.21 : 0.15));
       ctx.lineTo(ax + cw * 0.5, cy - s * 0.04);
-      ctx.lineTo(ax + cw, cy - s * 0.1);
+      ctx.lineTo(ax + cw, cy - s * (king ? 0.15 : 0.12));
       ctx.lineTo(ax + cw, cy);
       ctx.closePath();
       ctx.fill();
@@ -2052,7 +2052,7 @@ export class Renderer {
       const def = UNITS[c.def];
       const land = def && (def.domain === "land" || def.domain === "amphibious");
       const person = land && !def.skittish && (def.canGather || def.royal);
-      const s = zoom * (!c.building && land ? PERSON_DRAW_SCALE : 1) * (person ? .78 : 1);
+      const s = zoom * (!c.building && land ? PERSON_DRAW_SCALE : 1) * (person ? personShrink(c.def, !!def.canGather, !!def.royal) : 1);
       const k = this.fx.fallProgress(c, now);
       if (k === null) continue;
       const p = this.cam.toScreen(c.x, c.y);

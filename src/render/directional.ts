@@ -59,7 +59,7 @@ export function drawDirectional(ctx:CanvasRenderingContext2D,u:Unit,state:AnimSt
  if(u.def==='scout'||u.def==='bomber') {
    const img=atlas(planes,false);if(!img)return null;
    const col=[2,1,1,0,0,3,3,2][u.facing]!,row=(u.def==='bomber'?2:0)+(enabled?Math.floor(tick/2)%2:0);
-   const sw=img.width/4,sh=img.height/4,size=s*(u.def==='bomber'?2.7:2.1);
+   const sw=img.width/4,sh=img.height/4,size=s*(u.def==='bomber'?2.05:1.6);
    ctx.drawImage(img,col*sw,row*sh,sw,sh,x-size/2,y-size*.65,size,size);return size*.8;
  }
  if(["knight","grunt","direwolf","dragon"].includes(u.def))return drawCreature(ctx,u.def,u.facing,state,x,y,s,phase,tick,enabled);

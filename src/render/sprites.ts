@@ -487,7 +487,7 @@ const UNIT_VIEWS: Record<string, { front: string; side: string; back: string }> 
  * they are wide so the default suits them; the ballista is the other way round
  * and would be three tiles across if it used the same rule.
  */
-export const UNIT_VIEW_HEIGHT: Record<string, number> = { ballista: 1.3, cannon: 0.95 };
+export const UNIT_VIEW_HEIGHT: Record<string, number> = { ballista: 1.3, cannon: 1.15 };
 
 for (const v of Object.values(UNIT_VIEWS)) for (const src of Object.values(v)) load(src);
 
