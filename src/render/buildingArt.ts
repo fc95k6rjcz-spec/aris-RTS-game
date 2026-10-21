@@ -1,3 +1,4 @@
+import { blueBannerHasTiers } from "./blueBanner";
 import { buildingDrawScale } from "./proportions";
 /**
  * Procedural 3/4-view building art (Warcraft II style: top-down-ish with a visible
@@ -46,7 +47,7 @@ type Drawer = (a: ArtCtx) => void;
 function paintedCamp(a:ArtCtx,src:string,scale:number):boolean {
  const img=spriteImage(src);if(!img)return false;
  const w=a.w*scale,h=w*img.naturalHeight/img.naturalWidth;
- a.ctx.drawImage(teamSprite(img,a.color,true),a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
+ a.ctx.drawImage(teamSprite(img,a.color,!blueBannerHasTiers(a.def)),a.x+(a.w-w)/2,a.y+a.w*1.04-h,w,h);return true;
 }
 
 // ───────────────────────────── helpers ─────────────────────────────
@@ -554,7 +555,7 @@ const HUMAN_ART: Record<string, Drawer> = {
   townhall: a => {if(!paintedCamp(a,grandHall,buildingDrawScale('townhall')))townhall(a);},
   tower: a => {paintedCamp(a,outpost,1.05);},
   wall: (a) => {
-    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10,a.color))return;
+    if(drawJoinedWall(a.ctx,a.x,a.y,a.w,a.wallMask??10,a.color,a.level??1))return;
     shadow(a,.03,.35,.94,.5); stoneWall(a,.05,.34,.9,.47,"#989486");
     for (let i=0;i<4;i++) stoneWall(a,.06+i*.235,.23,.17,.18,"#b0aa98");
   },
@@ -576,6 +577,7 @@ export const FACTION_ART: Record<string, Record<string, Drawer>> = {
 };
 
 export function artFor(faction: string, def: string): Drawer | undefined {
+  if (def === "wall") return HUMAN_ART.wall;
   const redesigned=faction==='human'?redesignedArt(def,'level',1):null;
   if(redesigned)return a=>{paintedCamp(a,redesigned,buildingDrawScale(def));};
   return (FACTION_ART[faction] ?? HUMAN_ART)[def];

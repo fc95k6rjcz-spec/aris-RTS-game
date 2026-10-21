@@ -1,3 +1,4 @@
+import { BUILDINGS } from "./buildings";
 import type { Cost } from "../sim/types";
 
 /**
@@ -307,6 +308,12 @@ export const LEVELLED: Record<string, LevelDef[]> = {
   gryphonaviary: GRYPHONAVIARY_LEVELS,
   farm: FARM_LEVELS,
 };
+
+// Walls and gates retain their existing shared ten-tier fortification research.
+for (const id of ['golddepot','shelter']) {
+ const d=BUILDINGS[id]!;
+ LEVELLED[id]=Array.from({length:10},(_,i)=>({level:i+1,name:d.name+' '+(i+1),blurb:'Reinforced construction increases durability.',cost:{gold:i===0?0:Math.round(d.cost.gold*(.5+i*.35)),lumber:i===0?0:Math.round(d.cost.lumber*(.5+i*.35))},time:i===0?0:20*(15+i*8),hp:Math.round(d.hp*(1+i*.3)),supply:d.supply,scale:1}));
+}
 
 export function levelDef(def: string, level: number): LevelDef {
   const table = LEVELLED[def] ?? TOWNHALL_LEVELS;

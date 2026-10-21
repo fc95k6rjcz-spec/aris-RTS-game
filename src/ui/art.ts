@@ -68,6 +68,7 @@ export function commandArt(a: HudButton["action"], building?: Building, faction 
       return researchArt(a.id);
     case "cancelResearch":
       return building?.research ? researchArt(building.research.id) : null;
+    case "upgradeWalls":
     case "upgrade":
     case "cancelUpgrade":
       return building ? tierArtSource(building.def, building.upgrade?.toLevel ?? building.level + 1, faction) ?? buildingArt(building.def) : null;

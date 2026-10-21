@@ -16,6 +16,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     target: "es2022",
+    rollupOptions: { input: ["index.html", "building-upgrades.html"] },
     outDir: "dist-web",
     // Only tiny files inline; everything else becomes a cacheable asset.
     assetsInlineLimit: 4096,

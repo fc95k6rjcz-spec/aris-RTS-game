@@ -1,0 +1,21 @@
+{
+  "townhall": "docs/building-tiers/sheets/townhall.png",
+  "farm": "docs/building-tiers/sheets/farm.png",
+  "golddepot": "docs/building-tiers/sheets/golddepot.png",
+  "lumbermill": "docs/building-tiers/sheets/lumbermill.png",
+  "barracks": "docs/building-tiers/sheets/barracks.png",
+  "shipyard": "docs/building-tiers/sheets/shipyard.png",
+  "church": "docs/building-tiers/sheets/church.png",
+  "oilrig": "docs/building-tiers/sheets/oilrig.png",
+  "refinery": "docs/building-tiers/sheets/refinery.png",
+  "stables": "docs/building-tiers/sheets/stables.png",
+  "magetower": "docs/building-tiers/sheets/magetower.png",
+  "gryphonaviary": "docs/building-tiers/sheets/gryphonaviary.png",
+  "foundry": "docs/building-tiers/sheets/foundry.png",
+  "airfactory": "docs/building-tiers/sheets/airfactory.png",
+  "torch": "docs/building-tiers/sheets/torch.png",
+  "wall": "docs/building-tiers/sheets/wall.png",
+  "gate": "docs/building-tiers/sheets/gate.png",
+  "shelter": "docs/building-tiers/sheets/shelter.png",
+  "tower": "docs/building-tiers/sheets/tower.png"
+}

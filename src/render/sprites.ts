@@ -1,3 +1,4 @@
+import { blueBannerHasTiers } from "./blueBanner";
 /**
  * Sprite assets (painted concept art cut into transparent PNGs) with
  * player-colour tinting: pixels in the blue hue band are re-hued to the
@@ -361,7 +362,7 @@ export function tierSprite(def: string, level: number, color: string, faction = 
   if (cached) return cached;
   const img = load(src);
   if (!img.complete || img.naturalWidth === 0) return null;
-  const c = teamSprite(img, color, true);
+  const c = teamSprite(img, color, !blueBannerHasTiers(def));
   tinted.set(key, c);
   return c;
 }
