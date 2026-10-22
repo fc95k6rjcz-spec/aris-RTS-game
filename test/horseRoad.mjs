@@ -4,7 +4,7 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.goto(pathToFileURL(resolve("dist/index.html")).href);
 await page.waitForFunction(() => !!window.game);
-await page.evaluate((t) => { window.__ticks = t; }, Number(process.argv[3] ?? 500));
+await page.evaluate(([t, z]) => { window.__ticks = t; window.__zoom = z; }, [Number(process.argv[3] ?? 500), Number(process.env.ZOOM ?? 56)]);
 const info=await page.evaluate(() => {
   const g = window.game, SUB = 64;
   Object.assign(g.settingsForTest,{crowning:false,nomad:false,stockade:false,wildlife:false});
@@ -16,7 +16,7 @@ const info=await page.evaluate(() => {
   const ws = w.units().filter(u => u.def === "worker" && u.owner === 1);
   ws.forEach(u => g.issue({ type: "gather", player: 1, units: [u.id], tx: s.x0, ty: s.y0 }));
   for (let i = 0; i < (window.__ticks ?? 500); i++) g.tick();
-  g.cam.zoom = 56; g.cam.centerOn(((s.x0+depot.tx+2)/2) * SUB, ((s.y0+depot.ty+2)/2) * SUB);
+  g.cam.zoom = window.__zoom ?? 56; g.cam.centerOn(((s.x0+depot.tx+2)/2) * SUB, ((s.y0+depot.ty+2)/2) * SUB);
   return {s:[s.x0,s.y0],d:[depot.tx,depot.ty],mining:w.units().filter(u=>u.task.kind==='gather').length};
 });
 await page.waitForTimeout(900);

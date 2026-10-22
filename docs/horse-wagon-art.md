@@ -20,3 +20,10 @@ loaded picture is painted, wagons skip the trip home so the two styles don't mix
 
 Save it as `src/assets/horsewagon.png` (and the empty one as `src/assets/horsewagon_empty.png`). The game picks it up on its own;
 there is no code to change.
+
+## Ari's horse (in the game now)
+
+`src/assets/ari-horse/walk-0.png` and `walk-1.png` are Ari's two Krita frames
+(straight legs, stepping legs), flipped to face right and with the lines
+thickened so they read at game size. They pull the wagon until a full painted
+`horsewagon.png` arrives. Add `walk-2.png`, `walk-3.png`… for a smoother walk.

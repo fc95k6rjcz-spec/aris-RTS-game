@@ -444,6 +444,15 @@ export function horseWagonSprite(): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
+/**
+ * Ari's horse: two walking frames painted in Krita (straight legs, stepping
+ * legs), facing right. Pulls the ore wagon on the Gold Depot road.
+ */
+const ARI_HORSE = import.meta.glob<string>("../assets/ari-horse/walk-*.png", { eager: true, import: "default" });
+export function ariHorseFrames(): HTMLImageElement[] {
+  return Object.keys(ARI_HORSE).sort().map((k) => load(ARI_HORSE[k]!)).filter((img) => img.complete && img.naturalWidth > 0);
+}
+
 /** Optional `horsewagon_empty.png`: the same horse heading home with an empty wagon. */
 const HORSE_WAGON_EMPTY = import.meta.glob<string>("../assets/horsewagon_empty.png", { eager: true, import: "default" });
 export function horseWagonEmptySprite(): HTMLImageElement | null {
