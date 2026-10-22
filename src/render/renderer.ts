@@ -35,7 +35,7 @@ import { grassReady } from "./grass";
 
 /** The pose used when the player has turned unit animation off. */
 const NO_GAIT: Gait = { lift: 0, lean: 0, sx: 1, sy: 1, shadow: 1 };
-import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, horseWagonSprite, horseWagonEmptySprite, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
+import { teamSprite, goldMineSprite, grassTexture, iceTexture, waterTexture, oreCartSprite, horseWagonSprite, horseWagonEmptySprite, ariHorseFrames, peasantSprite, tierSprite, treeSprite, treeVariant, unitViewSprite, UNIT_VIEW_HEIGHT, type PeasantKind, spriteImage } from "./sprites";
 
 export interface Ghost {
   def: string;
@@ -1105,7 +1105,14 @@ export class Renderer {
         else {
           // Stand-in until the painted horse and wagon arrive: a horse in front
           // of the wagon, legs swinging as it walks.
-          this.drawStandInHorse(ctx, cw * 0.62, -ch * 0.05, s, (phase + offset * 7) % (Math.PI * 2));
+          const ari = ariHorseFrames();
+          if (ari.length) {
+            // Ari's painted horse, legs flicking between her two frames -- quick, the way she asked.
+            const step = Math.floor((this.world.tick + alpha) / 4 + offset * 3) % ari.length;
+            const hImg = ari[step]!;
+            const hw = s * 1.6, hh = (hImg.naturalHeight / hImg.naturalWidth) * hw;
+            ctx.drawImage(hImg, cw * 0.2, -hh * 0.78, hw, hh);
+          } else this.drawStandInHorse(ctx, cw * 0.62, -ch * 0.05, s, (phase + offset * 7) % (Math.PI * 2));
           ctx.strokeStyle = "rgba(60,40,24,0.9)"; ctx.lineWidth = Math.max(1, s * 0.03);
           ctx.beginPath(); ctx.moveTo(cw * 0.42, -ch * 0.12); ctx.lineTo(cw * 0.22, -ch * 0.18); ctx.stroke();
           if (loaded) ctx.drawImage(img, -cw / 2, -ch * 0.72, cw, ch);
