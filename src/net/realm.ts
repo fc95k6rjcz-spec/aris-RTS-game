@@ -43,7 +43,9 @@ import type { Command } from "../sim/commands";
 const URL = "https://chgrnwcwgkmjioutxjem.supabase.co";
 const KEY = "sb_publishable_zAJoVzUsJyH6Fvgo0xkKbg_EhOT6ssD";
 /** Bumped whenever the ledger format or the simulation changes incompatibly. */
-export const REALM_VERSION = "realm-2";
+export const REALM_VERSION = "realm-3";
+/** This exact build. Realms are per build so mismatched copies never meet. */
+export const BUILD_ID = typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev";
 /** Ticks in a turn: 200 ms at normal speed. */
 export const TICKS_PER_TURN = 4;
 /** How many past turns each machine keeps, to hand on to a new keeper or a straggler. */
@@ -191,7 +193,7 @@ export class RealmNet {
       this.keeper = true;
       return "offline";
     }
-    const ch = this.db.channel(`rov-realm-${this.realmName}-${REALM_VERSION}`, {
+    const ch = this.db.channel(`rov-realm-${this.realmName}-${REALM_VERSION}-${BUILD_ID}`, {
       config: { broadcast: { self: false, ack: false }, presence: { key: this.tab } },
     });
     this.channel = ch;
@@ -350,6 +352,9 @@ export class RealmNet {
     if (!this.newcomers.some((n) => n.tab === h.tab)) this.newcomers.push(h);
   }
 
+  /** When we last had to throw our copy away and ask again (see nextTick). */
+  private resyncs: number[] = [];
+
   private async onSnap(s: { to: string; id: string; i: number; of: number; n: number; data: string }): Promise<void> {
     if (!this.joining || s.to !== this.tab) return;
     let entry = this.snaps.get(s.id);
@@ -442,9 +447,23 @@ export class RealmNet {
       // A copy that has drifted from the keeper's is fiction from here on:
       // throw it away and ask for a fresh one.
       if (!this.keeper && turn.sum !== undefined && turn.sum !== this.host.checksum()) {
-        this.host.status("Re-syncing with the realm…");
-        this.askToJoin();
-        return null;
+        const t = Date.now();
+        this.resyncs = this.resyncs.filter((r) => t - r < 60000);
+        this.resyncs.push(t);
+        if (this.resyncs.length >= 3) {
+          // Fresh copies keep drifting at once: this is not a bad connection,
+          // the two computers are running different games. Stop looping and
+          // keep playing our own copy rather than freezing.
+          this.resyncs = [];
+          this.keeper = true;
+          this.joining = false;
+          this.host.status("This realm is running a different version of the game — refresh the page on both computers");
+          this.host.alone?.();
+        } else {
+          this.host.status("Re-syncing with the realm…");
+          this.askToJoin();
+          return null;
+        }
       }
       this.inbox.delete(this.next);
       this.remember(turn);
