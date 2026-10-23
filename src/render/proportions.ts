@@ -33,3 +33,14 @@ export function buildingDrawScale(def: string): number {
 
 /** People and horses are drawn at this fraction of their old size so buildings read at the right scale. */
 export const PERSON_DRAW_SCALE = 0.8;
+
+/**
+ * Extra size for a unit on top of PERSON_DRAW_SCALE. Workers are small working
+ * folk; the King and his heir used to share that shrink and ended up shorter
+ * than a footman, which is backwards -- the King should stand out in a crowd.
+ */
+export function personShrink(def: string, gatherer: boolean, royal: boolean): number {
+  if (def === "king") return 1.08;
+  if (royal) return 1.0;
+  return gatherer ? 0.78 : 1;
+}

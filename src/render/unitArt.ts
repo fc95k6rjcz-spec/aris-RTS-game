@@ -20,6 +20,10 @@ export interface UnitArtCtx {
   carrying: "gold" | "lumber" | null;
   /** Deterministic per-unit variation seed. */
   seed: number;
+  /** Seconds of game time, for idle motion such as a hovering wingbeat. */
+  time?: number;
+  /** Skip the ground shadow (a body falling out of the sky casts its own). */
+  noShadow?: boolean;
 }
 
 type UnitDrawer = (a: UnitArtCtx) => void;
@@ -542,68 +546,273 @@ const priest: UnitDrawer = (a) => {
   });
 };
 
-/** Gryphon Rider: broad eagle wings, lion body and a small armoured rider. */
+/**
+ * Gryphon Rider, seen side-on in flight: a tawny lion body with a white eagle
+ * head, two layered feathered wings that beat steadily (faster when on the
+ * move), a tufted tail, and an armoured rider in his kingdom's colour raising a
+ * storm hammer. Always airborne -- the shadow sits well below and shrinks as he
+ * rises on each wingbeat.
+ */
 const gryphon: UnitDrawer = (a) => {
   const c = a.ctx;
-  const u = a.h;
-  shadow(a);
-  c.save();
-  c.translate(a.x, a.y - u * 0.18 + Math.sin(a.phase * Math.PI * 2 + a.seed) * u * 0.05);
+  const u = a.h * 1.35;
+  const t = a.time ?? 0;
+  const beat = (t * (a.moving ? 2.3 : 1.3) + a.seed * 0.17) % 1;
+  const flap = Math.sin(beat * Math.PI * 2); // +1 wings up, -1 wings down
+  const lift = -flap * u * 0.035 - u * 0.2;
+  const lw = Math.max(0.75, u * 0.016);
   const left = a.facing === 7 || a.facing === 0 || a.facing === 1;
-  if (left) c.scale(-1, 1);
-  const flap = a.moving ? Math.sin(a.phase * Math.PI * 2) * u * 0.09 : 0;
-  // Wings: feathered gold-brown fans.
-  c.fillStyle = "#8b6337";
+
+  // Ground shadow, well below: he is flying.
+  if (!a.noShadow) {
+  c.save();
+  c.fillStyle = "rgba(0,0,0,0.26)";
   c.beginPath();
-  c.moveTo(-u * 0.08, -u * 0.12);
-  c.quadraticCurveTo(-u * 0.5, -u * 0.55 - flap, -u * 0.62, -u * 0.1 - flap);
-  c.quadraticCurveTo(-u * 0.42, -u * 0.18, -u * 0.12, u * 0.02);
-  c.closePath();
+  const sw = u * (0.42 + flap * 0.03);
+  c.ellipse(a.x, a.y + a.h * 0.45, sw, sw * 0.32, 0, 0, Math.PI * 2);
   c.fill();
-  c.beginPath();
-  c.moveTo(u * 0.08, -u * 0.12);
-  c.quadraticCurveTo(u * 0.5, -u * 0.55 + flap, u * 0.62, -u * 0.1 + flap);
-  c.quadraticCurveTo(u * 0.42, -u * 0.18, u * 0.12, u * 0.02);
-  c.closePath();
-  c.fill();
-  c.strokeStyle = "#5f4228";
-  c.lineWidth = Math.max(1, u * 0.018);
-  for (const side of [-1, 1]) {
-    for (let i = 1; i <= 4; i++) {
-      c.beginPath();
-      c.moveTo(side * u * 0.12, -u * 0.08);
-      c.lineTo(side * u * (0.18 + i * 0.09), -u * (0.14 + i * 0.05) + flap * side * 0.35);
-      c.stroke();
-    }
+  c.restore();
   }
-  // Lion body and hind legs.
-  ellipse(c, 0, 0, u * 0.26, u * 0.16, "#b98542", "#5f4228", Math.max(0.75, u * 0.02));
-  c.strokeStyle = "#8b6337";
-  c.lineWidth = Math.max(2, u * 0.065);
+
+  c.save();
+  c.translate(a.x, a.y + lift);
+  if (left) c.scale(-1, 1);
+  c.lineJoin = "round";
+  c.lineCap = "round";
+
+  const feather = (x0: number, y0: number, x1: number, y1: number, wdt: number, fill: string, edge: string) => {
+    const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len * wdt, ny = dx / len * wdt;
+    c.beginPath();
+    c.moveTo(x0, y0);
+    c.quadraticCurveTo(x0 + dx * 0.5 + nx, y0 + dy * 0.5 + ny, x1, y1);
+    c.quadraticCurveTo(x0 + dx * 0.5 - nx * 0.6, y0 + dy * 0.5 - ny * 0.6, x0, y0);
+    c.fillStyle = fill;
+    c.fill();
+    c.strokeStyle = edge;
+    c.lineWidth = lw * 0.8;
+    c.stroke();
+  };
+
+  // One wing, rooted at the shoulder, swept back. `far` is the wing on the other
+  // side of the body: darker and a touch smaller.
+  const wing = (far: boolean) => {
+    c.save();
+    c.translate(u * 0.02, -u * 0.12);
+    const ang = 0.3 + flap * (far ? 0.75 : 0.85);
+    c.rotate(ang);
+    c.scale(far ? 0.88 : 1, 0.7 + 0.3 * Math.abs(flap));
+    const k = far ? 0.72 : 1;
+    const shade = (r: number, g: number, b: number) => `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`;
+    const edge = shade(70, 46, 24);
+    // Primaries: long dark flight feathers fanning from the wrist.
+    const wx = -u * 0.42, wy = -u * 0.06;
+    for (let i = 0; i < 6; i++) {
+      const f = i / 5;
+      const a0 = -2.75 + f * 0.95;
+      const len = u * (0.42 - f * 0.12);
+      feather(wx + f * u * 0.12, wy + f * u * 0.03, wx + f * u * 0.12 + Math.cos(a0) * len, wy + f * u * 0.03 + Math.sin(a0) * len * -1 + u * 0.02,
+        u * 0.05, i % 2 ? shade(92, 62, 34) : shade(80, 53, 29), edge);
+    }
+    // Secondaries along the arm.
+    for (let i = 0; i < 6; i++) {
+      const f = i / 5;
+      const rx = -u * 0.06 - f * u * 0.34, ry = -u * 0.01 - f * u * 0.04;
+      feather(rx, ry, rx - u * 0.1, ry + u * (0.24 - f * 0.04), u * 0.045, shade(140, 98, 52), edge);
+    }
+    // Coverts: the soft golden top of the wing.
+    c.beginPath();
+    c.moveTo(u * 0.04, -u * 0.02);
+    c.quadraticCurveTo(-u * 0.2, -u * 0.14, -u * 0.5, -u * 0.08);
+    c.quadraticCurveTo(-u * 0.3, u * 0.1, u * 0.02, u * 0.08);
+    c.closePath();
+    const g = c.createLinearGradient(0, -u * 0.12, 0, u * 0.1);
+    g.addColorStop(0, shade(226, 182, 104));
+    g.addColorStop(1, shade(170, 118, 60));
+    c.fillStyle = g;
+    c.fill();
+    c.strokeStyle = edge;
+    c.lineWidth = lw;
+    c.stroke();
+    // Scalloped covert rows.
+    c.strokeStyle = shade(120, 82, 42);
+    c.lineWidth = lw * 0.8;
+    for (let r = 0; r < 2; r++)
+      for (let i = 0; i < 5; i++) {
+        const cx = -u * (0.06 + i * 0.09 + r * 0.04), cy = u * (0.0 + r * 0.05);
+        c.beginPath();
+        c.arc(cx, cy, u * 0.035, 0.2, Math.PI - 0.2);
+        c.stroke();
+      }
+    c.restore();
+  };
+
+  wing(true);
+
+  // Tail: a lion's, curling up with a dark tuft.
+  c.strokeStyle = "#a8743a";
+  c.lineWidth = Math.max(2, u * 0.035);
   c.beginPath();
-  c.moveTo(-u * 0.15, u * 0.08);
-  c.lineTo(-u * 0.25, u * 0.28);
-  c.moveTo(u * 0.1, u * 0.08);
-  c.lineTo(u * 0.2, u * 0.29);
+  c.moveTo(-u * 0.26, u * 0.02);
+  c.bezierCurveTo(-u * 0.44, u * 0.04, -u * 0.48, -u * 0.12 + flap * u * 0.03, -u * 0.58, -u * 0.08 + flap * u * 0.04);
   c.stroke();
-  // Eagle neck/head/beak.
-  ellipse(c, u * 0.23, -u * 0.16, u * 0.12, u * 0.11, "#e8dfc5", "#6c624f", Math.max(0.75, u * 0.02));
-  c.fillStyle = "#d9a827";
-  poly(c, [[u * 0.32, -u * 0.17], [u * 0.48, -u * 0.11], [u * 0.31, -u * 0.07]], "#d9a827");
-  c.fillStyle = "#1b1b18";
+  ellipse(c, -u * 0.6, -u * 0.08 + flap * u * 0.04, u * 0.045, u * 0.03, "#5a3a1c", "#3a2410", lw);
+
+  // Hind legs, trailing back in flight.
+  c.strokeStyle = "#9a6a34";
+  c.lineWidth = Math.max(2, u * 0.06);
   c.beginPath();
-  c.arc(u * 0.27, -u * 0.2, u * 0.018, 0, Math.PI * 2);
+  c.moveTo(-u * 0.16, u * 0.06);
+  c.quadraticCurveTo(-u * 0.24, u * 0.18, -u * 0.36, u * 0.17);
+  c.stroke();
+  ellipse(c, -u * 0.37, u * 0.17, u * 0.035, u * 0.025, "#7a5228");
+
+  // Lion body.
+  const bg = c.createLinearGradient(0, -u * 0.14, 0, u * 0.14);
+  bg.addColorStop(0, "#d9a45a");
+  bg.addColorStop(1, "#9a6630");
+  c.beginPath();
+  c.ellipse(-u * 0.03, u * 0.0, u * 0.25, u * 0.13, -0.08, 0, Math.PI * 2);
+  c.fillStyle = bg;
   c.fill();
-  // Rider, saddle and lance.
+  c.strokeStyle = "#5f3f1e";
+  c.lineWidth = lw;
+  c.stroke();
+
+  // Eagle forelegs, talons tucked.
+  c.strokeStyle = "#d9b23a";
+  c.lineWidth = Math.max(1.5, u * 0.035);
+  c.beginPath();
+  c.moveTo(u * 0.14, u * 0.07);
+  c.lineTo(u * 0.2, u * 0.19);
+  c.lineTo(u * 0.27, u * 0.2);
+  c.stroke();
+  c.strokeStyle = "#2a2014";
+  c.lineWidth = Math.max(1, u * 0.015);
+  for (const d of [0, 0.03]) {
+    c.beginPath();
+    c.moveTo(u * (0.27 + d), u * 0.2);
+    c.lineTo(u * (0.3 + d), u * 0.235);
+    c.stroke();
+  }
+
+  // Saddle cloth in the kingdom's colour, gold-trimmed.
+  c.beginPath();
+  c.moveTo(-u * 0.13, -u * 0.08);
+  c.lineTo(u * 0.08, -u * 0.1);
+  c.lineTo(u * 0.06, u * 0.08);
+  c.lineTo(-u * 0.11, u * 0.09);
+  c.closePath();
   c.fillStyle = a.color;
-  c.fillRect(-u * 0.07, -u * 0.2, u * 0.16, u * 0.18);
-  ellipse(c, u * 0.01, -u * 0.29, u * 0.065, u * 0.065, "#aeb4b8", "#50545a", Math.max(0.75, u * 0.018));
-  c.strokeStyle = "#c8a24d";
+  c.fill();
+  c.strokeStyle = "#e7c35a";
+  c.lineWidth = Math.max(1, u * 0.02);
+  c.stroke();
+
+  // White feathered neck ruff and eagle head.
+  c.beginPath();
+  c.moveTo(u * 0.1, -u * 0.08);
+  c.quadraticCurveTo(u * 0.2, -u * 0.28, u * 0.32, -u * 0.26);
+  c.quadraticCurveTo(u * 0.34, -u * 0.1, u * 0.2, u * 0.07);
+  c.closePath();
+  c.fillStyle = "#f1ebda";
+  c.fill();
+  c.strokeStyle = "#857a62";
+  c.lineWidth = lw;
+  c.stroke();
+  // ruff scallops
+  c.strokeStyle = "#c9bfa6";
+  c.lineWidth = lw * 0.8;
+  for (let i = 0; i < 3; i++) {
+    c.beginPath();
+    c.arc(u * (0.17 + i * 0.03), -u * (0.02 + i * 0.07), u * 0.04, 0.3, Math.PI - 0.3);
+    c.stroke();
+  }
+  ellipse(c, u * 0.31, -u * 0.29, u * 0.085, u * 0.075, "#f6f1e4", "#857a62", lw);
+  // ear tufts
+  poly(c, [[u * 0.25, -u * 0.33], [u * 0.2, -u * 0.42], [u * 0.29, -u * 0.35]], "#e6dcc4");
+  // hooked golden beak
+  c.beginPath();
+  c.moveTo(u * 0.37, -u * 0.32);
+  c.quadraticCurveTo(u * 0.5, -u * 0.32, u * 0.5, -u * 0.24);
+  c.quadraticCurveTo(u * 0.45, -u * 0.27, u * 0.38, -u * 0.25);
+  c.closePath();
+  c.fillStyle = "#e9b52a";
+  c.fill();
+  c.strokeStyle = "#7a5410";
+  c.lineWidth = lw;
+  c.stroke();
+  // fierce eye and brow
+  ellipse(c, u * 0.335, -u * 0.305, u * 0.016, u * 0.016, "#1a140c");
+  c.strokeStyle = "#5a4a32";
+  c.lineWidth = Math.max(1, u * 0.02);
+  c.beginPath();
+  c.moveTo(u * 0.3, -u * 0.335);
+  c.lineTo(u * 0.36, -u * 0.32);
+  c.stroke();
+
+  // The near wing goes under the rider, so he is never lost behind a wingbeat.
+  wing(false);
+
+  // The rider: armoured, in his colour, hammer raised.
+  const swing = a.moving ? 0 : Math.sin(t * 1.3 + a.seed) * 0.08;
+  // body
+  c.beginPath();
+  c.moveTo(-u * 0.07, -u * 0.08);
+  c.lineTo(u * 0.05, -u * 0.08);
+  c.lineTo(u * 0.04, -u * 0.25);
+  c.lineTo(-u * 0.05, -u * 0.25);
+  c.closePath();
+  const ag = c.createLinearGradient(-u * 0.07, 0, u * 0.05, 0);
+  ag.addColorStop(0, "#7c848c");
+  ag.addColorStop(0.5, "#dfe4e8");
+  ag.addColorStop(1, "#8a9299");
+  c.fillStyle = ag;
+  c.fill();
+  c.strokeStyle = "#3d4247";
+  c.lineWidth = lw;
+  c.stroke();
+  // tabard
+  c.fillStyle = a.color;
+  c.fillRect(-u * 0.035, -u * 0.22, u * 0.06, u * 0.13);
+  // shield on the far side
+  ellipse(c, -u * 0.08, -u * 0.15, u * 0.05, u * 0.065, a.color, "#e7c35a", Math.max(1, u * 0.015));
+  // helmet with plume
+  ellipse(c, -u * 0.005, -u * 0.29, u * 0.05, u * 0.05, "#c7cdd2", "#3d4247", lw);
+  c.fillStyle = "#2b2f33";
+  c.fillRect(u * 0.0, -u * 0.3, u * 0.045, u * 0.012);
+  c.strokeStyle = a.color;
   c.lineWidth = Math.max(1.5, u * 0.03);
   c.beginPath();
-  c.moveTo(-u * 0.03, -u * 0.16);
-  c.lineTo(u * 0.48, -u * 0.32);
+  c.moveTo(-u * 0.01, -u * 0.335);
+  c.quadraticCurveTo(-u * 0.08, -u * 0.39, -u * 0.13, -u * 0.33 + flap * u * 0.01);
   c.stroke();
+  // hammer arm
+  c.save();
+  c.translate(u * 0.04, -u * 0.22);
+  c.rotate(-0.5 + swing);
+  c.strokeStyle = "#aeb5bb";
+  c.lineWidth = Math.max(1.5, u * 0.03);
+  c.beginPath();
+  c.moveTo(0, 0);
+  c.lineTo(u * 0.05, -u * 0.07);
+  c.stroke();
+  c.strokeStyle = "#6b4a2a";
+  c.lineWidth = Math.max(1.2, u * 0.018);
+  c.beginPath();
+  c.moveTo(u * 0.04, -u * 0.03);
+  c.lineTo(u * 0.08, -u * 0.17);
+  c.stroke();
+  // hammer head, with a faint storm glow
+  c.shadowColor = "rgba(150,210,255,0.9)";
+  c.shadowBlur = u * 0.06;
+  c.fillStyle = "#c9d2da";
+  c.fillRect(u * 0.035, -u * 0.215, u * 0.09, u * 0.055);
+  c.shadowBlur = 0;
+  c.strokeStyle = "#454c52";
+  c.lineWidth = lw;
+  c.strokeRect(u * 0.035, -u * 0.215, u * 0.09, u * 0.055);
+  c.restore();
   c.restore();
 };
 
