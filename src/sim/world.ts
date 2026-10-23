@@ -225,6 +225,9 @@ export const LOW_MINE_LINE = "Sir, we are having trouble producing gold from thi
 /** Gold left in a seam when the miners start to worry. */
 const LOW_MINE_GOLD = 1500;
 
+/** Kingdoms that can share one realm. A fourth traveller is sent on to the next realm. */
+export const REALM_CAPACITY = 3;
+
 /** Banner colours for travellers in a shared realm, in the order they arrive. */
 const REALM_COLOURS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#94a3b8", "#84cc16"];
 
@@ -1187,6 +1190,19 @@ export class World {
   }
 
   /** Whether this player still has a kingdom: a building, or someone who could raise one. */
+  /**
+   * Whether this traveller may have a place in the realm: someone already
+   * here (with a town or people still standing) always may; a newcomer only
+   * while fewer than REALM_CAPACITY kingdoms are alive in it.
+   */
+  realmHasRoomFor(peer: string): boolean {
+    const had = this.realmSeats.get(peer);
+    if (had !== undefined && this.players.has(had) && this.seatAlive(had)) return true;
+    let living = 0;
+    for (const id of new Set(this.realmSeats.values())) if (id !== had && this.players.has(id) && this.seatAlive(id)) living++;
+    return living < REALM_CAPACITY;
+  }
+
   seatAlive(id: PlayerId): boolean {
     for (const e of this.entities.values()) if (e.owner === id && (e.kind === "building" || UNITS[e.def]!.canBuild)) return true;
     return false;

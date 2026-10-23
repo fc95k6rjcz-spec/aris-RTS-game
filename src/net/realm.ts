@@ -77,6 +77,10 @@ export interface RealmHost {
    * screen if it has not got one up yet.
    */
   alone?(): void;
+  /** Keeper only: may this traveller take a place here? (A realm holds three kingdoms.) */
+  canSeat?(seat: string): boolean;
+  /** The keeper says this realm is full: the game should try the next one. */
+  full?(): void;
 }
 
 /** How long a newcomer waits for a copy of the realm before keeping its own. */
@@ -198,6 +202,12 @@ export class RealmNet {
     ch.on("broadcast", { event: "turn" }, ({ payload }) => this.onTurn(payload as RealmTurn));
     ch.on("broadcast", { event: "orders" }, ({ payload }) => this.onOrders(payload as { id: string; commands: Command[] }));
     ch.on("broadcast", { event: "hello" }, ({ payload }) => this.onHello(payload as { tab: string; seat: string }));
+    ch.on("broadcast", { event: "full" }, ({ payload }) => {
+      const f = payload as { to?: string };
+      if (!f || f.to !== this.tab || !this.joining) return;
+      this.joining = false;
+      this.host.full?.();
+    });
     ch.on("broadcast", { event: "snap" }, ({ payload }) => void this.onSnap(payload as { to: string; id: string; i: number; of: number; n: number; data: string }));
     ch.on("broadcast", { event: "need" }, ({ payload }) => this.onNeed(payload as { from: number; to?: string }));
     ch.on("broadcast", { event: "keeper" }, ({ payload }) => this.onKeeperAnnounce(payload as { tab: string; next: number }));
@@ -347,6 +357,8 @@ export class RealmNet {
 
   private onHello(h: { tab: string; seat: string }): void {
     if (!this.keeper || !h || typeof h.tab !== "string" || typeof h.seat !== "string") return;
+    // Three kingdoms to a realm: anyone new beyond that is told to look elsewhere.
+    if (this.host.canSeat && !this.host.canSeat(h.seat)) { this.send("full", { to: h.tab }); return; }
     if (!this.newcomers.some((n) => n.tab === h.tab)) this.newcomers.push(h);
   }
 

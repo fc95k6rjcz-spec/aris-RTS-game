@@ -67,6 +67,18 @@ const EDGE_SPEED = 14;
  */
 /** Where this computer keeps its copy of the shared realm. */
 const REALM_LEDGER = "rov-realm-ledger";
+/** Which realm this computer lives in. Realm 1 is the original; each holds three kingdoms. */
+const REALM_NUMBER = "rov-realm-number";
+const MAX_REALMS = 40;
+function realmNumber(): number {
+  try { const n = Number(localStorage.getItem(REALM_NUMBER)); return Number.isInteger(n) && n >= 1 && n <= MAX_REALMS ? n : 1; } catch { return 1; }
+}
+function rememberRealm(n: number): void {
+  try { localStorage.setItem(REALM_NUMBER, String(n)); } catch { /* private window */ }
+}
+/** Realm 1 keeps the original channel and ledger, so nobody already playing loses their town. */
+const realmChannel = (n: number) => (n === 1 ? "ari" : `ari-${n}`);
+const realmLedger = (n: number) => (n === 1 ? REALM_LEDGER : `${REALM_LEDGER}-${n}`);
 
 export class Game {
   world: World;
@@ -1773,7 +1785,11 @@ export class Game {
    * world and a seat in it. If nobody is, it picks the realm up from its own
    * saved copy -- or, the very first time, founds a new one.
    */
-  private async enterRealm(): Promise<void> {
+  /** Which realm we are in (or looking at), 1-based. */
+  private realmNo = 1;
+
+  private async enterRealm(tryNo?: number): Promise<void> {
+    const n = tryNo ?? realmNumber();
     this.war = null;
     this.warsBox?.remove(); this.warsBox = null;
     if (this.realm) {
@@ -1785,7 +1801,8 @@ export class Game {
     this.closeRoom();
     this.transport = null;
     this.setup = null;
-    this.front.net = { code: "", typed: "", status: "Looking for the realm…", busy: true };
+    this.realmNo = n;
+    this.front.net = { code: "", typed: "", status: n === 1 ? "Looking for the realm…" : `Looking for realm ${n}…`, busy: true };
     const realm = new RealmNet({
       snapshot: () => {
         const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: 0, y: 0, zoom: 1 }, selected: [] });
@@ -1794,14 +1811,18 @@ export class Game {
       load: async (packed, _n) => {
         const saved = await unpackSave(packed);
         const mine = saved.world.realmSeats.get(realm.seat);
+        rememberRealm(n);
         this.installRealmWorld(saved.world, saved.map, mine);
       },
+      canSeat: (seat) => this.world.realmHasRoomFor(seat),
+      // Three kingdoms already live here: walk on to the next realm.
+      full: () => { if (this.realm === realm) this.moveOnFrom(realm, n); },
       checksum: () => this.world.checksum(),
       claim: (seat) => { this.world.claimSeat(seat); },
       status: (text) => { this.realmNote = text; this.front.net.status = text; this.toast(text, "info"); },
       // Waited for a copy and none came: play our own copy instead of hanging on the menu.
       alone: () => { if (this.realm === realm && this.menu) void this.playOwnRealm(realm); },
-    });
+    }, realmChannel(n));
     this.realm = realm;
     this.realmNote = "Looking for the realm…";
     const how = await realm.connect();
@@ -1820,7 +1841,7 @@ export class Game {
     let world: World | null = null;
     let map: MapDef | null = null;
     try {
-      const packed = localStorage.getItem(REALM_LEDGER);
+      const packed = localStorage.getItem(realmLedger(this.realmNo));
       if (packed) { const saved = await unpackSave(packed); world = saved.world; map = saved.map; }
     } catch { world = null; }
     if (!world || !world.realm) {
@@ -1828,8 +1849,20 @@ export class Game {
       world = this.buildRealmWorld(map);
     }
     if (this.realm !== realm || !this.menu) return;
+    // Our own copy already has three kingdoms and none is ours: this realm is full.
+    if (!world.realmHasRoomFor(realm.seat)) { this.moveOnFrom(realm, this.realmNo); return; }
     const mine = world.claimSeat(realm.seat) ?? undefined;
+    rememberRealm(this.realmNo);
     this.installRealmWorld(world, map!, mine);
+  }
+
+  /** This realm is full: let go of it and try the next one along. */
+  private moveOnFrom(realm: RealmNet, n: number): void {
+    realm.close();
+    if (this.realm === realm) this.realm = null;
+    if (n >= MAX_REALMS) { this.front.net = { code: "", typed: "", status: "Every realm is full", busy: false }; return; }
+    this.toast(`Realm ${n} already has three kingdoms — going on to realm ${n + 1}`, "info");
+    void this.enterRealm(n + 1);
   }
 
   /** A fresh realm: a big map, its wildlife, and nobody in it yet. */
@@ -2077,7 +2110,7 @@ export class Game {
     if (!this.realm || this.menu) return;
     try {
       const json = encodeSave({ version: 1, world: this.world, map: this.map, player: this.player, multiplayer: true, setup: null, difficulty: "none", ai: null, camera: { x: this.cam.x, y: this.cam.y, zoom: this.cam.zoom }, selected: [] });
-      localStorage.setItem(REALM_LEDGER, await packSave(json));
+      localStorage.setItem(realmLedger(this.realmNo), await packSave(json));
     } catch {
       /* storage full or blocked: the realm lives on in everyone else's copy */
     }
