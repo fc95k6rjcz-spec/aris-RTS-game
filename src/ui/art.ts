@@ -43,6 +43,8 @@ import orderStop from "../assets/ui/order_stop.jpg";
 import orderHarvest from "../assets/ui/order_harvest.jpg";
 import portraitWorker from "../assets/ui/portrait_worker.jpg";
 import portraitKing from "../assets/ui/portrait_king.jpg";
+import portraitFootman from "../assets/footman_front.png";
+import portraitBallista from "../assets/ballista.png";
 import bannerHumanSrc from "../assets/ui/banner_human.jpg";
 
 const BUILDING: Record<string, string> = { torch, wall, shelter, townhall, farm, lumbermill, golddepot, barracks, tower,
@@ -96,6 +98,9 @@ export function commandArt(a: HudButton["action"], building?: Building, faction 
  * which is at least honest about being a gap.
  */
 export function portraitArt(def: string): string | null {
+  if (def === "footman") return portraitFootman;
+  if (def === "archer") return arrowArt;
+  if (def === "ballista") return portraitBallista;
   if (def === "king" || def === "prince") return portraitKing;
   if (def === "worker") return portraitWorker;
   return null;
