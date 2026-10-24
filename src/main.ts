@@ -1,3 +1,4 @@
+import { showIntro } from "./ui/intro";
 import { setRealmWireForTest } from "./net/realm";
 import { Game } from "./game/game";
 import { registerSheets } from "./render/sheets";
@@ -25,9 +26,11 @@ if (location.search.includes("sheet")) {
 } else {
   // Animation frames before the first render, so nothing falls back on frame one.
   registerSheets();
-  const game = new Game(canvas);
-  // Exposed for debugging and headless tests.
-  (window as unknown as { game: Game }).game = game;
+  showIntro(() => {
+    const game = new Game(canvas);
+    // Exposed for debugging and headless tests.
+    (window as unknown as { game: Game }).game = game;
+  });
 }
 (window as unknown as { drawStyleSheet: typeof drawStyleSheet }).drawStyleSheet = drawStyleSheet;
 
@@ -44,3 +47,4 @@ if (location.search.includes("sheet")) {
   BUILDINGS,
   setRealmWireForTest,
 };
+
