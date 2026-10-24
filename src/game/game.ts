@@ -12,7 +12,7 @@ import { personName } from "../ui/people";
 import type { Command } from "../sim/commands";
 import { centerOf, type Building, type Unit } from "../sim/entities";
 import { SUB, Tile, type EntityId, type PlayerId } from "../sim/types";
-import { WALL_TIERS, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap, cleanKingName, KING_NAME_MAX } from "../sim/world";
+import { WALL_TIERS, levelGains, wallGarrisonCap, Faction, LOW_MINE_LINE, NO_STORE_LINE, TICKS_PER_SECOND, WILD, World, towerArchers, towerGarrisonCap, cleanKingName, KING_NAME_MAX } from "../sim/world";
 import {
   drawFrontScreen,
   frontRowAction,
@@ -576,7 +576,11 @@ export class Game {
         const opens = [...era.buildings.map((id) => BUILDINGS[id]?.name), ...era.units.map((id) => UNITS[id]?.name)].filter(Boolean).join(", ");
         this.proclaim(`THE ${era.name.toUpperCase()}`, `${era.blurb} Now open: ${opens}.`, 7000);
         this.audio.play("newEra");
-      } else this.proclaim(lv.name.toUpperCase(), `Level ${e.level} — ${lv.blurb}`, 4000);
+      } else {
+        // Say what the upgrade actually bought, not just what it is called.
+        const gains = levelGains(e.def, e.level - 1, e.level);
+        this.proclaim(lv.name.toUpperCase(), `Level ${e.level}${gains.length ? " — " + gains.join(" · ") : " — " + lv.blurb}`, 6000);
+      }
       this.audio.play("crown", 0.8);
     }
     this.renderer.noteAttacks(this.world.fx);
