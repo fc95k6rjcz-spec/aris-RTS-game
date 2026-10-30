@@ -104,6 +104,8 @@ export class Game {
   /** The Wars battle being fought, if any. */
   private war: { b: Battle; startTick: number; sent: Set<number>; over: boolean } | null = null;
   private warsBox: HTMLDivElement | null = null;
+  /** Played with fingers: no edge-scrolling from where the last finger lifted. */
+  private touchMode = false;
   private fallenShown = false;
   /** Ari's "We've been defeated" has been said for this match. */
   private defeatSaid = false;
@@ -741,6 +743,10 @@ export class Game {
       this.cam.centerOn(p.x, p.y);
     };
     mm.addEventListener("contextmenu", (e) => e.preventDefault());
+    // Touch: tap or drag a finger over the minimap to look there.
+    const touchJump = (e: TouchEvent) => { e.preventDefault(); const t = e.touches[0]; if (t) jump(t as unknown as MouseEvent); };
+    mm.addEventListener("touchstart", touchJump, { passive: false });
+    mm.addEventListener("touchmove", touchJump, { passive: false });
     mm.addEventListener("mousedown", (e) => {
       e.preventDefault();
       if (e.button === 2) {
@@ -769,7 +775,7 @@ export class Game {
     if (this.keys.has("d") || this.keys.has("arrowright")) wantX += top;
     if (this.keys.has("w") || this.keys.has("arrowup")) wantY -= top;
     if (this.keys.has("s") || this.keys.has("arrowdown")) wantY += top;
-    if (settings.edgeScroll && this.mouse.inside && !this.drag && !this.panDrag) {
+    if (settings.edgeScroll && !this.touchMode && this.mouse.inside && !this.drag && !this.panDrag) {
       if (this.mouse.x < EDGE) wantX -= top;
       if (this.mouse.x > this.canvas.width - EDGE) wantX += top;
       if (this.mouse.y < EDGE) wantY -= top;
@@ -787,8 +793,114 @@ export class Game {
 
   // ───────────────────────────── input ─────────────────────────────
 
+  /**
+   * Touch: the same game with fingers.
+   *
+   *  - Tap: select, or order the selection there (tap-to-move).
+   *  - Drag one finger: pan the map. Two fingers: pinch to zoom, and pan.
+   *  - Hold still for a moment, then drag: a selection box.
+   *  - Hold still and lift: the right-click order (gather, attack, rally; cancels building).
+   *  - Placing a building: drag to move the outline, lift to place it.
+   */
+  private bindTouch(): void {
+    const c = this.canvas;
+    const HOLD_MS = 380, SLOP = 12;
+    let start: { x: number; y: number; at: number } | null = null;
+    let last: { x: number; y: number } | null = null;
+    let mode: "none" | "tap" | "pan" | "box" | "pinch" | "build" = "none";
+    let holdTimer = 0;
+    let pinch: { d: number; mx: number; my: number } | null = null;
+    let menuScroll = 0;
+    const pt = (t: Touch) => this.canvasPoint(t as unknown as MouseEvent);
+    const fake = (x: number, y: number, button: number) => ({ offsetX: x, offsetY: y, clientX: 0, clientY: 0, button, shiftKey: false, ctrlKey: false, metaKey: false, target: c, preventDefault() {} }) as unknown as MouseEvent;
+    const two = (e: TouchEvent) => {
+      const a = pt(e.touches[0]!), b = pt(e.touches[1]!);
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+    c.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      this.touchMode = true;
+      clearTimeout(holdTimer);
+      if (e.touches.length >= 2) {
+        // A second finger turns whatever the first was doing into a pinch.
+        if (mode === "box") { this.drag = null; }
+        mode = "pinch";
+        pinch = two(e);
+        return;
+      }
+      const p = pt(e.touches[0]!);
+      start = { x: p.x, y: p.y, at: performance.now() };
+      last = p;
+      this.mouse.x = p.x; this.mouse.y = p.y;
+      if (this.menu) { mode = "tap"; menuScroll = 0; return; }
+      if (this.buildMode) {
+        this.mouse.inside = true;
+        mode = "build";
+        if (this.buildMode === "wall") this.onMouseDown(fake(p.x, p.y, 0));
+        return;
+      }
+      mode = "tap";
+      // Held still long enough: the next drag draws a selection box.
+      holdTimer = window.setTimeout(() => {
+        if (mode !== "tap" || !start) return;
+        mode = "box";
+        this.drag = { x0: start.x, y0: start.y, x1: start.x, y1: start.y };
+        navigator.vibrate?.(15);
+      }, HOLD_MS);
+    }, { passive: false });
+    c.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      if (mode === "pinch" && e.touches.length >= 2 && pinch) {
+        const now = two(e);
+        if (pinch.d > 0) this.cam.zoomAt(now.mx, now.my, now.d / pinch.d);
+        this.cam.pan(pinch.mx - now.mx, pinch.my - now.my);
+        pinch = now;
+        return;
+      }
+      const t = e.touches[0];
+      if (!t || !last || !start) return;
+      const p = pt(t);
+      this.mouse.x = p.x; this.mouse.y = p.y;
+      if (mode === "tap" && Math.hypot(p.x - start.x, p.y - start.y) > SLOP) { clearTimeout(holdTimer); mode = "pan"; }
+      if (mode === "pan" && this.menu) {
+        // On the front screen a drag scrolls whatever list is showing.
+        menuScroll += last.y - p.y;
+        while (Math.abs(menuScroll) >= 40) { const by = menuScroll > 0 ? 1 : -1; this.runFront({ kind: "scroll", by }); menuScroll -= by * 40; }
+      } else if (mode === "pan") this.cam.pan(last.x - p.x, last.y - p.y);
+      else if (mode === "box" && this.drag) { this.drag.x1 = p.x; this.drag.y1 = p.y; }
+      // build: the outline follows the finger (mouse.x/y), walls stretch from the start
+      last = p;
+    }, { passive: false });
+    const end = (e: TouchEvent) => {
+      e.preventDefault();
+      clearTimeout(holdTimer);
+      if (mode === "pinch") { if (e.touches.length === 0) mode = "none"; return; }
+      const p = last ?? { x: 0, y: 0 };
+      const held = start ? performance.now() - start.at : 0;
+      if (mode === "tap") {
+        if (held >= HOLD_MS && !this.menu) {
+          // Held in place and lifted: the right-click order.
+          this.onMouseDown(fake(p.x, p.y, 2));
+        } else {
+          this.onMouseDown(fake(p.x, p.y, 0));
+          this.onMouseUp(fake(p.x, p.y, 0));
+        }
+      } else if (mode === "box") {
+        this.onMouseUp(fake(p.x, p.y, 0));
+      } else if (mode === "build") {
+        if (this.buildMode === "wall") this.onMouseUp(fake(p.x, p.y, 0));
+        else { this.onMouseDown(fake(p.x, p.y, 0)); this.onMouseUp(fake(p.x, p.y, 0)); }
+      }
+      mode = "none"; start = null; last = null;
+      if (!this.buildMode) this.mouse.inside = false;
+    };
+    c.addEventListener("touchend", end, { passive: false });
+    c.addEventListener("touchcancel", end, { passive: false });
+  }
+
   private bind(): void {
     const c = this.canvas;
+    this.bindTouch();
     window.addEventListener("resize", () => this.resize());
     c.addEventListener("contextmenu", (e) => e.preventDefault());
     c.addEventListener("mouseenter", () => (this.mouse.inside = true));

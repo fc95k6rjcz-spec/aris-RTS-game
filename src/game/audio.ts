@@ -143,13 +143,15 @@ export class Audio {
    * the listeners remove themselves.
    */
   install(target: EventTarget = window): void {
+    // iPhone and iPad only let sound start from the end of a tap, so listen for
+    // that too, and keep listening until the sound has actually started.
+    const events = ["pointerdown", "pointerup", "touchend", "keydown"];
     const kick = () => {
-      void this.resume();
-      target.removeEventListener("pointerdown", kick);
-      target.removeEventListener("keydown", kick);
+      void this.resume().then(() => {
+        if (this.ready) for (const ev of events) target.removeEventListener(ev, kick);
+      });
     };
-    target.addEventListener("pointerdown", kick);
-    target.addEventListener("keydown", kick);
+    for (const ev of events) target.addEventListener(ev, kick);
   }
 
   async resume(): Promise<void> {

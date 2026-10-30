@@ -2,14 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Realms of Valor" />
+  <meta name="theme-color" content="#07070a" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <title>Realms of Valor</title>
   <style>
     /* The shell owns the canvas's size: it is one row of a grid, not the whole
        window, so sizing it here in viewport units would fight the layout and
        win, #game being an id. */
     html, body { margin: 0; height: 100%; background: #07070a; overflow: hidden; font-family: system-ui, sans-serif; }
-    canvas#game { display: block; cursor: crosshair; }
+    canvas#game { display: block; cursor: crosshair; touch-action: none; }
+    /* Fingers drive the game, not the page: no browser pinch, double-tap zoom,
+       pull-to-refresh, long-press menus or text selection. */
+    html, body { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   </style>
 </head>
 <body>

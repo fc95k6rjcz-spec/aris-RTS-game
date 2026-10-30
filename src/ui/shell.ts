@@ -110,7 +110,9 @@ export interface Shell {
   destroy(): void;
 }
 
-const IDLE_HINT = "Hover a command for detail. Dimmed entries are not yet available.";
+/** Played on a touch screen: the hints talk about fingers, not a mouse. */
+const TOUCH = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window) && !matchMedia("(pointer: fine)").matches;
+const IDLE_HINT = TOUCH ? "Tap a command to use it. Dimmed entries are not yet available." : "Hover a command for detail. Dimmed entries are not yet available.";
 
 const CSS = `
 :root {
@@ -483,7 +485,7 @@ export function createShell(canvas: HTMLCanvasElement): Shell {
   const cmd = el("div", "rv-pane rv-cmd");
   const tabRow = el("div", "rv-tabs");
   const hints = el("div", "rv-hints");
-  hints.append(el("span", undefined, "Click a person · right-click to order"), el("span", undefined, "Home to find your people"));
+  hints.append(el("span", undefined, TOUCH ? "Tap a person, tap to send · hold to order · pinch to zoom" : "Click a person · right-click to order"), el("span", undefined, TOUCH ? "Hold and drag to select many" : "Home to find your people"));
   const grid = el("div", "rv-grid");
   const desc = el("div", "rv-desc", IDLE_HINT);
   cmd.append(tabRow, grid, desc);
